@@ -1,0 +1,153 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: miniform
+    main: ./cmd/miniform
+    binary: miniform
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.buildTime={{.Date}}
+
+# Create binaries with pattern: miniform-v1.0.0-amd64
+archives:
+  - id: binary
+    format: binary
+    name_template: "{{ .ProjectName }}-linux-{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+
+dockers:
+  - image_templates:
+      - "ghcr.io/matteodante/miniform:{{ .Version }}-amd64"
+      - "ghcr.io/matteodante/miniform:latest-amd64"
+    use: buildx
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+    extra_files:
+      - go.mod
+      - go.sum
+      - cmd
+      - internal
+      - pkg
+      - web
+      - tailwind.config.js
+
+  - image_templates:
+      - "ghcr.io/matteodante/miniform:{{ .Version }}-arm64"
+      - "ghcr.io/matteodante/miniform:latest-arm64"
+    use: buildx
+    goarch: arm64
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+    extra_files:
+      - go.mod
+      - go.sum
+      - cmd
+      - internal
+      - pkg
+      - web
+      - tailwind.config.js
+
+docker_manifests:
+  - name_template: "ghcr.io/matteodante/miniform:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/matteodante/miniform:{{ .Version }}-amd64"
+      - "ghcr.io/matteodante/miniform:{{ .Version }}-arm64"
+  
+  - name_template: "ghcr.io/matteodante/miniform:v{{ .Major }}"
+    image_templates:
+      - "ghcr.io/matteodante/miniform:{{ .Version }}-amd64"
+      - "ghcr.io/matteodante/miniform:{{ .Version }}-arm64"
+  
+  - name_template: "ghcr.io/matteodante/miniform:v{{ .Major }}.{{ .Minor }}"
+    image_templates:
+      - "ghcr.io/matteodante/miniform:{{ .Version }}-amd64"
+      - "ghcr.io/matteodante/miniform:{{ .Version }}-arm64"
+  
+  - name_template: "ghcr.io/matteodante/miniform:latest"
+    image_templates:
+      - "ghcr.io/matteodante/miniform:latest-amd64"
+      - "ghcr.io/matteodante/miniform:latest-arm64"
+
+release:
+  github:
+    owner: matteodante
+    name: miniform
+  prerelease: auto
+  mode: replace
+  header: |
+    ## Miniform {{ .Tag }}
+
+    Self-hosted form backend with SQLite storage.
+
+    ### One-Line Installation (Recommended)
+
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/matteodante/miniform/main/install.sh | sudo bash
+    ```
+
+    This installs Miniform with Docker, Caddy reverse proxy, and automatic SSL certificates.
+
+    ### Quick Start with Docker (Manual)
+
+    ```bash
+    docker run -d \
+      -p 8080:8080 \
+      -e MINIFORM_SESSION_SECRET=$(openssl rand -hex 32) \
+      -v $(pwd)/storage:/app/storage \
+      ghcr.io/matteodante/miniform:{{ .Version }}
+    ```
+
+    Then visit `http://localhost:8080` with default credentials:
+    - Email: `admin@miniform.local`
+    - Password: `miniform`
+  footer: |
+    ---
+    
+    **Documentation**: https://github.com/matteodante/miniform#readme
+    **Full Changelog**: https://github.com/matteodante/miniform/compare/{{ .PreviousTag }}...{{ .Tag }}

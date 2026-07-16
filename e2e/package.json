@@ -1,0 +1,22 @@
+{
+  "name": "miniform-e2e",
+  "version": "1.0.0",
+  "description": "E2E tests for miniform",
+  "scripts": {
+    "setup": "node setup-test-env.js",
+    "test": "npx playwright test",
+    "test:all": "npm run test"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "sqlite3": "^6.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.2"
+  },
+  "overrides": {
+    "tar": "^7.5.11",
+    "minimatch": "^10.2.1",
+    "glob": "^11.0.0"
+  }
+}

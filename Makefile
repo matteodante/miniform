@@ -1,0 +1,145 @@
+GOCACHE ?= $(CURDIR)/.gocache
+BIN_DIR ?= $(CURDIR)/bin
+APP      = miniform
+TAILWIND = $(BIN_DIR)/tailwindcss
+APPLE_CONTAINER_IMAGE ?= miniform:local
+APPLE_CONTAINER_NAME ?= miniform
+APPLE_CONTAINER_PORT ?= 8080
+APPLE_CONTAINER_STORAGE ?= $(CURDIR)/storage
+
+WATCHEXEC ?= $(shell command -v watchexec 2>/dev/null)
+GOTESTSUM ?= $(shell command -v gotestsum 2>/dev/null)
+
+.PHONY: help build run seed dev test test-unit test-e2e test-e2e-setup test-integration tidy fmt clean deps release vendor css css-watch apple-container-start apple-container-build apple-container-run apple-container-health apple-container-stop
+
+help:
+	@echo "Available targets:"
+	@echo "  deps         - ensure local build cache directory exists"
+	@echo "  vendor       - download JS/CSS dependencies (htmx, highlight.js, tailwind)"
+	@echo "  css          - build Tailwind CSS for production"
+	@echo "  css-watch    - watch and rebuild Tailwind CSS on changes"
+	@echo "  build        - compile the CLI binary to $(BIN_DIR)"
+	@echo "  run          - run the application from source"
+	@echo "  dev          - hot-reload the server using watchexec (requires .env)"
+	@echo "  test         - run unit & e2e tests"
+	@echo "  test-unit    - run package tests under internal/"
+	@echo "  test-e2e     - run Playwright end-to-end tests in e2e/"
+	@echo "  test-e2e-setup - install Playwright dependencies"
+	@echo "  test-integration - run VM-based installer integration tests (requires Multipass)"
+	@echo "  tidy         - add/remove go.mod entries"
+	@echo "  fmt          - gofmt Go source files"
+	@echo "  clean        - remove build artifacts"
+	@echo "  apple-container-run - build and run Miniform with Apple container"
+	@echo "  apple-container-health - verify the running Apple container"
+	@echo "  apple-container-stop - stop the Apple container instance"
+	@echo "  release      - tag & push to trigger the GoReleaser pipeline (make release v=X.Y.Z)"
+
+deps:
+	@mkdir -p $(GOCACHE) $(BIN_DIR)
+
+vendor:
+	@./scripts/vendor.sh
+
+css: vendor
+	@echo ">> building Tailwind CSS"
+	$(TAILWIND) -i web/static/app.css -o web/static/app.built.css --minify
+
+css-watch: vendor
+	@echo ">> watching Tailwind CSS"
+	$(TAILWIND) -i web/static/app.css -o web/static/app.built.css --watch
+
+COMMIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
+
+build: deps css
+	@echo ">> building $(APP)"
+	GOCACHE=$(GOCACHE) go build -ldflags="-X github.com/matteodante/miniform/internal/server.buildCommit=$(COMMIT_SHA)" -o $(BIN_DIR)/$(APP) ./cmd/$(APP)
+
+run: deps
+	MINIFORM_ENV=development GOCACHE=$(GOCACHE) go run ./cmd/$(APP)
+
+seed: deps
+	@echo ">> seeding database"
+	MINIFORM_ENV=development GOCACHE=$(GOCACHE) go run ./cmd/$(APP) --seed
+
+dev: deps
+ifeq ($(strip $(WATCHEXEC)),)
+	@echo "watchexec not found. Install via 'brew install watchexec' or see https://github.com/watchexec/watchexec"
+	@exit 1
+else
+	MINIFORM_ENV=development GOCACHE=$(GOCACHE) $(WATCHEXEC) --clear --restart \
+		--watch cmd --watch internal --watch web \
+		--exts go,html,tmpl \
+		-- go run ./cmd/$(APP)
+endif
+
+test: test-unit test-e2e
+
+test-unit: deps
+ifeq ($(strip $(GOTESTSUM)),)
+	@echo ">> go test ./internal/..."
+	MINIFORM_ENV=test GOCACHE=$(GOCACHE) go test ./internal/...
+else
+	@echo ">> gotestsum ./internal/..."
+	MINIFORM_ENV=test GOCACHE=$(GOCACHE) $(GOTESTSUM) --format testname -- -count=1 ./internal/...
+endif
+
+test-e2e-setup:
+	@echo ">> installing Playwright dependencies"
+	cd e2e && npm install && npx playwright install --with-deps chromium
+
+test-e2e: deps
+	@echo ">> running Playwright E2E tests"
+	cd e2e && npm test
+
+test-integration: build
+	@echo ">> running VM-based installer integration tests"
+	@echo "   (requires Multipass: brew install multipass)"
+	MINIFORM_ENV=test BINARY_PATH=$(BIN_DIR)/$(APP) go test -v -timeout 15m ./tests/integration/...
+
+tidy: deps
+	GOCACHE=$(GOCACHE) go mod tidy
+
+fmt:
+	@echo ">> formatting Go files"
+	go fmt ./...
+
+clean:
+	@echo ">> removing build artifacts"
+	rm -rf $(BIN_DIR)/$(APP)
+
+apple-container-start:
+	@container system status >/dev/null 2>&1 || container system start --enable-kernel-install
+
+apple-container-build: apple-container-start
+	container build --platform linux/arm64 --tag $(APPLE_CONTAINER_IMAGE) --file Dockerfile .
+
+apple-container-run: apple-container-build
+	@mkdir -p $(APPLE_CONTAINER_STORAGE)
+	container run --name $(APPLE_CONTAINER_NAME) --detach --rm \
+		--publish 127.0.0.1:$(APPLE_CONTAINER_PORT):8080 \
+		--env MINIFORM_ENV=development \
+		--volume $(APPLE_CONTAINER_STORAGE):/app/storage \
+		$(APPLE_CONTAINER_IMAGE)
+	@ip=$$(container inspect $(APPLE_CONTAINER_NAME) | jq -r '.[0].status.networks[0].ipv4Address | split("/")[0]'); \
+		echo "Miniform: http://$$ip:8080"
+
+apple-container-health:
+	@ip=$$(container inspect $(APPLE_CONTAINER_NAME) | jq -r '.[0].status.networks[0].ipv4Address | split("/")[0]'); \
+		curl -fsS "http://$$ip:8080/_health"; echo
+
+apple-container-stop:
+	container stop $(APPLE_CONTAINER_NAME)
+
+release:
+	@if [ -z "$(v)" ]; then \
+		echo "Usage: make release v=3.0.5"; \
+		exit 1; \
+	fi
+	@echo "Creating release v$(v)..."
+	@git diff --quiet || (echo "Error: Uncommitted changes. Commit first." && exit 1)
+	git tag -a "v$(v)" -m "Release v$(v)"
+	git push origin "v$(v)"
+	@echo ""
+	@echo "Release v$(v) triggered!"
+	@echo "GoReleaser will build: binaries + multi-arch Docker images + GitHub release"
+	@echo "Watch: https://github.com/$$(gh repo view --json nameWithOwner -q .nameWithOwner)/actions"

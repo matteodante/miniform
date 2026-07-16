@@ -1,6 +1,7 @@
 name: Feature proposal
 description: Propose a focused improvement that fits Miniform's scope
 title: "[Proposal]: "
+labels: ["enhancement", "needs-triage"]
 body:
   - type: markdown
     attributes:

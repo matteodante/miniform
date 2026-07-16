@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Go 1.25.10
+- Go 1.26.5
 - A working C compiler for `go-sqlite3`
 - Node.js 20 or newer and npm
 - `make`

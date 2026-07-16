@@ -21,7 +21,7 @@ Miniform accepts submissions and file uploads from any HTML form, stores them in
 
 ## Quick start from source
 
-Requirements: Go 1.25.10, a C compiler, Node.js 20 or newer, and `make`.
+Requirements: Go 1.26.5, a C compiler, Node.js 20 or newer, and `make`.
 
 ```bash
 git clone https://github.com/matteodante/miniform.git

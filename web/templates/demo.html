@@ -5,163 +5,372 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Demo Contact Form · Miniform</title>
+    <title>Local test page · Miniform</title>
     <style>
+        :root {
+            color-scheme: light;
+            --ink: #1d1d1b;
+            --muted: #6d6b65;
+            --paper: #f2efe8;
+            --panel: #fffdf8;
+            --line: #d8d2c6;
+            --accent: #daff00;
+            --success: #176b3a;
+            --error: #a52920;
+        }
+
         * {
             box-sizing: border-box;
-            margin: 0;
-            padding: 0;
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: #f5f5f5;
-            padding: 40px 20px;
-            line-height: 1.6;
+            margin: 0;
+            min-height: 100vh;
+            color: var(--ink);
+            background: var(--paper);
+            font: 16px/1.5 ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
         }
 
-        .container {
-            max-width: 600px;
+        main {
+            width: min(1120px, calc(100% - 32px));
             margin: 0 auto;
-            background: white;
-            padding: 40px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 48px 0 64px;
+        }
+
+        header {
+            display: flex;
+            align-items: end;
+            justify-content: space-between;
+            gap: 24px;
+            margin-bottom: 28px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid var(--ink);
+        }
+
+        h1,
+        h2,
+        p {
+            margin-top: 0;
         }
 
         h1 {
-            margin-bottom: 10px;
-            color: #333;
+            max-width: 760px;
+            margin-bottom: 8px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: clamp(2.4rem, 7vw, 5.6rem);
+            line-height: .92;
+            letter-spacing: -.07em;
         }
 
-        .subtitle {
-            color: #666;
-            margin-bottom: 30px;
+        h2 {
+            margin-bottom: 20px;
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: .08em;
         }
 
-        label {
+        .eyebrow,
+        .meta {
+            color: var(--muted);
+            font-size: .78rem;
+            text-transform: uppercase;
+            letter-spacing: .1em;
+        }
+
+        .meta {
+            flex: 0 0 auto;
+            text-align: right;
+        }
+
+        .meta strong {
             display: block;
-            margin-bottom: 5px;
-            font-weight: 500;
-            color: #333;
+            color: var(--ink);
+            font-size: .95rem;
+            text-transform: none;
+            letter-spacing: 0;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr);
+            gap: 24px;
+        }
+
+        .panel {
+            padding: clamp(22px, 4vw, 36px);
+            border: 1px solid var(--line);
+            background: var(--panel);
+        }
+
+        .field-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0 18px;
+        }
+
+        label,
+        legend {
+            display: block;
+            margin-bottom: 7px;
+            font-size: .82rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .05em;
         }
 
         input,
-        textarea {
+        select,
+        textarea,
+        button {
             width: 100%;
-            padding: 10px;
-            margin-bottom: 20px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 16px;
-            font-family: inherit;
+            border: 1px solid var(--ink);
+            border-radius: 0;
+            color: inherit;
+            background: #fff;
+            font: inherit;
+        }
+
+        input,
+        select,
+        textarea {
+            margin-bottom: 18px;
+            padding: 12px 13px;
+        }
+
+        textarea {
+            min-height: 150px;
+            resize: vertical;
         }
 
         input:focus,
-        textarea:focus {
-            outline: none;
-            border-color: #ec4899;
+        select:focus,
+        textarea:focus,
+        button:focus-visible,
+        a:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
         }
 
-        textarea {
-            resize: vertical;
-            min-height: 120px;
+        fieldset {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 18px;
+            margin: 0 0 22px;
+            padding: 0;
+            border: 0;
+        }
+
+        fieldset label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0;
+            font-weight: 500;
+            text-transform: none;
+            letter-spacing: 0;
+        }
+
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin: 0;
+        }
+
+        input[type="file"] {
+            background: #fff;
         }
 
         button {
-            width: 100%;
-            padding: 12px;
-            background: #ec4899;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 16px;
-            font-weight: 600;
+            padding: 14px 18px;
+            background: var(--accent);
+            font-weight: 800;
             cursor: pointer;
         }
 
         button:hover {
-            background: #db2777;
+            filter: brightness(.96);
         }
 
-        .info {
-            margin-top: 30px;
-            padding: 20px;
-            background: #f9fafb;
-            border-radius: 4px;
-            font-size: 14px;
-            color: #666;
+        button:disabled {
+            cursor: wait;
+            opacity: .6;
         }
 
-        .info h3 {
-            margin-bottom: 10px;
-            color: #333;
+        .result {
+            min-height: 220px;
+            border-top: 8px solid var(--ink);
         }
 
-        .info ul {
-            margin-left: 20px;
+        .result[data-state="success"] {
+            border-color: var(--success);
         }
 
-        .info li {
-            margin-bottom: 5px;
+        .result[data-state="error"] {
+            border-color: var(--error);
         }
 
-        .note {
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #e5e7eb;
-            font-size: 13px;
+        .result strong {
+            display: block;
+            margin-bottom: 14px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 1.5rem;
         }
 
-        .note a {
-            color: #ec4899;
-            text-decoration: none;
+        pre {
+            min-height: 130px;
+            margin: 0;
+            padding: 16px;
+            overflow: auto;
+            border: 1px solid var(--line);
+            background: #ece8df;
+            white-space: pre-wrap;
+            word-break: break-word;
         }
 
-        .note a:hover {
-            text-decoration: underline;
+        .links {
+            display: grid;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        a {
+            color: inherit;
+            text-underline-offset: 4px;
+        }
+
+        .hint {
+            margin: 12px 0 0;
+            color: var(--muted);
+            font-size: .82rem;
+        }
+
+        @media (max-width: 760px) {
+            main {
+                padding-top: 28px;
+            }
+
+            header {
+                display: block;
+            }
+
+            .meta {
+                margin-top: 18px;
+                text-align: left;
+            }
+
+            .grid,
+            .field-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 
 <body>
-    <div class="container">
-        <h1>Contact Form Demo</h1>
-        <p class="subtitle">Try out Miniform with this simple example</p>
-
-        <form action="/forms/{{ .FormSlug }}/submit?token={{ .FormToken }}" method="POST">
-            <label for="name">Name</label>
-            <input type="text" id="name" name="name" required placeholder="John Doe">
-
-            <label for="email">Email</label>
-            <input type="email" id="email" name="email" required placeholder="john@example.com">
-
-            <label for="subject">Subject</label>
-            <input type="text" id="subject" name="subject" required placeholder="How can we help?">
-
-            <label for="message">Message</label>
-            <textarea id="message" name="message" required placeholder="Your message here..."></textarea>
-
-            <button type="submit">Send Message</button>
-        </form>
-
-        <div class="info">
-            <h3>About This Demo</h3>
-            <ul>
-                <li>This is a plain HTML form - no JavaScript required</li>
-                <li>All submissions are stored securely</li>
-                <li>Privacy-first: no IP addresses stored</li>
-                <li>Built-in rate limiting and spam protection</li>
-                <li>Supports email notifications and webhooks</li>
-            </ul>
-
-            <div class="note">
-                <strong>Add Miniform to your site:</strong><br>
-                Just point your HTML form to <code>/forms/your-slug/submit?token=your-token</code><br>
-                <a href="https://github.com/matteodante/miniform">Learn more →</a>
+    <main>
+        <header>
+            <div>
+                <p class="eyebrow">Miniform / local test harness</p>
+                <h1>Send a real submission.</h1>
+                <p>Fields and files from this page are stored by the running local instance.</p>
             </div>
+            <p class="meta">Endpoint<strong>{{ .FormName }} / {{ .FormSlug }}</strong></p>
+        </header>
+
+        <div class="grid">
+            <section class="panel" aria-labelledby="form-title">
+                <h2 id="form-title">Submission payload</h2>
+                <form id="demo-form" action="/forms/{{ .FormSlug }}/submit?token={{ .FormToken }}" method="post" enctype="multipart/form-data">
+                    <div class="field-grid">
+                        <div>
+                            <label for="name">Name</label>
+                            <input id="name" name="name" type="text" value="Local Tester" required>
+                        </div>
+                        <div>
+                            <label for="email">Email</label>
+                            <input id="email" name="email" type="email" value="tester@example.com" required>
+                        </div>
+                    </div>
+
+                    <label for="topic">Topic</label>
+                    <select id="topic" name="topic">
+                        <option value="product-test">Product test</option>
+                        <option value="support">Support request</option>
+                        <option value="feedback">Feedback</option>
+                    </select>
+
+                    <label for="message">Message</label>
+                    <textarea id="message" name="message" required>This submission came from the local Miniform test page.</textarea>
+
+                    <fieldset>
+                        <legend>Channels</legend>
+                        <label><input type="checkbox" name="channels" value="email" checked> Email delivery</label>
+                        <label><input type="checkbox" name="channels" value="webhook"> Webhook delivery</label>
+                    </fieldset>
+
+                    <label for="attachment">Attachment</label>
+                    <input id="attachment" name="attachment" type="file">
+                    <p class="hint">Optional. Use this to verify multipart uploads and file storage.</p>
+
+                    <button id="submit-button" type="submit">Send test submission</button>
+                </form>
+            </section>
+
+            <aside class="panel result" id="result" data-state="idle" aria-live="polite">
+                <h2>Server response</h2>
+                <strong id="result-summary" role="status">Ready to send.</strong>
+                <pre id="result-payload">No request made yet.</pre>
+                <div class="links">
+                    <a href="/admin/submissions">Open the admin inbox</a>
+                    <a href="/_health">Check server health</a>
+                </div>
+            </aside>
         </div>
-    </div>
+    </main>
+
+    <script>
+        const form = document.querySelector("#demo-form");
+        const button = document.querySelector("#submit-button");
+        const result = document.querySelector("#result");
+        const summary = document.querySelector("#result-summary");
+        const payload = document.querySelector("#result-payload");
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            button.disabled = true;
+            result.dataset.state = "idle";
+            summary.textContent = "Sending…";
+            payload.textContent = "Waiting for Miniform.";
+
+            try {
+                const response = await fetch(form.action, {
+                    method: "POST",
+                    body: new FormData(form),
+                    headers: { "Accept": "application/json" },
+                });
+                const body = await response.text();
+                let formatted = body;
+
+                try {
+                    formatted = JSON.stringify(JSON.parse(body), null, 2);
+                } catch (_) {
+                    // Keep non-JSON server responses readable.
+                }
+
+                result.dataset.state = response.ok ? "success" : "error";
+                summary.textContent = response.ok
+                    ? `Submission accepted · HTTP ${response.status}`
+                    : `Submission rejected · HTTP ${response.status}`;
+                payload.textContent = formatted || "Empty response body.";
+            } catch (error) {
+                result.dataset.state = "error";
+                summary.textContent = "Request failed before reaching Miniform.";
+                payload.textContent = error instanceof Error ? error.message : String(error);
+            } finally {
+                button.disabled = false;
+            }
+        });
+    </script>
 </body>
 
 </html>

@@ -30,6 +30,10 @@ import (
 // state-changing admin route must remain protected.
 
 func mountTestServer(t *testing.T) *cartridgetestsupport.TestServer {
+	return mountTestServerForEnvironment(t, cartridgeconfig.Test)
+}
+
+func mountTestServerForEnvironment(t *testing.T, environment string) *cartridgetestsupport.TestServer {
 	t.Helper()
 
 	models := []any{
@@ -47,7 +51,7 @@ func mountTestServer(t *testing.T) *cartridgetestsupport.TestServer {
 	flCfg := &config.Config{
 		Config: &cartridgeconfig.Config{
 			AppName:        "miniform",
-			Environment:    cartridgeconfig.Test,
+			Environment:    environment,
 			SessionSecret:  "test-secret",
 			SessionTimeout: 3600,
 		},
@@ -68,6 +72,15 @@ func mountTestServer(t *testing.T) *cartridgetestsupport.TestServer {
 	})
 
 	return ts
+}
+
+func getBody(t *testing.T, ts *cartridgetestsupport.TestServer, path string) (status int, body string) {
+	t.Helper()
+	resp := ts.Get(path)
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp.StatusCode, string(b)
 }
 
 func formPost(t *testing.T, ts *cartridgetestsupport.TestServer, path, body string, headers map[string]string) (status int, respBody string) {
@@ -259,5 +272,25 @@ func TestPublicFormSubmissionGuards(t *testing.T) {
 			map[string]string{"Origin": "https://example.com"})
 
 		assert.Equal(t, 200, status)
+	})
+}
+
+func TestDemoRoute(t *testing.T) {
+	t.Run("is mounted in test mode", func(t *testing.T) {
+		ts := mountTestServerForEnvironment(t, cartridgeconfig.Test)
+
+		status, body := getBody(t, ts, "/_demo")
+
+		assert.Equal(t, 404, status)
+		assert.Contains(t, body, "Run 'make demo'")
+	})
+
+	t.Run("is not mounted in production", func(t *testing.T) {
+		ts := mountTestServerForEnvironment(t, cartridgeconfig.Production)
+
+		status, body := getBody(t, ts, "/_demo")
+
+		assert.Equal(t, 404, status)
+		assert.NotContains(t, body, "Run 'make demo'")
 	})
 }

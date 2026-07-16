@@ -125,8 +125,9 @@ func Seed(db *gorm.DB) error {
 
 	// Create sample forms
 	contactForm := &forms.Form{
-		Name: "Contact Form",
-		Slug: "contact",
+		Name:           "Contact Form",
+		Slug:           "contact",
+		AllowedOrigins: "*",
 	}
 
 	if err := createSeedRecord(db, contactForm); err != nil {
@@ -135,8 +136,9 @@ func Seed(db *gorm.DB) error {
 	fmt.Println("✓ Created contact form")
 
 	newsletterForm := &forms.Form{
-		Name: "Newsletter Signup",
-		Slug: "newsletter",
+		Name:           "Newsletter Signup",
+		Slug:           "newsletter",
+		AllowedOrigins: "*",
 	}
 
 	if err := createSeedRecord(db, newsletterForm); err != nil {
@@ -145,8 +147,9 @@ func Seed(db *gorm.DB) error {
 	fmt.Println("✓ Created newsletter form")
 
 	feedbackForm := &forms.Form{
-		Name: "Feedback Form",
-		Slug: "feedback",
+		Name:           "Feedback Form",
+		Slug:           "feedback",
+		AllowedOrigins: "*",
 	}
 
 	if err := createSeedRecord(db, feedbackForm); err != nil {

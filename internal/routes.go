@@ -34,8 +34,10 @@ func MountRoutes(s *cartridge.Server, cfg *config.Config) {
 		return ctx.Redirect("/admin/submissions")
 	})
 
-	// Public demo page
-	s.Get("/_demo", httphandlers.DemoContactForm)
+	// The demo renders a form token, so it must never be available in production.
+	if cfg.IsDevelopment() || cfg.IsTest() {
+		s.Get("/_demo", httphandlers.DemoContactForm)
+	}
 
 	// Build middleware chain for public routes (rate limiting disabled in dev/test)
 	publicMiddleware := []fiber.Handler{

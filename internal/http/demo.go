@@ -2,6 +2,7 @@ package http
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/karloscodes/cartridge"
@@ -10,20 +11,25 @@ import (
 	"github.com/matteodante/miniform/internal/forms"
 )
 
-// DemoContactForm renders a public demo contact form page.
+// DemoContactForm renders the local form submission test page.
 func DemoContactForm(ctx *cartridge.Context) error {
 	db := ctx.DB()
 
-	// Find the demo form by slug
-	var form forms.Form
-	if err := db.Where("slug = ?", "demo-contact").First(&form).Error; err != nil {
+	slug := strings.TrimSpace(ctx.Query("slug"))
+	if slug == "" {
+		slug = "contact"
+	}
+
+	form, err := forms.GetBySlug(db, slug)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ctx.Status(fiber.StatusNotFound).SendString("Demo form not found. Please create a form with slug 'demo-contact'.")
+			return ctx.Status(fiber.StatusNotFound).SendString("Demo endpoint not found. Run 'make demo' or pass an existing slug with ?slug=your-slug.")
 		}
 		return fiber.ErrInternalServerError
 	}
 
 	return ctx.Render("demo", fiber.Map{
+		"FormName":  form.Name,
 		"FormSlug":  form.Slug,
 		"FormToken": form.Token,
 	}, "")

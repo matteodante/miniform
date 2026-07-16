@@ -33,6 +33,14 @@ make run
 
 Open <http://127.0.0.1:8080>. On the first boot, Miniform prints a unique temporary admin password to the terminal. Change it after signing in.
 
+For a disposable local instance with sample data and a working submission page:
+
+```bash
+make demo
+```
+
+Open <http://127.0.0.1:8080/_demo>. The isolated admin account is `admin@miniform.local` with password `miniform`, and its data stays under `tmp/demo`.
+
 ## Run in a container
 
 Build the same OCI-compatible `Dockerfile` used by releases:

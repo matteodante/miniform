@@ -6,6 +6,8 @@ APPLE_CONTAINER_IMAGE ?= miniform:local
 APPLE_CONTAINER_NAME ?= miniform
 APPLE_CONTAINER_PORT ?= 8080
 APPLE_CONTAINER_STORAGE ?= $(CURDIR)/storage
+DEMO_DATA_DIR ?= $(CURDIR)/tmp/demo
+DEMO_PORT ?= 8080
 
 WATCHEXEC ?= $(shell command -v watchexec 2>/dev/null)
 GOTESTSUM ?= $(shell command -v gotestsum 2>/dev/null)
@@ -16,7 +18,7 @@ GOSEC_VERSION ?= v2.28.0
 GITLEAKS_VERSION ?= v8.30.1
 ACTIONLINT_VERSION ?= v1.7.12
 
-.PHONY: help bootstrap build run seed dev test test-unit test-e2e test-e2e-setup test-integration tidy fmt fmt-check lint workflow-lint check audit audit-secrets audit-licenses audit-node audit-security verify-generated clean deps release release-check vendor css css-watch container-build container-test apple-container-start apple-container-build apple-container-run apple-container-health apple-container-stop
+.PHONY: help bootstrap build run seed dev demo test test-unit test-e2e test-e2e-setup test-integration tidy fmt fmt-check lint workflow-lint check audit audit-secrets audit-licenses audit-node audit-security verify-generated clean deps release release-check vendor css css-watch container-build container-test apple-container-start apple-container-build apple-container-run apple-container-health apple-container-stop
 
 help:
 	@echo "Available targets:"
@@ -28,6 +30,7 @@ help:
 	@echo "  build        - compile the CLI binary to $(BIN_DIR)"
 	@echo "  run          - run the application from source"
 	@echo "  dev          - hot-reload the server using watchexec (requires .env)"
+	@echo "  demo         - seed and run an isolated local instance with a test form"
 	@echo "  test         - run unit & e2e tests"
 	@echo "  test-unit    - run all non-VM Go tests"
 	@echo "  test-e2e     - run Playwright end-to-end tests in e2e/"
@@ -87,6 +90,13 @@ else
 		--exts go,html,tmpl \
 		-- go run ./cmd/$(APP)
 endif
+
+demo: deps
+	@echo ">> preparing isolated demo data in $(DEMO_DATA_DIR)"
+	MINIFORM_ENV=test MINIFORM_PORT=$(DEMO_PORT) MINIFORM_DATA_DIR=$(DEMO_DATA_DIR) GOCACHE=$(GOCACHE) go run ./cmd/$(APP) --seed
+	@echo ">> test page: http://127.0.0.1:$(DEMO_PORT)/_demo"
+	@echo ">> admin: admin@miniform.local / miniform"
+	MINIFORM_ENV=test MINIFORM_PORT=$(DEMO_PORT) MINIFORM_DATA_DIR=$(DEMO_DATA_DIR) GOCACHE=$(GOCACHE) go run ./cmd/$(APP)
 
 test: test-unit test-e2e
 

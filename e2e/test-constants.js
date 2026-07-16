@@ -1,7 +1,7 @@
 // e2e/test-constants.js - Shared test constants
 // This file exists to avoid Playwright errors about test files importing from each other
 
-// Admin credentials (created automatically by the app on first run)
+// Deterministic credentials used only when MINIFORM_ENV=test.
 const TEST_EMAIL = "admin@miniform.local";
 const TEST_PASSWORD = "miniform";
 

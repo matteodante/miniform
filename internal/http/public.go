@@ -142,13 +142,13 @@ func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[s
 			if args == nil {
 				return nil, errors.New("submission payload empty")
 			}
-			args.VisitAll(func(key, value []byte) {
+			for key, value := range args.All() {
 				k := string(key)
 				v := string(value)
 				fieldCount++
 				if fieldCount > cfg.MaxInputFields {
 					result["__limit"] = true
-					return
+					break
 				}
 				if existing, ok := result[k]; ok {
 					switch current := existing.(type) {
@@ -160,7 +160,7 @@ func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[s
 				} else {
 					result[k] = v
 				}
-			})
+			}
 			if result["__limit"] == true {
 				return nil, errors.New("too many fields")
 			}
@@ -180,11 +180,7 @@ func assignFormField(dst map[string]any, key string, values []string) {
 		dst[key] = values[0]
 		return
 	}
-	array := make([]string, 0, len(values))
-	for _, v := range values {
-		array = append(array, v)
-	}
-	dst[key] = array
+	dst[key] = append([]string(nil), values...)
 }
 
 func extractRedirectURL(payload map[string]any, key string) string {

@@ -35,26 +35,26 @@ func createTestUser(t *testing.T, db *gorm.DB, email, password string, withLastL
 	return user
 }
 
-func TestIsDefaultAdminActive(t *testing.T) {
-	t.Run("true when default admin still has the default password", func(t *testing.T) {
+func TestIsFirstLoginPending(t *testing.T) {
+	t.Run("true before the initial admin signs in", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
-		createTestUser(t, db, accounts.DefaultAdminEmail, accounts.DefaultAdminPassword, false)
+		createTestUser(t, db, accounts.DefaultAdminEmail, "unique-temporary-password", false)
 
-		assert.True(t, accounts.IsDefaultAdminActive(db))
+		assert.True(t, accounts.IsFirstLoginPending(db))
 	})
 
-	t.Run("false once the default admin password is changed", func(t *testing.T) {
+	t.Run("false after the initial admin signs in", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
-		createTestUser(t, db, accounts.DefaultAdminEmail, "something-else", false)
+		createTestUser(t, db, accounts.DefaultAdminEmail, "unique-temporary-password", true)
 
-		assert.False(t, accounts.IsDefaultAdminActive(db))
+		assert.False(t, accounts.IsFirstLoginPending(db))
 	})
 
-	t.Run("false when no default admin exists", func(t *testing.T) {
+	t.Run("false when the initial admin does not exist", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
-		createTestUser(t, db, "someone@example.com", accounts.DefaultAdminPassword, false)
+		createTestUser(t, db, "someone@example.com", "unique-temporary-password", false)
 
-		assert.False(t, accounts.IsDefaultAdminActive(db))
+		assert.False(t, accounts.IsFirstLoginPending(db))
 	})
 }
 

@@ -934,7 +934,3 @@ func liveFormAction(slug, token string) string {
 	}
 	return fmt.Sprintf("/forms/%s/submit?token=%s", slug, token)
 }
-
-func isUniqueConstraint(err error) bool {
-	return strings.Contains(strings.ToLower(err.Error()), "unique")
-}

@@ -106,7 +106,9 @@ func CaptchaProfileShow(ctx *cartridge.Context) error {
 	// Parse site keys for display
 	var siteKeys []siteKeyEntry
 	if profile.SiteKeysJSON != "" {
-		json.Unmarshal([]byte(profile.SiteKeysJSON), &siteKeys)
+		if err := json.Unmarshal([]byte(profile.SiteKeysJSON), &siteKeys); err != nil {
+			ctx.Logger.Warn("decode captcha site keys", slog.Any("error", err), slog.Uint64("profile_id", uint64(profile.ID)))
+		}
 	}
 
 	// Count forms using this profile
@@ -200,7 +202,7 @@ func CaptchaProfileDelete(ctx *cartridge.Context) error {
 
 	logger := ctx.Logger
 	if err := integrations.DeleteCaptchaProfile(logger, db, uint(profileID)); err != nil {
-		logger.Error("failed to delete captcha profile", slog.Any("error", err), slog.Uint64("profile_id", uint64(profileID)))
+		logger.Error("failed to delete captcha profile", slog.Any("error", err), slog.Uint64("profile_id", profileID))
 		return fiber.ErrInternalServerError
 	}
 

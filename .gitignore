@@ -24,6 +24,11 @@ go.work.sum
 
 node_modules
 
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
 *.db*
 
 *.gz
@@ -42,9 +47,7 @@ e2e/screenshots
 # Go build cache
 .gocache/
 .gopath/
+.tools/
 /miniform
 bin/
 test-results/
-
-# Generated CSS (built by make css)
-web/static/app.built.css

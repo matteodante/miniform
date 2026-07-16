@@ -44,11 +44,10 @@
             <button type="submit" class="mf-button w-full py-3">Open inbox</button>
         </form>
 
-        {{ if .ShowDefaultCredentials }}
+        {{ if .ShowFirstLoginHelp }}
         <div class="mt-7 border-t border-rule pt-5">
-            <p class="font-mono text-[0.625rem] uppercase tracking-[0.15em] text-ink-muted">First-run credentials</p>
-            <p class="mt-2 font-mono text-xs text-ink">admin@miniform.local&nbsp;&nbsp;/&nbsp;&nbsp;miniform</p>
-            <p class="mt-2 text-xs leading-5 text-ink-muted">Change these from Workspace after signing in.</p>
+            <p class="font-mono text-[0.625rem] uppercase tracking-[0.15em] text-ink-muted">First run</p>
+            <p class="mt-2 text-xs leading-5 text-ink-muted">Use <span class="font-mono text-ink">admin@miniform.local</span> and the unique temporary password printed in the application logs.</p>
         </div>
         {{ end }}
     </section>

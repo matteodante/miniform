@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"crypto/rand"
 	"fmt"
 	"log/slog"
 	"time"
@@ -83,9 +84,12 @@ func ensureAdminUser(db *gorm.DB, cfg *config.Config, logger *slog.Logger) error
 	}
 
 	defaultEmail := accounts.DefaultAdminEmail
-	defaultPassword := accounts.DefaultAdminPassword
+	temporaryPassword := rand.Text()
+	if cfg.IsTest() {
+		temporaryPassword = "miniform"
+	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(temporaryPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("hash password: %w", err)
 	}
@@ -108,10 +112,10 @@ func ensureAdminUser(db *gorm.DB, cfg *config.Config, logger *slog.Logger) error
 		return err
 	}
 
-	fmt.Printf("\n🔐 Default admin user created:\n")
+	fmt.Printf("\n🔐 Initial admin user created:\n")
 	fmt.Printf("   Email: %s\n", defaultEmail)
-	fmt.Printf("   Temporary credentials: %s\n", defaultPassword)
-	fmt.Printf("   ⚠️  You will be required to change this on first login\n\n")
+	fmt.Printf("   Temporary password: %s\n", temporaryPassword)
+	fmt.Printf("   ⚠️  Save this now and change it after signing in. It will not be shown again.\n\n")
 
 	return nil
 }

@@ -47,7 +47,7 @@ func sendSMTP(cfg *smtpConfig, msg []byte) error {
 			return err
 		}
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	if cfg.Encryption == "starttls" {
 		if err := client.StartTLS(tlsConfigFor(cfg.Host)); err != nil {

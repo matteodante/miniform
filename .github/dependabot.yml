@@ -1,58 +1,57 @@
-# Dependabot configuration for automated dependency updates
-# Docs: https://docs.github.com/en/code-security/dependabot
-
 version: 2
+
 updates:
-  # Go modules
-  - package-ecosystem: "gomod"
-    directory: "/"
+  - package-ecosystem: gomod
+    directory: /
     schedule:
-      interval: "monthly"
-      day: "monday"
-    open-pull-requests-limit: 2
-    labels:
-      - "dependencies"
-      - "go"
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    groups:
+      go-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     commit-message:
       prefix: "deps(go)"
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
-      - dependency-name: "github.com/karloscodes/*"
-        update-types: []
 
-  # Docker base images
-  - package-ecosystem: "docker"
-    directory: "/"
+  - package-ecosystem: npm
+    directory: /e2e
     schedule:
-      interval: "monthly"
-    open-pull-requests-limit: 1
-    labels:
-      - "dependencies"
-      - "docker"
+      interval: weekly
+      day: monday
+      time: "06:15"
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    groups:
+      e2e-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     commit-message:
-      prefix: "deps(docker)"
+      prefix: "deps(e2e)"
 
-  # GitHub Actions
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: docker
+    directory: /
     schedule:
-      interval: "monthly"
-    open-pull-requests-limit: 1
-    labels:
-      - "dependencies"
-      - "github-actions"
+      interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: Europe/Rome
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps(container)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:45"
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]
     commit-message:
       prefix: "deps(actions)"
-
-  # NPM (E2E tests)
-  - package-ecosystem: "npm"
-    directory: "/e2e"
-    schedule:
-      interval: "monthly"
-    open-pull-requests-limit: 2
-    labels:
-      - "dependencies"
-      - "npm"
-    commit-message:
-      prefix: "deps(npm)"

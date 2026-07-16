@@ -50,7 +50,7 @@ func MountRoutes(s *cartridge.Server, cfg *config.Config) {
 					"error": "rate limit exceeded",
 				})
 			},
-			Next: func(c *fiber.Ctx) bool {
+			Next: func(_ *fiber.Ctx) bool {
 				// Skip rate limiting in dev/test mode
 				return cfg.IsDevelopment() || cfg.IsTest()
 			},
@@ -91,7 +91,7 @@ func MountRoutes(s *cartridge.Server, cfg *config.Config) {
 				"ContentView":       "admin/login/content",
 			}, "")
 		},
-		Next: func(c *fiber.Ctx) bool {
+		Next: func(_ *fiber.Ctx) bool {
 			// Skip rate limiting in dev/test mode
 			return cfg.IsDevelopment() || cfg.IsTest()
 		},

@@ -23,12 +23,8 @@ var (
 	ErrInvalidEmail       = errors.New("email is not valid")
 )
 
-// Default admin credentials created on first boot of an empty install. They
-// work in every environment and remain valid until the operator changes them.
-const (
-	DefaultAdminEmail    = "admin@miniform.local"
-	DefaultAdminPassword = "miniform"
-)
+// DefaultAdminEmail is used for the initial operator account on an empty install.
+const DefaultAdminEmail = "admin@miniform.local"
 
 // timingEqualizerHash is a valid bcrypt digest compared against when the
 // supplied email doesn't exist, so Authenticate takes constant time regardless
@@ -36,15 +32,13 @@ const (
 // of a random string; no real password matches it.
 const timingEqualizerHash = "$2a$10$Q1pg.L2uyfJ2QportzoH9.UPdkdy2skSFqtGaRfOXpO0SBGCQ1qIW"
 
-// IsDefaultAdminActive reports whether the default admin still has the default
-// password. The login page uses this to show the credentials hint only while
-// it's accurate, so it can never go stale.
-func IsDefaultAdminActive(db *gorm.DB) bool {
+// IsFirstLoginPending reports whether the initial operator has not signed in yet.
+func IsFirstLoginPending(db *gorm.DB) bool {
 	user, err := FindByEmail(db, DefaultAdminEmail)
 	if err != nil {
 		return false
 	}
-	return bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(DefaultAdminPassword)) == nil
+	return user.LastLoginAt == nil
 }
 
 // User represents the single admin user for the MVP.

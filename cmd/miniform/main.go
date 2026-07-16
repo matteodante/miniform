@@ -144,7 +144,7 @@ func runAdminPasswordChange(m *matcha.Matcha) error {
 	var password string
 	for {
 		fmt.Print("Enter new admin password (minimum 8 characters): ")
-		passBytes, err := term.ReadPassword(int(syscall.Stdin))
+		passBytes, err := term.ReadPassword(syscall.Stdin)
 		if err != nil {
 			return fmt.Errorf("failed to read password: %w", err)
 		}
@@ -157,7 +157,7 @@ func runAdminPasswordChange(m *matcha.Matcha) error {
 		}
 
 		fmt.Print("Confirm new admin password: ")
-		confirmBytes, err := term.ReadPassword(int(syscall.Stdin))
+		confirmBytes, err := term.ReadPassword(syscall.Stdin)
 		if err != nil {
 			return fmt.Errorf("failed to read password: %w", err)
 		}

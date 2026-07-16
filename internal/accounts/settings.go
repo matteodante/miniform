@@ -7,12 +7,6 @@ import (
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 )
 
-// SetupDefaultSettings initializes default settings in the database
-func SetupDefaultSettings(db *gorm.DB) error {
-	// No default settings needed at this time
-	return nil
-}
-
 // GetSetting retrieves a setting value by key
 func GetSetting(db *gorm.DB, key string) (string, error) {
 	var setting Settings

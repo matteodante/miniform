@@ -22,7 +22,10 @@ func isRunningInCI() bool {
 }
 
 func TestInstallation(t *testing.T) {
-	os.Setenv("ENV", "test")
+	if os.Getenv("MINIFORM_RUN_INSTALLATION_TEST") != "1" {
+		t.Skip("set MINIFORM_RUN_INSTALLATION_TEST=1 to run the VM-based installer test")
+	}
+	t.Setenv("ENV", "test")
 
 	projectRoot, err := filepath.Abs("../..")
 	require.NoError(t, err, "Failed to find project root")
@@ -62,8 +65,7 @@ func TestInstallation(t *testing.T) {
 	config.EnvVars["APP_IMAGE"] = "ghcr.io/matteodante/miniform:latest"
 
 	runner := testrunner.NewTestRunner(config)
-	os.Setenv("KEEP_VM", "1")
-	defer os.Setenv("KEEP_VM", os.Getenv("KEEP_VM"))
+	t.Setenv("KEEP_VM", "1")
 
 	t.Log("Configured interactive installation test with user input simulation")
 

@@ -191,7 +191,7 @@ func MailerProfileDelete(ctx *cartridge.Context) error {
 
 	logger := ctx.Logger
 	if err := integrations.DeleteMailerProfile(logger, db, uint(profileID)); err != nil {
-		logger.Error("failed to delete mailer profile", slog.Any("error", err), slog.Uint64("profile_id", uint64(profileID)))
+		logger.Error("failed to delete mailer profile", slog.Any("error", err), slog.Uint64("profile_id", profileID))
 		return fiber.ErrInternalServerError
 	}
 

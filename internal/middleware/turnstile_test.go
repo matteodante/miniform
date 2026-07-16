@@ -16,14 +16,13 @@ func TestVerifyTurnstileToken(t *testing.T) {
 	t.Run("successful verification", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "POST", r.Method)
-			assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+			assert.Equal(t, "application/x-www-form-urlencoded", r.Header.Get("Content-Type"))
 
-			var req turnstileVerifyRequest
-			err := json.NewDecoder(r.Body).Decode(&req)
+			err := r.ParseForm()
 			require.NoError(t, err)
-			assert.Equal(t, "test-secret", req.Secret)
-			assert.Equal(t, "test-token", req.Response)
-			assert.Equal(t, "127.0.0.1", req.RemoteIP)
+			assert.Equal(t, "test-secret", r.Form.Get("secret"))
+			assert.Equal(t, "test-token", r.Form.Get("response"))
+			assert.Equal(t, "127.0.0.1", r.Form.Get("remoteip"))
 
 			w.WriteHeader(http.StatusOK)
 			json.NewEncoder(w).Encode(turnstileVerifyResponse{

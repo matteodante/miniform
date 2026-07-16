@@ -1,12 +1,13 @@
 package middleware
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -23,12 +24,6 @@ const (
 
 // ErrTurnstileUnavailable indicates Cloudflare API is temporarily unavailable
 var ErrTurnstileUnavailable = errors.New("turnstile service temporarily unavailable")
-
-type turnstileVerifyRequest struct {
-	Secret   string `json:"secret"`
-	Response string `json:"response"`
-	RemoteIP string `json:"remoteip,omitempty"`
-}
 
 type turnstileVerifyResponse struct {
 	Success     bool     `json:"success"`
@@ -50,16 +45,14 @@ type TurnstileResult struct {
 // Returns the verification result including hostname for origin validation.
 // Retries on transient errors (5xx, network issues) with exponential backoff.
 func VerifyTurnstileToken(secret, token, remoteIP string) (*TurnstileResult, error) {
-	reqBody := turnstileVerifyRequest{
-		Secret:   secret,
-		Response: token,
-		RemoteIP: remoteIP,
+	form := url.Values{
+		"secret":   {secret},
+		"response": {token},
 	}
-
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	if remoteIP != "" {
+		form.Set("remoteip", remoteIP)
 	}
+	encodedForm := form.Encode()
 
 	var lastErr error
 	for attempt := 0; attempt < maxRetries; attempt++ {
@@ -69,7 +62,7 @@ func VerifyTurnstileToken(secret, token, remoteIP string) (*TurnstileResult, err
 			time.Sleep(backoff)
 		}
 
-		result, err := doVerifyRequest(jsonData)
+		result, err := doVerifyRequest(encodedForm)
 		if err == nil {
 			return result, nil
 		}
@@ -87,17 +80,17 @@ func VerifyTurnstileToken(secret, token, remoteIP string) (*TurnstileResult, err
 	return nil, fmt.Errorf("%w: %v", ErrTurnstileUnavailable, lastErr)
 }
 
-func doVerifyRequest(jsonData []byte) (*TurnstileResult, error) {
+func doVerifyRequest(encodedForm string) (*TurnstileResult, error) {
 	client := &http.Client{
 		Timeout: requestTimeout,
 	}
 
-	resp, err := client.Post(turnstileVerifyURL, "application/json", bytes.NewBuffer(jsonData))
+	resp, err := client.Post(turnstileVerifyURL, "application/x-www-form-urlencoded", strings.NewReader(encodedForm))
 	if err != nil {
 		// Network errors are retryable
 		return nil, fmt.Errorf("%w: %v", ErrTurnstileUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check HTTP status code
 	if resp.StatusCode >= 500 {

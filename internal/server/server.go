@@ -3,9 +3,10 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"html/template"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -17,18 +18,8 @@ import (
 var buildCommit = "dev"
 
 // TemplateFuncs returns miniform-specific template functions.
-func TemplateFuncs() template.FuncMap {
-	return template.FuncMap{
-		"safeHTML": func(v interface{}) template.HTML {
-			switch val := v.(type) {
-			case template.HTML:
-				return val
-			case string:
-				return template.HTML(val)
-			default:
-				return template.HTML(fmt.Sprint(v))
-			}
-		},
+func TemplateFuncs() map[string]any {
+	return map[string]any{
 		"truncateJSON": truncateJSON,
 		"assetVersion": func() string {
 			if buildCommit == "dev" {
@@ -46,8 +37,13 @@ func TemplateFuncs() template.FuncMap {
 func ErrorHandler(log *slog.Logger, cfg *config.Config) fiber.ErrorHandler {
 	return func(c *fiber.Ctx, err error) error {
 		code := fiber.StatusInternalServerError
-		if e, ok := err.(*fiber.Error); ok {
-			code = e.Code
+		publicMessage := fiber.ErrInternalServerError.Message
+		var fiberError *fiber.Error
+		if errors.As(err, &fiberError) {
+			code = fiberError.Code
+			publicMessage = fiberError.Message
+		} else if cfg.IsDevelopment() {
+			publicMessage = err.Error()
 		}
 
 		log.Error("request failed",
@@ -60,8 +56,8 @@ func ErrorHandler(log *slog.Logger, cfg *config.Config) fiber.ErrorHandler {
 		// JSON error response for API requests
 		if c.Accepts(fiber.MIMEApplicationJSON) == fiber.MIMEApplicationJSON {
 			return c.Status(code).JSON(fiber.Map{
-				"error":   "internal_server_error",
-				"message": err.Error(),
+				"error":   http.StatusText(code),
+				"message": publicMessage,
 			})
 		}
 
@@ -71,12 +67,12 @@ func ErrorHandler(log *slog.Logger, cfg *config.Config) fiber.ErrorHandler {
 				"Title":             "500 - Internal Server Error",
 				"ContentView":       "errors/500/content",
 				"DevMode":           cfg.IsDevelopment(),
-				"ErrorMessage":      err.Error(),
+				"ErrorMessage":      publicMessage,
 				"HideHeaderActions": true,
 			}, "")
 		}
 
-		return c.Status(code).SendString(fmt.Sprintf("Error: %d - %s", code, err.Error()))
+		return c.Status(code).SendString(fmt.Sprintf("Error: %d - %s", code, publicMessage))
 	}
 }
 

@@ -45,7 +45,9 @@ func Get() *Config {
 		// this before config.Load so cartridge's production-mode validation
 		// (e.g. SESSION_SECRET required) doesn't fire on an empty env.
 		if os.Getenv("MINIFORM_ENV") == "" {
-			os.Setenv("MINIFORM_ENV", config.Development)
+			if err := os.Setenv("MINIFORM_ENV", config.Development); err != nil {
+				log.Fatalf("config: set default environment: %v", err)
+			}
 		}
 
 		// Load base cartridge config

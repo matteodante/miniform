@@ -2,152 +2,96 @@ version: 2
 
 before:
   hooks:
-    - go mod tidy
+    - go mod verify
 
 builds:
-  - id: miniform
+  - id: linux-amd64
     main: ./cmd/miniform
     binary: miniform
+    goos: [linux]
+    goarch: [amd64]
+    goamd64: [v1]
     env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-    goarch:
-      - amd64
-      - arm64
+      - CGO_ENABLED=1
+      - CC=gcc
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.buildTime={{.Date}}
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .FullCommit }}
+      - -X github.com/matteodante/miniform/internal/server.buildCommit={{ .FullCommit }}
 
-# Create binaries with pattern: miniform-v1.0.0-amd64
+  - id: linux-arm64
+    main: ./cmd/miniform
+    binary: miniform
+    goos: [linux]
+    goarch: [arm64]
+    env:
+      - CGO_ENABLED=1
+      - CC=aarch64-linux-gnu-gcc
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .FullCommit }}
+      - -X github.com/matteodante/miniform/internal/server.buildCommit={{ .FullCommit }}
+
 archives:
-  - id: binary
-    format: binary
-    name_template: "{{ .ProjectName }}-linux-{{ .Arch }}"
+  - id: release
+    ids: [linux-amd64, linux-arm64]
+    formats: [tar.gz]
+    name_template: "miniform-linux-{{ .Arch }}"
+    wrap_in_directory: true
+    builds_info:
+      mode: 0755
+      mtime: "{{ .CommitDate }}"
+    files:
+      - README.md
+      - LICENSE
+      - THIRD_PARTY_NOTICES.md
 
 checksum:
-  name_template: "checksums.txt"
+  name_template: checksums.txt
+
+sboms:
+  - id: archives
+    artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.spdx.json"
 
 changelog:
   sort: asc
   use: github
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
-      - "^ci:"
-      - Merge pull request
-      - Merge branch
+      - '^docs(?:\([^)]*\))?:'
+      - '^test(?:\([^)]*\))?:'
+      - '^chore(?:\([^)]*\))?:'
+      - '^ci(?:\([^)]*\))?:'
+      - "^Merge "
   groups:
     - title: Features
-      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      regexp: '^.*?feat(?:\([^)]+\))?!?:.+$'
       order: 0
-    - title: Bug Fixes
-      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+    - title: Fixes
+      regexp: '^.*?fix(?:\([^)]+\))?!?:.+$'
       order: 1
-    - title: Others
+    - title: Other changes
       order: 999
 
-dockers:
-  - image_templates:
-      - "ghcr.io/matteodante/miniform:{{ .Version }}-amd64"
-      - "ghcr.io/matteodante/miniform:latest-amd64"
-    use: buildx
-    dockerfile: Dockerfile
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-    extra_files:
-      - go.mod
-      - go.sum
-      - cmd
-      - internal
-      - pkg
-      - web
-      - tailwind.config.js
-
-  - image_templates:
-      - "ghcr.io/matteodante/miniform:{{ .Version }}-arm64"
-      - "ghcr.io/matteodante/miniform:latest-arm64"
-    use: buildx
-    goarch: arm64
-    dockerfile: Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-    extra_files:
-      - go.mod
-      - go.sum
-      - cmd
-      - internal
-      - pkg
-      - web
-      - tailwind.config.js
-
-docker_manifests:
-  - name_template: "ghcr.io/matteodante/miniform:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/matteodante/miniform:{{ .Version }}-amd64"
-      - "ghcr.io/matteodante/miniform:{{ .Version }}-arm64"
-  
-  - name_template: "ghcr.io/matteodante/miniform:v{{ .Major }}"
-    image_templates:
-      - "ghcr.io/matteodante/miniform:{{ .Version }}-amd64"
-      - "ghcr.io/matteodante/miniform:{{ .Version }}-arm64"
-  
-  - name_template: "ghcr.io/matteodante/miniform:v{{ .Major }}.{{ .Minor }}"
-    image_templates:
-      - "ghcr.io/matteodante/miniform:{{ .Version }}-amd64"
-      - "ghcr.io/matteodante/miniform:{{ .Version }}-arm64"
-  
-  - name_template: "ghcr.io/matteodante/miniform:latest"
-    image_templates:
-      - "ghcr.io/matteodante/miniform:latest-amd64"
-      - "ghcr.io/matteodante/miniform:latest-arm64"
-
 release:
-  github:
-    owner: matteodante
-    name: miniform
+  draft: true
   prerelease: auto
-  mode: replace
+  mode: append
   header: |
     ## Miniform {{ .Tag }}
 
-    Self-hosted form backend with SQLite storage.
+    A quiet, self-hosted inbox for form submissions.
 
-    ### One-Line Installation (Recommended)
-
-    ```bash
-    curl -fsSL https://raw.githubusercontent.com/matteodante/miniform/main/install.sh | sudo bash
-    ```
-
-    This installs Miniform with Docker, Caddy reverse proxy, and automatic SSL certificates.
-
-    ### Quick Start with Docker (Manual)
-
-    ```bash
-    docker run -d \
-      -p 8080:8080 \
-      -e MINIFORM_SESSION_SECRET=$(openssl rand -hex 32) \
-      -v $(pwd)/storage:/app/storage \
-      ghcr.io/matteodante/miniform:{{ .Version }}
-    ```
-
-    Then visit `http://localhost:8080` with default credentials:
-    - Email: `admin@miniform.local`
-    - Password: `miniform`
+    Read the [changelog](https://github.com/matteodante/miniform/blob/{{ .Tag }}/CHANGELOG.md) and [installation guide](https://github.com/matteodante/miniform/blob/{{ .Tag }}/docs/installation.md) before upgrading.
   footer: |
-    ---
-    
-    **Documentation**: https://github.com/matteodante/miniform#readme
-    **Full Changelog**: https://github.com/matteodante/miniform/compare/{{ .PreviousTag }}...{{ .Tag }}
+    Verify downloads with `checksums.txt` and GitHub artifact attestations. OCI images are published at `ghcr.io/matteodante/miniform`.

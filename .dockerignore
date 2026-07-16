@@ -27,9 +27,11 @@ dist
 .vite
 .astro
 
-# Documentation
+# Documentation is excluded except for redistributed license notices.
 *.md
 docs
+!LICENSE
+!THIRD_PARTY_NOTICES.md
 
 # IDE
 .vscode

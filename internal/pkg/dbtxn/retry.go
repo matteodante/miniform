@@ -1,19 +1,16 @@
 package dbtxn
 
 import (
+	"crypto/rand"
 	"fmt"
 	"math"
-	"math/rand"
+	"math/big"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
 	"log/slog"
 )
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
 
 // WithRetry executes a write transaction with retry logic for SQLite busy errors.
 // Given the current database configuration (busy_timeout=5000, WAL mode, _txlock=immediate),
@@ -32,7 +29,11 @@ func WithRetry(logger *slog.Logger, db *gorm.DB, fn func(tx *gorm.DB) error) err
 			if delay > maxDelay {
 				delay = maxDelay
 			}
-			delay += time.Duration(rand.Float64() * 0.2 * float64(delay))
+			jitter, randomErr := rand.Int(rand.Reader, big.NewInt(int64(delay/5)))
+			if randomErr != nil {
+				return fmt.Errorf("models: generate retry jitter: %w", randomErr)
+			}
+			delay += time.Duration(jitter.Int64())
 			logger.Info("retrying transaction", slog.Int("attempt", attempt+1), slog.Duration("delay", delay), slog.Any("error", err))
 			time.Sleep(delay)
 		}

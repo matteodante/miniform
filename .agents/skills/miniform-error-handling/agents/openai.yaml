@@ -1,0 +1,4 @@
+interface:
+  display_name: "Miniform Error Handling"
+  short_description: "Handle and report Miniform errors consistently"
+  default_prompt: "Use $miniform-error-handling to design the error flow for this Miniform change."

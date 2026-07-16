@@ -127,7 +127,9 @@ func CreateSubmissionWithFiles(logger *slog.Logger, db *gorm.DB, form *Form, pay
 	}); err != nil {
 		// Clean up files on failure
 		if len(files) > 0 && dataDir != "" && submission.ID > 0 {
-			DeleteSubmissionFiles(dataDir, form.ID, submission.ID)
+			if cleanupErr := DeleteSubmissionFiles(dataDir, form.ID, submission.ID); cleanupErr != nil {
+				logger.Warn("clean up submission files", slog.Any("error", cleanupErr), slog.Uint64("submission_id", uint64(submission.ID)))
+			}
 		}
 		logger.Error("store submission failed", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to save submission")

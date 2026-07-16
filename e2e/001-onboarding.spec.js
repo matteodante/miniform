@@ -30,7 +30,7 @@ test.describe("Onboarding Flow - MUST RUN FIRST", () => {
     await page.context().clearCookies();
     await page.context().clearPermissions();
 
-    // Note: Admin user (admin@miniform.local / miniform) is created automatically by server migrations
+    // Test mode uses deterministic credentials; real installations generate a unique password.
 
     // Step 1: Verify health endpoint
     const healthResponse = await page.goto("/_health");

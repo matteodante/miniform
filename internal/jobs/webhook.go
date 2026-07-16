@@ -112,7 +112,7 @@ func (d *WebhookDispatcher) handleEvent(ctx *JobContext, db *gorm.DB, event *for
 		MarkWebhookAsRetry(ctx, db, event, d.retry, err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		MarkWebhookAsRetry(ctx, db, event, d.retry, fmt.Errorf("unexpected status %d", resp.StatusCode))

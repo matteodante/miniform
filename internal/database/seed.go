@@ -3,6 +3,7 @@ package database
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -11,6 +12,7 @@ import (
 	"github.com/matteodante/miniform/internal/accounts"
 	"github.com/matteodante/miniform/internal/forms"
 	"github.com/matteodante/miniform/internal/integrations"
+	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 )
 
 // Seed populates the database with sample data for development/testing.
@@ -35,7 +37,7 @@ func Seed(db *gorm.DB) error {
 			LastLoginAt:  &now, // Set to now = not first login, no password change required (for dev)
 		}
 
-		if err := db.Create(admin).Error; err != nil {
+		if err := createSeedRecord(db, admin); err != nil {
 			return fmt.Errorf("create admin user: %w", err)
 		}
 		fmt.Println("✓ Created admin user: admin@miniform.local / miniform")
@@ -52,7 +54,7 @@ func Seed(db *gorm.DB) error {
 	if settingsCount == 0 {
 		settings := &accounts.Settings{}
 
-		if err := db.Create(settings).Error; err != nil {
+		if err := createSeedRecord(db, settings); err != nil {
 			return fmt.Errorf("create settings: %w", err)
 		}
 		fmt.Println("✓ Created default settings")
@@ -72,7 +74,7 @@ func Seed(db *gorm.DB) error {
 			DefaultFromEmail: "no-reply@example.com",
 		}
 
-		if err := db.Create(mailer).Error; err != nil {
+		if err := createSeedRecord(db, mailer); err != nil {
 			return fmt.Errorf("create default mailer profile: %w", err)
 		}
 		fmt.Println("✓ Created default mailer profile")
@@ -104,7 +106,7 @@ func Seed(db *gorm.DB) error {
 			PolicyJSON:   string(policyJSON),
 		}
 
-		if err := db.Create(captcha).Error; err != nil {
+		if err := createSeedRecord(db, captcha); err != nil {
 			return fmt.Errorf("create default captcha profile: %w", err)
 		}
 		fmt.Println("✓ Created default captcha profile")
@@ -127,7 +129,7 @@ func Seed(db *gorm.DB) error {
 		Slug: "contact",
 	}
 
-	if err := db.Create(contactForm).Error; err != nil {
+	if err := createSeedRecord(db, contactForm); err != nil {
 		return fmt.Errorf("create contact form: %w", err)
 	}
 	fmt.Println("✓ Created contact form")
@@ -137,7 +139,7 @@ func Seed(db *gorm.DB) error {
 		Slug: "newsletter",
 	}
 
-	if err := db.Create(newsletterForm).Error; err != nil {
+	if err := createSeedRecord(db, newsletterForm); err != nil {
 		return fmt.Errorf("create newsletter form: %w", err)
 	}
 	fmt.Println("✓ Created newsletter form")
@@ -147,7 +149,7 @@ func Seed(db *gorm.DB) error {
 		Slug: "feedback",
 	}
 
-	if err := db.Create(feedbackForm).Error; err != nil {
+	if err := createSeedRecord(db, feedbackForm); err != nil {
 		return fmt.Errorf("create feedback form: %w", err)
 	}
 	fmt.Println("✓ Created feedback form")
@@ -229,7 +231,7 @@ func Seed(db *gorm.DB) error {
 			CreatedAt: time.Now().Add(-time.Duration(i*24) * time.Hour),
 		}
 
-		if err := db.Create(submission).Error; err != nil {
+		if err := createSeedRecord(db, submission); err != nil {
 			return fmt.Errorf("create submission %d: %w", i, err)
 		}
 	}
@@ -256,7 +258,7 @@ func Seed(db *gorm.DB) error {
 			CreatedAt: time.Now().Add(-time.Duration(i*12) * time.Hour),
 		}
 
-		if err := db.Create(submission).Error; err != nil {
+		if err := createSeedRecord(db, submission); err != nil {
 			return fmt.Errorf("create newsletter submission %d: %w", i, err)
 		}
 	}
@@ -264,4 +266,10 @@ func Seed(db *gorm.DB) error {
 
 	fmt.Println("\n✅ Database seeded successfully!")
 	return nil
+}
+
+func createSeedRecord(db *gorm.DB, value any) error {
+	return dbtxn.WithRetry(slog.Default(), db, func(tx *gorm.DB) error {
+		return tx.Create(value).Error
+	})
 }

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Miniform SQLite Writes"
+  short_description: "Protect every Miniform SQLite write"
+  default_prompt: "Use $miniform-sqlite-writes to implement this database mutation safely."

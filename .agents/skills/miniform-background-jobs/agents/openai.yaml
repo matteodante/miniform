@@ -1,0 +1,4 @@
+interface:
+  display_name: "Miniform Background Jobs"
+  short_description: "Build reliable Miniform delivery jobs"
+  default_prompt: "Use $miniform-background-jobs to implement or review this asynchronous delivery workflow."

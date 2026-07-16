@@ -1,196 +1,77 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Script to install Miniform from GitHub releases
-# Run as: curl -fsSL https://raw.githubusercontent.com/matteodante/miniform/main/install.sh | sudo bash
+set -Eeuo pipefail
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m' # No Color
+readonly GITHUB_REPO="matteodante/miniform"
+readonly INSTALL_DIR="/usr/local/bin"
 
-# Configuration
-GITHUB_REPO="matteodante/miniform"
-INSTALL_DIR="/usr/local/bin"
-
-run_installer() {
-    # Verify running as root
-    if [ "$(id -u)" -ne 0 ]; then
-        echo -e "${RED}Error: This script requires root privileges. Use 'sudo su' and then re-run the installation command.${NC}"
-        exit 1
-    fi
-
-    # Detect architecture
-    ARCH=$(uname -m)
-    case "$ARCH" in
-        x86_64)
-            ARCH="amd64"
-            ;;
-        aarch64|arm64)
-            ARCH="arm64"
-            ;;
-        *)
-            echo -e "${RED}Unsupported architecture: $ARCH. Only amd64 and arm64 are supported.${NC}"
-            exit 1
-            ;;
-    esac
-
-    BINARY_PATH="$INSTALL_DIR/miniform"
-    TEMP_FILE="/tmp/miniform-$ARCH"
-
-    # Install dependencies if needed
-    NEED_UPDATE=false
-    if ! command -v jq >/dev/null 2>&1; then
-        NEED_UPDATE=true
-    fi
-    if ! command -v file >/dev/null 2>&1; then
-        NEED_UPDATE=true
-    fi
-    if [ "$NEED_UPDATE" = true ]; then
-        apt-get update -qq > /dev/null 2>&1
-    fi
-    if ! command -v jq >/dev/null 2>&1; then
-        apt-get install -y -qq jq > /dev/null 2>&1 || {
-            echo -e "${RED}Error: Failed to install jq. This script requires jq to parse GitHub API responses.${NC}"
-            exit 1
-        }
-    fi
-    if ! command -v file >/dev/null 2>&1; then
-        apt-get install -y -qq file > /dev/null 2>&1 || {
-            echo -e "${RED}Error: Failed to install 'file'. Binary verification will be skipped.${NC}"
-        }
-    fi
-
-    # Fetch the latest release information
-    echo "Fetching latest release information..."
-    RELEASE_INFO=$(curl -fsSL "https://api.github.com/repos/$GITHUB_REPO/releases/latest")
-
-    # Check for rate limit or other API errors
-    if echo "$RELEASE_INFO" | grep -q "API rate limit exceeded"; then
-        echo -e "${RED}Error: GitHub API rate limit exceeded. Please try again later.${NC}"
-        exit 1
-    fi
-
-    if echo "$RELEASE_INFO" | grep -q "Not Found"; then
-        echo -e "${RED}Error: No releases found in $GITHUB_REPO.${NC}"
-        exit 1
-    fi
-
-    # Extract the latest version
-    LATEST_VERSION=$(echo "$RELEASE_INFO" | jq -r '.tag_name' | sed 's/^v//')
-
-    if [ -z "$LATEST_VERSION" ]; then
-        echo -e "${RED}Error: Could not determine latest version.${NC}"
-        exit 1
-    fi
-
-    echo "Latest version: $LATEST_VERSION"
-
-    # Look for the correct asset
-    ASSET_NAME="miniform-linux-$ARCH"
-    if ! echo "$RELEASE_INFO" | jq -r '.assets[].name' | grep -q "$ASSET_NAME"; then
-        echo -e "${RED}Error: No binary found for $ARCH in release v$LATEST_VERSION.${NC}"
-        echo "Available assets:"
-        echo "$RELEASE_INFO" | jq -r '.assets[].name'
-        exit 1
-    fi
-
-    # Construct download URLs
-    BINARY_URL="https://github.com/$GITHUB_REPO/releases/download/v$LATEST_VERSION/$ASSET_NAME"
-    CHECKSUMS_URL="https://github.com/$GITHUB_REPO/releases/download/v$LATEST_VERSION/checksums.txt"
-    echo "Download URL: $BINARY_URL"
-
-    # Download the binary
-    echo "Downloading Miniform v$LATEST_VERSION for $ARCH..."
-    curl -L --fail --progress-bar -o "$TEMP_FILE" "$BINARY_URL" || {
-        echo -e "${RED}Error: Failed to download binary.${NC}"
-        rm -f "$TEMP_FILE"
-        exit 1
-    }
-
-    # Verify the download
-    if [ ! -s "$TEMP_FILE" ]; then
-        echo -e "${RED}Error: Downloaded file is empty.${NC}"
-        rm -f "$TEMP_FILE"
-        exit 1
-    fi
-
-    # Verify SHA256 checksum
-    echo "Verifying SHA256 checksum..."
-    CHECKSUMS_FILE="/tmp/miniform-checksums.txt"
-    if curl -fsSL -o "$CHECKSUMS_FILE" "$CHECKSUMS_URL" 2>/dev/null; then
-        EXPECTED_HASH=$(grep "$ASSET_NAME" "$CHECKSUMS_FILE" | awk '{print $1}')
-        if [ -n "$EXPECTED_HASH" ]; then
-            ACTUAL_HASH=$(sha256sum "$TEMP_FILE" | awk '{print $1}')
-            if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
-                echo -e "${RED}Error: SHA256 checksum mismatch!${NC}"
-                echo "  Expected: $EXPECTED_HASH"
-                echo "  Got:      $ACTUAL_HASH"
-                rm -f "$TEMP_FILE" "$CHECKSUMS_FILE"
-                exit 1
-            fi
-            echo -e "${GREEN}Checksum verified.${NC}"
-        else
-            echo "Warning: No checksum found for $ASSET_NAME, skipping verification."
-        fi
-        rm -f "$CHECKSUMS_FILE"
-    else
-        echo "Warning: Could not download checksums file, skipping verification."
-    fi
-
-    # Check file type
-    if command -v file >/dev/null 2>&1; then
-        FILE_TYPE=$(file -b "$TEMP_FILE" | cut -d',' -f1-2)
-        echo "Verifying file: $FILE_TYPE"
-        if ! echo "$FILE_TYPE" | grep -q "ELF"; then
-            echo -e "${RED}Error: Downloaded file is not a valid binary.${NC}"
-            rm -f "$TEMP_FILE"
-            exit 1
-        fi
-    fi
-
-    # Install the binary
-    echo "Installing to $BINARY_PATH..."
-    mv "$TEMP_FILE" "$BINARY_PATH" && chmod +x "$BINARY_PATH" || {
-        echo -e "${RED}Error: Failed to install binary.${NC}"
-        rm -f "$TEMP_FILE"
-        exit 1
-    }
-
-    # Run the installer interactively
-    echo -e "${GREEN}Running Miniform installer...${NC}"
-    if "$BINARY_PATH" install; then
-        echo -e "${GREEN}Installation complete!${NC}"
-    else
-        INSTALL_EXIT_CODE=$?
-        echo -e "${RED}Installation failed with exit code $INSTALL_EXIT_CODE.${NC}"
-        exit $INSTALL_EXIT_CODE
-    fi
+fail() {
+    echo "Error: $*" >&2
+    exit 1
 }
 
-# Handle piped execution (curl | sudo bash)
-# When piped, stdin is not a TTY, so we need to re-exec with /dev/tty
-if [ ! -t 0 ]; then
-    echo "Detected piped execution. Creating temporary installer for interactive mode..."
-    TEMP_SCRIPT=$(mktemp /tmp/miniform-install-XXXXXX.sh)
-
-    # Export the function and variables to a temp script
-    {
-        echo '#!/bin/bash'
-        echo "RED='$RED'"
-        echo "GREEN='$GREEN'"
-        echo "NC='$NC'"
-        echo "GITHUB_REPO='$GITHUB_REPO'"
-        echo "INSTALL_DIR='$INSTALL_DIR'"
-        declare -f run_installer
-        echo 'run_installer'
-    } > "$TEMP_SCRIPT"
-
-    chmod +x "$TEMP_SCRIPT"
-    bash "$TEMP_SCRIPT" < /dev/tty
-    EXIT_CODE=$?
-    rm -f "$TEMP_SCRIPT"
-    exit $EXIT_CODE
+if [[ "$(id -u)" -ne 0 ]]; then
+    fail "this installer requires root privileges; run 'sudo bash install.sh'"
 fi
 
-# Run the installer
-run_installer
+if [[ ! -t 0 ]]; then
+    fail "interactive input is required; download and review install.sh before running it"
+fi
+
+case "$(uname -m)" in
+    x86_64) arch="amd64" ;;
+    aarch64|arm64) arch="arm64" ;;
+    *) fail "unsupported architecture: $(uname -m)" ;;
+esac
+
+for command in curl jq sha256sum tar; do
+    if command -v "$command" >/dev/null 2>&1; then
+        continue
+    fi
+    command -v apt-get >/dev/null 2>&1 || fail "missing $command and no supported package manager was found"
+    apt-get update -qq
+    apt-get install --yes --quiet ca-certificates coreutils curl jq tar
+    break
+done
+
+temporary_dir="$(mktemp -d /tmp/miniform-install.XXXXXX)"
+trap 'rm -rf "$temporary_dir"' EXIT
+
+release_json="$temporary_dir/release.json"
+curl --fail --silent --show-error --location \
+    "https://api.github.com/repos/$GITHUB_REPO/releases/latest" \
+    --output "$release_json"
+
+release_tag="$(jq -er '.tag_name' "$release_json")" || fail "no published release was found"
+asset_name="miniform-linux-$arch.tar.gz"
+
+asset_url="$(jq -er --arg name "$asset_name" '.assets[] | select(.name == $name) | .browser_download_url' "$release_json")" \
+    || fail "release $release_tag does not contain $asset_name"
+checksums_url="$(jq -er '.assets[] | select(.name == "checksums.txt") | .browser_download_url' "$release_json")" \
+    || fail "release $release_tag does not contain checksums.txt"
+
+archive="$temporary_dir/$asset_name"
+checksums="$temporary_dir/checksums.txt"
+
+echo "Downloading Miniform $release_tag for linux/$arch..."
+curl --fail --silent --show-error --location "$asset_url" --output "$archive"
+curl --fail --silent --show-error --location "$checksums_url" --output "$checksums"
+
+expected_hash="$(awk -v asset="$asset_name" '$2 == asset { print $1 }' "$checksums")"
+[[ -n "$expected_hash" ]] || fail "no checksum was published for $asset_name"
+echo "$expected_hash  $archive" | sha256sum --check --status \
+    || fail "SHA-256 verification failed for $asset_name"
+echo "Checksum verified."
+
+extract_dir="$temporary_dir/extracted"
+mkdir -p "$extract_dir"
+tar --extract --gzip --file "$archive" --directory "$extract_dir"
+
+binary="$(find "$extract_dir" -type f -name miniform -perm -u+x -print -quit)"
+[[ -n "$binary" ]] || fail "the release archive does not contain the Miniform executable"
+
+install --mode 0755 "$binary" "$INSTALL_DIR/miniform"
+echo "Installed $INSTALL_DIR/miniform"
+
+echo "Starting the interactive Miniform system installer..."
+"$INSTALL_DIR/miniform" install

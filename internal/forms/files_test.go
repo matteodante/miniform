@@ -1,11 +1,15 @@
 package forms
 
 import (
+	"bytes"
 	"mime/multipart"
 	"net/textproto"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateFile(t *testing.T) {
@@ -145,5 +149,27 @@ func TestExtractFiles(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "too many files for field")
+	})
+}
+
+func TestSaveFiles(t *testing.T) {
+	t.Run("stores uploads inside the data directory with private permissions", func(t *testing.T) {
+		dataDir := t.TempDir()
+		files := []*UploadedFile{{
+			FieldName:   "attachment",
+			Filename:    "report.pdf",
+			ContentType: "application/pdf",
+			Data:        bytes.NewBufferString("test data"),
+		}}
+
+		records, err := SaveFiles(dataDir, 12, 34, files)
+
+		require.NoError(t, err)
+		require.Len(t, records, 1)
+		assert.Equal(t, filepath.Join("uploads", "12", "34"), filepath.Dir(records[0].StoragePath))
+
+		info, err := os.Stat(filepath.Join(dataDir, records[0].StoragePath))
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 	})
 }

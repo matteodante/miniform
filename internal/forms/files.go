@@ -117,9 +117,19 @@ func SaveFiles(dataDir string, formID, submissionID uint, files []*UploadedFile)
 		return nil, nil
 	}
 
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	root, err := os.OpenRoot(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open data directory: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+
 	// Create upload directory: storage/uploads/{form_id}/{submission_id}/
-	uploadDir := filepath.Join(dataDir, "uploads", fmt.Sprintf("%d", formID), fmt.Sprintf("%d", submissionID))
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+	uploadDir := filepath.Join("uploads", fmt.Sprintf("%d", formID), fmt.Sprintf("%d", submissionID))
+	if err := root.MkdirAll(uploadDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create upload directory: %w", err)
 	}
 
@@ -128,29 +138,20 @@ func SaveFiles(dataDir string, formID, submissionID uint, files []*UploadedFile)
 	for _, f := range files {
 		// Generate unique filename to avoid collisions
 		filename := uniqueFilename(f.Filename)
-		filePath := filepath.Join(uploadDir, filename)
+		storagePath := filepath.Join(uploadDir, filename)
 
 		// Save file
-		dst, err := os.Create(filePath)
+		dst, err := root.OpenFile(storagePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create file: %w", err)
 		}
 
-		written, err := io.Copy(dst, f.Data)
-		dst.Close()
-
-		// Close the source if it's a closer
-		if closer, ok := f.Data.(io.Closer); ok {
-			closer.Close()
+		written, copyErr := io.Copy(dst, f.Data)
+		writeErr := errors.Join(copyErr, dst.Close(), closeReader(f.Data))
+		if writeErr != nil {
+			cleanupErr := root.Remove(storagePath)
+			return nil, fmt.Errorf("failed to save file: %w", errors.Join(writeErr, cleanupErr))
 		}
-
-		if err != nil {
-			os.Remove(filePath) // Clean up on error
-			return nil, fmt.Errorf("failed to save file: %w", err)
-		}
-
-		// Store relative path from data dir
-		relativePath := filepath.Join("uploads", fmt.Sprintf("%d", formID), fmt.Sprintf("%d", submissionID), filename)
 
 		records = append(records, &SubmissionFile{
 			SubmissionID: submissionID,
@@ -158,7 +159,7 @@ func SaveFiles(dataDir string, formID, submissionID uint, files []*UploadedFile)
 			Filename:     f.Filename, // Original filename for display
 			ContentType:  f.ContentType,
 			Size:         written,
-			StoragePath:  relativePath,
+			StoragePath:  storagePath,
 		})
 	}
 
@@ -211,10 +212,15 @@ func uniqueFilename(name string) string {
 // CloseFiles closes all file readers (call on error paths)
 func CloseFiles(files []*UploadedFile) {
 	for _, f := range files {
-		if closer, ok := f.Data.(io.Closer); ok {
-			closer.Close()
-		}
+		_ = closeReader(f.Data)
 	}
+}
+
+func closeReader(reader io.Reader) error {
+	if closer, ok := reader.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
 }
 
 var ErrFileNotFound = errors.New("file not found")

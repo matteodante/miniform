@@ -45,7 +45,7 @@ type Form struct {
 }
 
 // BeforeCreate ensures generated identifiers exist for new forms.
-func (f *Form) BeforeCreate(tx *gorm.DB) error {
+func (f *Form) BeforeCreate(_ *gorm.DB) error {
 	if f.PublicID == "" {
 		f.PublicID = GeneratePublicID()
 	}
@@ -63,7 +63,7 @@ func (f *Form) BeforeCreate(tx *gorm.DB) error {
 }
 
 // BeforeSave keeps the slug in sync with the current name when unset by user.
-func (f *Form) BeforeSave(tx *gorm.DB) error {
+func (f *Form) BeforeSave(_ *gorm.DB) error {
 	if f.Slug == "" {
 		f.Slug = Slugify(f.Name)
 	}

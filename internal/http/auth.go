@@ -13,10 +13,10 @@ import (
 // AdminLoginPage renders the admin login form.
 func AdminLoginPage(ctx *cartridge.Context) error {
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":                  "Sign in",
-		"HideHeaderActions":      true,
-		"ContentView":            "admin/login/content",
-		"ShowDefaultCredentials": accounts.IsDefaultAdminActive(ctx.DB()),
+		"Title":              "Sign in",
+		"HideHeaderActions":  true,
+		"ContentView":        "admin/login/content",
+		"ShowFirstLoginHelp": accounts.IsFirstLoginPending(ctx.DB()),
 	}, "")
 }
 
@@ -41,8 +41,6 @@ func AdminLoginSubmit(ctx *cartridge.Context) error {
 		return fiber.ErrInternalServerError
 	}
 
-	// The default credentials keep working until the operator changes the
-	// password themselves (in settings) — no forced first-login change.
 	return ctx.Redirect("/admin/submissions")
 }
 
@@ -54,11 +52,11 @@ func AdminLogout(ctx *cartridge.Context) error {
 
 func renderLoginError(ctx *cartridge.Context, message string) error {
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":                  "Sign in",
-		"Error":                  message,
-		"HideHeaderActions":      true,
-		"ContentView":            "admin/login/content",
-		"ShowDefaultCredentials": accounts.IsDefaultAdminActive(ctx.DB()),
+		"Title":              "Sign in",
+		"Error":              message,
+		"HideHeaderActions":  true,
+		"ContentView":        "admin/login/content",
+		"ShowFirstLoginHelp": accounts.IsFirstLoginPending(ctx.DB()),
 	}, "")
 }
 

@@ -84,20 +84,6 @@ func GetFormTemplates() []FormTemplate {
 			},
 		},
 		{
-			ID:          "ai-powered",
-			Name:        "AI-Powered Custom Form",
-			Description: "Let AI build a custom form based on your requirements",
-			Slug:        "ai-powered",
-			Icon:        "🤖",
-			Color:       "indigo",
-			ComingSoon:  false,
-			WIP:         false,
-			HTML:        "", // Pro feature - handled by redirect
-			EmailDelivery: forms.EmailDelivery{
-				Enabled: true,
-			},
-		},
-		{
 			ID:              "blank",
 			Name:            "Blank Form",
 			Description:     "Start from scratch with an empty form",
@@ -141,37 +127,38 @@ const sharedTemplateStyles = `
 	.miniform-shell {
 		max-width: 520px;
 		margin: 24px auto;
-		background: #ffffff;
-		border-radius: 20px;
+		background: #fffefa;
+		border-radius: 4px;
 		padding: 32px;
-		border: 1px solid #e2e8f0;
-		box-shadow: 0 25px 45px rgba(15, 23, 42, 0.08);
-		font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-		color: #0f172a;
+		border: 1px solid #d4cbbb;
+		box-shadow: 0 18px 50px rgba(36, 40, 32, 0.08);
+		font-family: 'Avenir Next', Avenir, 'Segoe UI', sans-serif;
+		color: #242820;
 	}
 
 	.miniform-eyebrow {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		padding: 4px 12px;
-		border-radius: 9999px;
+		padding: 0 0 4px;
+		border-bottom: 1px solid #4e6653;
 		font-size: 12px;
 		font-weight: 600;
 		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		background: rgba(59, 130, 246, 0.12);
-		color: #2563eb;
+		letter-spacing: 0.16em;
+		color: #4e6653;
 	}
 
 	.miniform-shell h2 {
 		font-size: 1.6rem;
 		margin: 0.85rem 0 0.4rem;
+		font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+		letter-spacing: -0.025em;
 	}
 
 	.miniform-shell p {
 		margin: 0;
-		color: #64748b;
+		color: #6e756b;
 		font-size: 0.95rem;
 	}
 
@@ -197,7 +184,7 @@ const sharedTemplateStyles = `
 		display: block;
 		font-size: 0.85rem;
 		font-weight: 600;
-		color: #475569;
+		color: #3d443c;
 		margin-bottom: 6px;
 	}
 
@@ -205,12 +192,12 @@ const sharedTemplateStyles = `
 	.miniform-field select,
 	.miniform-field textarea {
 		width: 100%;
-		border: 1px solid #d0d7e3;
-		border-radius: 14px;
+		border: 1px solid #d4cbbb;
+		border-radius: 3px;
 		padding: 12px 14px;
 		font-size: 0.95rem;
 		transition: border 0.2s ease, box-shadow 0.2s ease;
-		background: #f8fafc;
+		background: #f5f1e8;
 	}
 
 	.miniform-field textarea {
@@ -222,33 +209,33 @@ const sharedTemplateStyles = `
 	.miniform-field textarea:focus,
 	.miniform-field select:focus {
 		outline: none;
-		border-color: #2563eb;
-		box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-		background: #ffffff;
+		border-color: #4e6653;
+		box-shadow: 0 0 0 3px rgba(78, 102, 83, 0.15);
+		background: #fffefa;
 	}
 
 	.miniform-helper {
 		font-size: 0.8rem;
-		color: #94a3b8;
+		color: #6e756b;
 		margin-top: 4px;
 	}
 
 	.miniform-button {
 		width: 100%;
 		border: none;
-		border-radius: 16px;
+		border-radius: 4px;
 		padding: 14px 18px;
 		font-size: 1rem;
 		font-weight: 600;
-		color: #ffffff;
-		background: linear-gradient(135deg, #2563eb, #4338ca);
+		color: #fffefa;
+		background: #4e6653;
 		cursor: pointer;
-		transition: transform 0.2s ease, box-shadow 0.2s ease;
+		transition: transform 0.2s ease, background 0.2s ease;
 	}
 
 	.miniform-button:hover {
 		transform: translateY(-1px);
-		box-shadow: 0 15px 30px rgba(37, 99, 235, 0.25);
+		background: #34473a;
 	}
 
 	.miniform-checkbox {
@@ -256,7 +243,7 @@ const sharedTemplateStyles = `
 		align-items: flex-start;
 		gap: 12px;
 		font-size: 0.9rem;
-		color: #475569;
+		color: #3d443c;
 	}
 
 	.miniform-checkbox input {
@@ -319,7 +306,7 @@ const contactTemplateHTML = `
 
 const newsletterTemplateHTML = `
 <div class="miniform-shell">
-	<div class="miniform-eyebrow" style="background: rgba(16, 185, 129, 0.18); color: #059669;">Newsletter</div>
+	<div class="miniform-eyebrow">Newsletter</div>
 	<h2>Join the newsletter</h2>
 	<p>Receive product updates, launch notes, and best practices twice a month.</p>
 
@@ -348,14 +335,14 @@ const newsletterTemplateHTML = `
 			<span>I agree to receive occasional product emails.</span>
 		</label>
 
-		<button type="submit" class="miniform-button" style="background: linear-gradient(135deg, #059669, #047857);">Subscribe</button>
+		<button type="submit" class="miniform-button">Subscribe</button>
 	</form>
 </div>
 ` + sharedTemplateStyles
 
 const waitlistTemplateHTML = `
 <div class="miniform-shell">
-	<div class="miniform-eyebrow" style="background: rgba(245, 158, 11, 0.16); color: #d97706;">Waitlist</div>
+	<div class="miniform-eyebrow">Waitlist</div>
 	<h2>Join the early access list</h2>
 	<p>We’re releasing limited invites. Tell us a bit about your team and we’ll keep you posted.</p>
 
@@ -393,14 +380,14 @@ const waitlistTemplateHTML = `
 			<textarea name="use_case" placeholder="Share how your team would use the product" required></textarea>
 		</label>
 
-		<button type="submit" class="miniform-button" style="background: linear-gradient(135deg, #f59e0b, #d97706);">Request invite</button>
+		<button type="submit" class="miniform-button">Request invite</button>
 	</form>
 </div>
 ` + sharedTemplateStyles
 
 const feedbackTemplateHTML = `
 <div class="miniform-shell">
-	<div class="miniform-eyebrow" style="background: rgba(147, 51, 234, 0.15); color: #9333ea;">Feedback</div>
+	<div class="miniform-eyebrow">Feedback</div>
 	<h2>Share your feedback</h2>
 	<p>Help us build the roadmap. Tell us what’s working and what could be better.</p>
 
@@ -429,7 +416,7 @@ const feedbackTemplateHTML = `
 
 		<label class="miniform-field">
 			<span>Feature or area</span>
-			<input type="text" name="feature" placeholder="Dashboard, Automations, ...">
+			<input type="text" name="feature" placeholder="Exports, notifications, ...">
 		</label>
 
 		<label class="miniform-field">
@@ -437,14 +424,14 @@ const feedbackTemplateHTML = `
 			<textarea name="comments" placeholder="What should we improve?" required></textarea>
 		</label>
 
-		<button type="submit" class="miniform-button" style="background: linear-gradient(135deg, #a855f7, #7c3aed);">Send feedback</button>
+		<button type="submit" class="miniform-button">Send feedback</button>
 	</form>
 </div>
 ` + sharedTemplateStyles
 
 const bugTemplateHTML = `
 <div class="miniform-shell">
-	<div class="miniform-eyebrow" style="background: rgba(248, 113, 113, 0.18); color: #dc2626;">Bug report</div>
+	<div class="miniform-eyebrow">Bug report</div>
 	<h2>Report an issue</h2>
 	<p>Found something off? Share the details and we’ll investigate within a few hours.</p>
 
@@ -473,7 +460,7 @@ const bugTemplateHTML = `
 			</label>
 			<label class="miniform-field">
 				<span>Area of the product</span>
-				<input type="text" name="area" placeholder="Forms dashboard">
+				<input type="text" name="area" placeholder="Account settings">
 			</label>
 		</div>
 
@@ -488,7 +475,7 @@ const bugTemplateHTML = `
 			<textarea name="expected" placeholder="Expected X but saw Y"></textarea>
 		</label>
 
-		<button type="submit" class="miniform-button" style="background: linear-gradient(135deg, #ef4444, #b91c1c);">Submit bug</button>
+		<button type="submit" class="miniform-button">Submit bug</button>
 	</form>
 </div>
 ` + sharedTemplateStyles

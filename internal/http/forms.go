@@ -34,7 +34,7 @@ func AdminFormsIndex(ctx *cartridge.Context) error {
 	}
 
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Forms",
+		"Title":       "Endpoints",
 		"Forms":       formsList,
 		"CreateRoute": "/admin/forms/new",
 		"ContentView": "admin/forms/index/content",
@@ -51,7 +51,7 @@ func AdminFormsNew(ctx *cartridge.Context) error {
 		// Show template selector
 		templates := GetFormTemplates()
 		return ctx.Render("layouts/base", fiber.Map{
-			"Title":       "Choose a Template",
+			"Title":       "Choose a starting point",
 			"Templates":   templates,
 			"ContentView": "admin/forms/templates/content",
 		}, "")
@@ -85,7 +85,7 @@ func AdminFormsNew(ctx *cartridge.Context) error {
 	previewHTML := template.RenderHTML(exampleFormAction(template.Slug))
 
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":                    "New Form",
+		"Title":                    "New endpoint",
 		"DefaultSlug":              template.Slug,
 		"FormName":                 template.Name,
 		"EmailDelivery":            &emailDelivery,
@@ -314,7 +314,7 @@ func AdminFormsEdit(ctx *cartridge.Context) error {
 	}
 
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":                    "Edit Form",
+		"Title":                    "Edit endpoint",
 		"Form":                     form,
 		"EmailDelivery":            form.EmailDelivery,
 		"WebhookDelivery":          form.WebhookDelivery,
@@ -417,7 +417,7 @@ func renderFormError(ctx *cartridge.Context, message string, form *forms.Form, e
 	}
 
 	data := fiber.Map{
-		"Title":                    "New Form",
+		"Title":                    "New endpoint",
 		"Error":                    message,
 		"DefaultSlug":              forms.Slugify("New Form"),
 		"EmailDelivery":            emailDelivery,

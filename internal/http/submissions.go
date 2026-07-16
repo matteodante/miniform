@@ -94,9 +94,15 @@ func SubmissionList(ctx *cartridge.Context) error {
 		}
 	}
 
-	// Get all forms for filter dropdown
-	var forms []forms.Form
-	db.Select("id, name").Order("name ASC").Find(&forms)
+	// Get all endpoints for the filter and the inbox summary.
+	var endpoints []forms.Form
+	db.Select("id, name").Order("name ASC").Find(&endpoints)
+
+	var endpointCount, entriesLast24h int64
+	db.Model(&forms.Form{}).Count(&endpointCount)
+	db.Model(&forms.Submission{}).
+		Where("created_at > ?", time.Now().Add(-24*time.Hour)).
+		Count(&entriesLast24h)
 
 	// Calculate pagination info
 	totalPages := (int(totalCount) + perPage - 1) / perPage
@@ -106,20 +112,22 @@ func SubmissionList(ctx *cartridge.Context) error {
 	prevPage := page - 1
 
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Submissions",
-		"Submissions": submissionsWithPreview,
-		"Forms":       forms,
-		"Page":        page,
-		"NextPage":    nextPage,
-		"PrevPage":    prevPage,
-		"TotalPages":  totalPages,
-		"TotalCount":  totalCount,
-		"HasNext":     hasNext,
-		"HasPrev":     hasPrev,
-		"FormID":      formID,
-		"Range":       rangeFilter,
-		"Search":      search,
-		"ContentView": "admin/submissions/index/content",
+		"Title":          "Inbox",
+		"Submissions":    submissionsWithPreview,
+		"Endpoints":      endpoints,
+		"EndpointCount":  endpointCount,
+		"EntriesLast24h": entriesLast24h,
+		"Page":           page,
+		"NextPage":       nextPage,
+		"PrevPage":       prevPage,
+		"TotalPages":     totalPages,
+		"TotalCount":     totalCount,
+		"HasNext":        hasNext,
+		"HasPrev":        hasPrev,
+		"FormID":         formID,
+		"Range":          rangeFilter,
+		"Search":         search,
+		"ContentView":    "admin/submissions/index/content",
 	}, "")
 }
 
@@ -152,7 +160,7 @@ func AdminSubmissionShow(ctx *cartridge.Context) error {
 	}
 
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Submission",
+		"Title":       "Inbox entry",
 		"Submission":  submission,
 		"JSON":        prettyJSON,
 		"HasFiles":    len(submission.Files) > 0,

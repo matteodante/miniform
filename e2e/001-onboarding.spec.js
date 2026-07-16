@@ -44,17 +44,17 @@ test.describe("Onboarding Flow - MUST RUN FIRST", () => {
     });
     helpers.log("✅ Logged in successfully");
 
-    // Step 3: Verify we're on the dashboard
+    // Step 3: Verify we're in the inbox
     const url = page.url();
     expect(url).not.toContain("/admin/login");
     expect(url).toContain("/admin");
     helpers.log("✅ Successfully authenticated and redirected from login");
 
-    // Step 4: Verify dashboard elements are present
+    // Step 4: Verify inbox elements are present
     await helpers.waitForElement("h1", { timeout: 10000 });
     const pageContent = await page.textContent("body");
-    expect(pageContent).toContain("Dashboard");
-    helpers.log("✅ Dashboard loaded with expected content");
+    expect(pageContent).toContain("Inbox");
+    helpers.log("✅ Inbox loaded with expected content");
 
     helpers.log(`🎯 ADMIN ACCOUNT VERIFIED: ${TEST_EMAIL} / ${TEST_PASSWORD}`);
     helpers.log("✅ Onboarding completed - all other tests can now use this account");

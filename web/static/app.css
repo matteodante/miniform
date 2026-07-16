@@ -2,7 +2,48 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom styles */
+@layer base {
+    html {
+        scroll-behavior: smooth;
+    }
+
+    body {
+        font-feature-settings: "kern" 1, "liga" 1;
+    }
+
+    ::selection {
+        background: #dde5dc;
+        color: #242820;
+    }
+}
+
+@layer components {
+    .mf-kicker {
+        @apply font-mono text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-moss;
+    }
+
+    .mf-title {
+        @apply font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl;
+    }
+
+    .mf-panel {
+        @apply border border-rule bg-paper-raised;
+        box-shadow: 0 18px 50px rgba(36, 40, 32, 0.06);
+    }
+
+    .mf-button {
+        @apply inline-flex items-center justify-center rounded-md bg-moss px-4 py-2.5 text-sm font-semibold text-white transition duration-200 hover:bg-moss-dark focus:outline-none focus:ring-2 focus:ring-moss focus:ring-offset-2 focus:ring-offset-paper active:translate-y-px;
+    }
+
+    .mf-button-secondary {
+        @apply inline-flex items-center justify-center rounded-md border border-rule bg-paper-raised px-4 py-2.5 text-sm font-semibold text-ink transition duration-200 hover:border-moss hover:text-moss focus:outline-none focus:ring-2 focus:ring-moss focus:ring-offset-2 focus:ring-offset-paper active:translate-y-px;
+    }
+
+    .mf-input {
+        @apply rounded-md border-rule bg-paper-raised text-ink placeholder:text-ink-muted/70 focus:border-moss focus:outline-none focus:ring-2 focus:ring-moss/20;
+    }
+}
+
 .dropdown:hover .dropdown-menu {
     display: block;
 }
@@ -21,9 +62,9 @@
     top: 0;
     left: 0;
     right: 0;
-    height: 4px;
-    background: #10b981;
-    z-index: 99999;
+    height: 2px;
+    background: #4e6653;
+    z-index: 50;
     opacity: 0;
     transition: opacity 0.3s ease;
 }
@@ -32,12 +73,26 @@ body.htmx-request #page-loader {
     opacity: 1;
 }
 
+/* Normalize inherited utility-heavy screens to Miniform's flatter paper language. */
+.rounded-lg,
+.rounded-xl,
+.rounded-2xl {
+    border-radius: 0.25rem;
+}
+
+.shadow-sm,
+.shadow-lg,
+.shadow-xl,
+.shadow-2xl {
+    box-shadow: none;
+}
+
 @keyframes shimmer {
     0%, 100% {
-        background: #10b981;
+        background: #4e6653;
     }
     50% {
-        background: #3b82f6;
+        background: #34473a;
     }
 }
 

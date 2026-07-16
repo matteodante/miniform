@@ -1,9 +1,9 @@
-// e2e/007-settings.spec.js - Test settings management
+// e2e/007-settings.spec.js - Test workspace management
 const { test, expect } = require("@playwright/test");
 const { TestHelpers } = require("./test-helpers");
 const { TEST_EMAIL, TEST_PASSWORD } = require("./test-constants");
 
-test.describe("Settings Management", () => {
+test.describe("Workspace management", () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -26,26 +26,26 @@ test.describe("Settings Management", () => {
     await helpers.navigateTo("/admin/settings");
 
     const pageContent = await page.textContent("body");
-    expect(pageContent).toContain("Settings");
-    expect(pageContent).toContain("Account");
+    expect(pageContent).toContain("Workspace");
+    expect(pageContent).toContain("Operator email");
 
     helpers.log("✅ Settings page loaded");
   });
 
   test("2. Manage mailer profiles", async ({ page }) => {
-    helpers.log("=== Managing Mailer Profiles ===");
+    helpers.log("=== Managing Email Routes ===");
 
     // Navigate to mailers page
     await helpers.navigateTo("/admin/settings/mailers");
 
     // Should see the mailer profiles page (might be empty initially)
     const pageContent = await page.textContent("body");
-    expect(pageContent).toContain("Mailer Profiles");
+    expect(pageContent).toContain("Email routes");
 
-    helpers.log("✅ Mailer profiles page loaded");
+    helpers.log("✅ Email routes page loaded");
 
     // Create a new mailer profile
-    await page.click('text=New Profile');
+    await page.click('text=New email route');
     await page.waitForLoadState("networkidle");
 
     const mailerName = `test-mailgun-${Date.now()}`;
@@ -68,19 +68,19 @@ test.describe("Settings Management", () => {
   });
 
   test("3. Manage captcha profiles", async ({ page }) => {
-    helpers.log("=== Managing Captcha Profiles ===");
+    helpers.log("=== Managing Safeguards ===");
 
     // Navigate to captcha page
     await helpers.navigateTo("/admin/settings/captcha");
 
     // Should see the captcha profiles page (might be empty initially)
     const pageContent = await page.textContent("body");
-    expect(pageContent).toContain("Captcha Profiles");
+    expect(pageContent).toContain("Safeguards");
 
-    helpers.log("✅ Captcha profiles page loaded");
+    helpers.log("✅ Safeguards page loaded");
 
     // Create a new captcha profile
-    await page.click('text=New Captcha Profile');
+    await page.click('text=New safeguard');
     await page.waitForLoadState("networkidle");
 
     const captchaName = `test-turnstile-${Date.now()}`;

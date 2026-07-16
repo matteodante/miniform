@@ -1,9 +1,9 @@
-// e2e/003-mailers.spec.js - Test mailer profile management
+// e2e/003-mailers.spec.js - Test email route management
 const { test, expect } = require("@playwright/test");
 const { TestHelpers } = require("./test-helpers");
 const { TEST_EMAIL, TEST_PASSWORD } = require("./test-constants");
 
-test.describe("Mailer Profiles", () => {
+test.describe("Email routes", () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -22,7 +22,7 @@ test.describe("Mailer Profiles", () => {
     helpers.log("=== Creating SMTP Mailer Profile ===");
 
     await helpers.navigateTo("/admin/settings/mailers");
-    await page.click("text=New Profile");
+    await page.click("text=New email route");
     await page.waitForLoadState("networkidle");
 
     // SMTP is the default provider, so its fields are the visible ones.
@@ -52,7 +52,7 @@ test.describe("Mailer Profiles", () => {
   });
 
   test("2. View mailer profiles list", async ({ page }) => {
-    helpers.log("=== Viewing Mailer Profiles List ===");
+    helpers.log("=== Viewing Email Routes ===");
 
     // Create a test profile first with a unique name
     await helpers.createMailerProfile("Test Mailgun List", "mailgun", "test@example.com");
@@ -60,10 +60,10 @@ test.describe("Mailer Profiles", () => {
     await helpers.navigateTo("/admin/settings/mailers");
 
     const pageContent = await page.textContent("body");
-    expect(pageContent).toContain("Mailer Profiles");
+    expect(pageContent).toContain("Email routes");
     expect(pageContent).toContain("Test Mailgun List");
 
-    helpers.log("✅ Mailer profiles list displayed");
+    helpers.log("✅ Email routes displayed");
   });
 
   test("3. Edit mailer profile", async ({ page }) => {

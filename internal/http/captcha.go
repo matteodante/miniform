@@ -48,7 +48,7 @@ func CaptchaProfileList(ctx *cartridge.Context) error {
 	}
 
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Captcha Profiles",
+		"Title":       "Safeguards",
 		"Profiles":    profilesWithCount,
 		"ContentView": "admin/captcha/index/content",
 	}, "")
@@ -57,7 +57,7 @@ func CaptchaProfileList(ctx *cartridge.Context) error {
 // CaptchaProfileNew shows the create form.
 func CaptchaProfileNew(ctx *cartridge.Context) error {
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "New Captcha Profile",
+		"Title":       "New safeguard",
 		"ContentView": "admin/captcha/new/content",
 	}, "")
 }
@@ -84,7 +84,7 @@ func CaptchaProfileCreate(ctx *cartridge.Context) error {
 			errMsg = err.Error()
 		}
 		return ctx.Render("layouts/base", fiber.Map{
-			"Title":       "New Captcha Profile",
+			"Title":       "New safeguard",
 			"Error":       errMsg,
 			"ContentView": "admin/captcha/new/content",
 		}, "")
@@ -114,7 +114,7 @@ func CaptchaProfileShow(ctx *cartridge.Context) error {
 	db.Model(&forms.Form{}).Where("captcha_profile_id = ?", profile.ID).Count(&usageCount)
 
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Captcha Profile: " + profile.Name,
+		"Title":       "Safeguard: " + profile.Name,
 		"Profile":     profile,
 		"SiteKeys":    siteKeys,
 		"UsageCount":  usageCount,
@@ -133,7 +133,7 @@ func CaptchaProfileEdit(ctx *cartridge.Context) error {
 	}
 
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Edit Captcha Profile",
+		"Title":       "Edit safeguard",
 		"Profile":     profile,
 		"IsEdit":      true,
 		"ContentView": "admin/captcha/new/content",
@@ -170,7 +170,7 @@ func CaptchaProfileUpdate(ctx *cartridge.Context) error {
 			errMsg = err.Error()
 		}
 		return ctx.Render("layouts/base", fiber.Map{
-			"Title":       "Edit Captcha Profile",
+			"Title":       "Edit safeguard",
 			"Profile":     existingProfile,
 			"Error":       errMsg,
 			"IsEdit":      true,

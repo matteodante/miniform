@@ -2,7 +2,7 @@
 
 ## Overview
 
-Miniform follows a domain-driven layered architecture similar to Phoenix Contexts but adapted for Go.
+Miniform uses small domain packages inside one Go process.
 
 ## Directory Structure
 

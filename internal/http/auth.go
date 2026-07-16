@@ -43,7 +43,7 @@ func AdminLoginSubmit(ctx *cartridge.Context) error {
 
 	// The default credentials keep working until the operator changes the
 	// password themselves (in settings) — no forced first-login change.
-	return ctx.Redirect("/admin")
+	return ctx.Redirect("/admin/submissions")
 }
 
 // AdminLogout destroys the session and redirects to login.

@@ -32,7 +32,7 @@ func MailerProfileList(ctx *cartridge.Context) error {
 	}
 
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Mailer Profiles",
+		"Title":       "Email routes",
 		"Profiles":    profiles,
 		"ContentView": "admin/mailers/index",
 	}, "")
@@ -41,7 +41,7 @@ func MailerProfileList(ctx *cartridge.Context) error {
 // MailerProfileNew shows the create form.
 func MailerProfileNew(ctx *cartridge.Context) error {
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "New Mailer Profile",
+		"Title":       "New email route",
 		"ContentView": "admin/mailers/new/content",
 	}, "")
 }
@@ -75,7 +75,7 @@ func MailerProfileCreate(ctx *cartridge.Context) error {
 			errMsg = err.Error()
 		}
 		return ctx.Render("layouts/base", fiber.Map{
-			"Title":       "New Mailer Profile",
+			"Title":       "New email route",
 			"Error":       errMsg,
 			"ContentView": "admin/mailers/new/content",
 		}, "")
@@ -99,7 +99,7 @@ func MailerProfileShow(ctx *cartridge.Context) error {
 	db.Model(&forms.EmailDelivery{}).Where("mailer_profile_id = ?", profile.ID).Count(&usageCount)
 
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Mailer Profile: " + profile.Name,
+		"Title":       "Email route: " + profile.Name,
 		"Profile":     profile,
 		"UsageCount":  usageCount,
 		"ContentView": "admin/mailers/show/content",
@@ -117,7 +117,7 @@ func MailerProfileEdit(ctx *cartridge.Context) error {
 	}
 
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Edit Mailer Profile",
+		"Title":       "Edit email route",
 		"Profile":     profile,
 		"IsEdit":      true,
 		"ContentView": "admin/mailers/new/content",
@@ -161,7 +161,7 @@ func MailerProfileUpdate(ctx *cartridge.Context) error {
 			errMsg = err.Error()
 		}
 		return ctx.Render("layouts/base", fiber.Map{
-			"Title":       "Edit Mailer Profile",
+			"Title":       "Edit email route",
 			"Profile":     existingProfile,
 			"Error":       errMsg,
 			"IsEdit":      true,

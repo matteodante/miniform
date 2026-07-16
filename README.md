@@ -3,22 +3,24 @@
 [![GitHub stars](https://img.shields.io/github/stars/matteodante/miniform?style=flat-square)](https://github.com/matteodante/miniform/stargazers)
 [![License](https://img.shields.io/github/license/matteodante/miniform?style=flat-square)](LICENSE)
 
-Form backend you actually own. Collect submissions on your server. One OCI container or binary. No SaaS bills.
+**Every form response, in your own quiet inbox.**
+
+Miniform collects responses, files and delivery history on infrastructure you control. One binary, one SQLite database, no hosted form account.
 
 **[Repository](https://github.com/matteodante/miniform)** · **[Releases](https://github.com/matteodante/miniform/releases)** · **[OCI images](https://github.com/matteodante/miniform/pkgs/container/miniform)**
 
 ## Overview
 
-Miniform enables developers running static or serverless sites to handle form submissions with a single-binary deployment. Store submissions in SQLite, review them in a lightweight admin UI, and route data asynchronously to webhooks or email via Mailgun.
+Miniform gives static sites and small web apps a private intake layer. Public endpoints accept forms, the inbox keeps every entry searchable, and delivery routes forward data to webhooks, SMTP or Mailgun with retries.
 
 ## Features
 
-- **Single-binary deployment** — One executable with SQLite storage, no external dependencies
-- **Admin dashboard** — View and manage forms, submissions, and delivery status
-- **Asynchronous delivery** — Queue webhook and email notifications with retry logic
-- **Spam protection** — Built-in honeypot field and rate limiting
-- **API-first design** — Dashboard consumes the same REST endpoints available for integrations
-- **Your server, your data** — We don't run servers. We can't see your submissions. That's the point.
+- **Private inbox** — Search entries, inspect payloads and download attached files
+- **Independent endpoints** — Give each form its own token, origin rules and delivery routes
+- **Reliable delivery** — Forward entries to webhooks, SMTP or Mailgun with retry history
+- **Layered safeguards** — Origin checks, honeypots, rate limiting and optional Turnstile policies
+- **Single-binary deployment** — One executable with embedded UI and SQLite storage
+- **Your server, your data** — Entries never need to pass through a hosted form service
 
 ## JavaScript SDK (Optional)
 
@@ -57,7 +59,7 @@ This interactive installer will:
 - Configure automatic daily backups
 - Start the Miniform container
 
-After installation, access your dashboard at `https://your-domain.com`
+After installation, open your inbox at `https://your-domain.com`
 
 **Management commands:**
 ```bash
@@ -112,7 +114,7 @@ docker run -d \
 
 **HTTPS is required.** The Docker image runs in production mode, which marks the session cookie `Secure`. Without TLS in front (Caddy, Nginx, Traefik, etc.) browsers silently drop the cookie and login appears to fail. The bundled `install.sh` sets up Caddy with automatic certificates; if you roll your own with docker-compose, put a TLS terminator in front of `:8080`.
 
-Access the admin dashboard at `http://localhost:8080` with default credentials:
+Open the inbox at `http://localhost:8080` with default credentials:
 - Email: `admin@miniform.local`
 - Password: `miniform` (change it immediately after first login)
 
@@ -214,27 +216,23 @@ export MINIFORM_SESSION_SECRET=$(openssl rand -hex 32)
 
 ## Architecture
 
-Miniform follows a **Phoenix Context Architecture**, organizing code into bounded contexts with clear separation of concerns:
+Miniform runs as one process split into small domain packages. HTTP intake, persistence and delivery stay explicit without a plugin system or service mesh:
 
 ```
-[Static Site] --> POST /forms/:slug/submit
-                        |
-                  [Miniform]
-                   /    |    \
-            [SQLite] [Jobs] [Admin UI]
-                      |
-               [Webhook/Email Dispatchers]
-                      |
-            [External Services/Mailgun]
+[Website form] --> [Public endpoint] --> [SQLite inbox]
+                                             |
+                                      [Delivery jobs]
+                                        /         \
+                                  [Webhook]   [SMTP/Mailgun]
 ```
 
 ### Key Components
 
-- **HTTP Server** — Fiber-based cartridge wrapper handling public submissions and admin dashboard
+- **HTTP Server** — Fiber-based request handling for public endpoints and the operator inbox
 - **Database Layer** — GORM + SQLite with WAL mode
 - **Custom Write Retry Logic** — `dbtxn.WithRetry` ensures writes eventually succeed despite SQLite's single-writer constraint
 - **Job System** — In-process dispatchers for asynchronous webhook and email delivery
-- **Cartridge Context** — Request-scoped dependency injection providing type-safe access to logger, config, and database
+- **Request Context** — Request-scoped access to logger, configuration, session and database
 
 ### SQLite Write Handling
 

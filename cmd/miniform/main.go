@@ -12,7 +12,6 @@ import (
 
 	"github.com/matteodante/miniform/internal"
 	"github.com/matteodante/miniform/internal/database"
-	"github.com/matteodante/miniform/internal/license"
 
 	"github.com/karloscodes/matcha"
 	"golang.org/x/term"
@@ -58,13 +57,6 @@ func main() {
 		}
 	case "change-admin-password":
 		if err := runAdminPasswordChange(m); err != nil {
-			fmt.Printf("Error: %v\n", err)
-			os.Exit(1)
-		}
-	case "upgrade-to-pro":
-		runUpgradeToPro(m)
-	case "update-license-key":
-		if err := runUpdateLicenseKey(m); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -187,108 +179,6 @@ func runAdminPasswordChange(m *matcha.Matcha) error {
 	return nil
 }
 
-const proImage = "ghcr.io/matteodante/miniform-pro:latest"
-
-func runUpgradeToPro(m *matcha.Matcha) {
-	fmt.Println("Upgrade to Miniform Pro")
-	fmt.Println("========================")
-	fmt.Println()
-	fmt.Println("This will:")
-	fmt.Println("  - Back up your current database")
-	fmt.Println("  - Validate your license key")
-	fmt.Println("  - Switch to the Pro Docker image")
-	fmt.Println("  - Restart containers")
-	fmt.Println()
-
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Print("Enter your Gumroad license key: ")
-	licenseKeyInput, err := reader.ReadString('\n')
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
-	}
-	licenseKey := strings.TrimSpace(licenseKeyInput)
-
-	if licenseKey == "" {
-		fmt.Println("Error: License key cannot be empty")
-		os.Exit(1)
-	}
-
-	fmt.Println("Validating license with Gumroad...")
-	email, err := license.Validate(licenseKey)
-	if err != nil {
-		fmt.Printf("Error: License validation failed: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("License valid for: %s\n", email)
-
-	fmt.Println("Backing up database...")
-	if _, err := m.BackupDB(); err != nil {
-		fmt.Printf("Warning: backup failed: %v\n", err)
-		fmt.Println("Proceeding without backup...")
-	}
-
-	fmt.Println("Switching to Miniform Pro...")
-	m.SetImage(proImage)
-
-	if err := m.SaveImage(); err != nil {
-		fmt.Printf("Error: failed to save image config: %v\n", err)
-		os.Exit(1)
-	}
-
-	if err := m.Deploy(); err != nil {
-		fmt.Printf("Error: upgrade failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("Upgrade completed successfully!")
-	if domain, err := m.GetDomain(); err == nil && domain != "" {
-		fmt.Printf("Visit https://%s to complete Pro setup\n", domain)
-	}
-}
-
-func runUpdateLicenseKey(m *matcha.Matcha) error {
-	var licenseKey string
-	if len(os.Args) >= 3 {
-		licenseKey = os.Args[2]
-	} else {
-		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("Enter license key: ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("failed to read license key: %w", err)
-		}
-		licenseKey = strings.TrimSpace(input)
-	}
-
-	if licenseKey == "" {
-		return fmt.Errorf("license key cannot be empty")
-	}
-
-	app, err := matcha.LoadApp("miniform")
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	if app.Env == nil {
-		app.Env = make(map[string]string)
-	}
-	app.Env["MINIFORM_LICENSE_KEY"] = licenseKey
-
-	if err := matcha.SaveApp("miniform", app); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
-
-	fmt.Println("Reloading containers with new license key...")
-	if err := m.Reload(); err != nil {
-		return fmt.Errorf("failed to reload: %w", err)
-	}
-
-	fmt.Println("License key updated successfully.")
-	return nil
-}
-
 func printVersion() {
 	fmt.Printf("Miniform %s\n", version)
 	fmt.Printf("  Commit:     %s\n", commit)
@@ -296,7 +186,7 @@ func printVersion() {
 }
 
 func printUsage() {
-	fmt.Println("Miniform - Self-hosted form backend")
+	fmt.Println("Miniform - Your self-hosted form inbox")
 	fmt.Println("")
 	fmt.Println("Usage: miniform [command] [options]")
 	fmt.Println("")
@@ -311,10 +201,6 @@ func printUsage() {
 	fmt.Println("  restore-db                  Restore database from backup")
 	fmt.Println("  change-admin-password       Change admin password")
 	fmt.Println("  check                       Check server security")
-	fmt.Println("")
-	fmt.Println("Pro Commands:")
-	fmt.Println("  upgrade-to-pro              Upgrade to Miniform Pro")
-	fmt.Println("  update-license-key [key]    Update license key")
 	fmt.Println("")
 	fmt.Println("Other Commands:")
 	fmt.Println("  version                     Show version info")

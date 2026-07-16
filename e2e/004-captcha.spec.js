@@ -1,9 +1,9 @@
-// e2e/004-captcha.spec.js - Test captcha profile management
+// e2e/004-captcha.spec.js - Test safeguard management
 const { test, expect } = require("@playwright/test");
 const { TestHelpers } = require("./test-helpers");
 const { TEST_EMAIL, TEST_PASSWORD } = require("./test-constants");
 
-test.describe("Captcha Profiles", () => {
+test.describe("Safeguards", () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -28,13 +28,13 @@ test.describe("Captcha Profiles", () => {
     await helpers.navigateTo("/admin/settings/captcha");
 
     const pageContent = await page.textContent("body");
-    expect(pageContent).toContain("Captcha Profiles");
+    expect(pageContent).toContain("Safeguards");
 
     helpers.log("✅ Captcha profile created");
   });
 
   test("2. View captcha profiles list", async ({ page }) => {
-    helpers.log("=== Viewing Captcha Profiles List ===");
+    helpers.log("=== Viewing Safeguards ===");
 
     // Create a test captcha profile first
     await helpers.createCaptchaProfile("Test Captcha List", "turnstile");
@@ -42,10 +42,10 @@ test.describe("Captcha Profiles", () => {
     await helpers.navigateTo("/admin/settings/captcha");
 
     const pageContent = await page.textContent("body");
-    expect(pageContent).toContain("Captcha Profiles");
+    expect(pageContent).toContain("Safeguards");
     expect(pageContent).toMatch(/Test Captcha List|turnstile/i);
 
-    helpers.log("✅ Captcha profiles list displayed");
+    helpers.log("✅ Safeguards displayed");
   });
 
   test("3. Edit captcha profile", async ({ page }) => {

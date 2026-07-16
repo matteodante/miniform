@@ -6,7 +6,7 @@
     <div class="flex items-center justify-between">
         <div>
             <h1 class="text-3xl font-bold tracking-tight text-gray-900">{{ .Form.Name }}</h1>
-            <p class="mt-2 text-sm text-gray-600">Form details and configuration</p>
+            <p class="mt-2 text-sm text-gray-600">Endpoint rules, routes and recent activity</p>
         </div>
         <div class="flex gap-2">
             <a href="/admin/forms/{{ .Form.ID }}/edit"
@@ -31,7 +31,7 @@
     <!-- Form Info -->
     <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
         <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-lg font-semibold text-gray-900">Form Information</h2>
+            <h2 class="text-lg font-semibold text-gray-900">Endpoint information</h2>
         </div>
         <div class="grid gap-6 p-6 sm:grid-cols-2">
             <div>
@@ -39,7 +39,7 @@
                 <dd class="mt-1 text-base font-mono text-gray-900">{{ .Form.Slug }}</dd>
             </div>
             <div>
-                <dt class="text-sm font-medium text-gray-500">Form ID</dt>
+                <dt class="text-sm font-medium text-gray-500">Endpoint ID</dt>
                 <dd class="mt-1 flex items-center gap-2">
                     <code class="text-sm font-mono text-gray-900">{{ .Form.PublicID }}</code>
                     <span class="text-xs text-gray-500">#{{ .Form.ID }}</span>
@@ -387,8 +387,8 @@ ${doc.body.innerHTML}
     <!-- Recent Submissions -->
     <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
         <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-lg font-semibold text-gray-900">Recent Submissions</h2>
-            <p class="mt-1 text-sm text-gray-600">Last 25 form submissions</p>
+            <h2 class="text-lg font-semibold text-gray-900">Recent inbox entries</h2>
+            <p class="mt-1 text-sm text-gray-600">Last 25 responses received here</p>
         </div>
         {{ if not .Submissions }}
         <div class="px-6 py-12">

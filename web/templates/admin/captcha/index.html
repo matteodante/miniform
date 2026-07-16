@@ -1,97 +1,51 @@
 {{ define "admin/captcha/index/content" }}
-<div class="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
+<div class="space-y-10">
+  <header class="flex flex-col gap-6 border-b border-rule pb-8 sm:flex-row sm:items-end sm:justify-between">
     <div>
-      <h1 class="text-3xl font-bold tracking-tight text-gray-900">Captcha Profiles</h1>
-      <p class="mt-2 text-sm text-gray-600">Manage Turnstile configurations for form protection</p>
+      <p class="mf-kicker">Safeguards</p>
+      <h1 class="mf-title mt-3">Keep noise out.</h1>
+      <p class="mt-4 max-w-xl text-sm leading-6 text-ink-muted">Turnstile keys and policies shared across your public endpoints.</p>
     </div>
-    <a href="/admin/settings/captcha/new"
-      class="inline-flex items-center rounded-lg border border-transparent bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-      <svg class="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-      </svg>
-      New Captcha Profile
-    </a>
-  </div>
+    <a href="/admin/settings/captcha/new" class="mf-button">New safeguard</a>
+  </header>
 
   {{ if .Error }}
-  <div class="rounded-lg border-2 border-rose-500 bg-rose-50 px-4 py-3">
-    <p class="text-sm font-medium text-rose-900">✗ {{ .Error }}</p>
-  </div>
+  <div class="border-l-2 border-clay bg-red-50 px-4 py-3" role="alert"><p class="text-sm font-medium text-clay">{{ .Error }}</p></div>
   {{ end }}
-
   {{ if .Success }}
-  <div class="rounded-lg border-2 border-emerald-500 bg-emerald-50 px-4 py-3">
-    <p class="text-sm font-medium text-emerald-900">✓ {{ .Success }}</p>
-  </div>
+  <div class="border-l-2 border-moss bg-moss-pale px-4 py-3" role="status"><p class="text-sm font-medium text-moss-dark">{{ .Success }}</p></div>
   {{ end }}
 
-  <!-- Profiles Grid -->
   {{ if .Profiles }}
-  <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+  <section class="border-t border-rule" aria-label="Safeguard profiles">
     {{ range .Profiles }}
-    <div
-      class="group relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition-all hover:border-indigo-300 hover:shadow-md">
-      <div class="p-6">
-        <!-- Icon -->
-        <div
-          class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-100 transition-colors group-hover:bg-indigo-200">
-          <svg class="h-6 w-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-          </svg>
-        </div>
-
-        <!-- Profile Name -->
-        <h3 class="text-lg font-semibold text-gray-900">{{ .Name }}</h3>
-
-        <!-- Details -->
-        <div class="mt-3 space-y-2">
-          <div class="flex items-center gap-2 text-sm">
-            <span class="text-gray-500">Provider:</span>
-            <span class="font-medium text-gray-900">{{ .Provider }}</span>
-          </div>
-          <div class="flex items-center gap-2 text-sm">
-            <span class="text-gray-500">Site Keys:</span>
-            <span class="font-medium text-gray-900">{{ .SiteKeyCount }} configured</span>
-          </div>
-        </div>
-
-        <!-- Actions -->
-        <div class="mt-6 flex gap-2">
-          <a href="/admin/settings/captcha/{{ .ID }}"
-            class="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-center text-sm font-medium text-gray-700 transition-all hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-            View
-          </a>
-          <a href="/admin/settings/captcha/{{ .ID }}/edit"
-            class="flex-1 rounded-lg border border-transparent bg-blue-600 px-3 py-2 text-center text-sm font-medium text-white transition-all hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-            Edit
-          </a>
-        </div>
+    <article class="grid gap-5 border-b border-rule px-2 py-6 md:grid-cols-[minmax(14rem,1fr)_minmax(10rem,0.6fr)_minmax(10rem,0.6fr)_auto] md:items-center">
+      <div>
+        <p class="font-display text-2xl tracking-[-0.025em] text-ink">{{ .Name }}</p>
+        <p class="mt-1 font-mono text-[0.625rem] uppercase tracking-[0.14em] text-moss">bot policy</p>
       </div>
-    </div>
+      <div>
+        <p class="font-mono text-[0.625rem] uppercase tracking-[0.12em] text-ink-muted">Provider</p>
+        <p class="mt-1 text-sm font-semibold text-ink">{{ .Provider }}</p>
+      </div>
+      <div>
+        <p class="font-mono text-[0.625rem] uppercase tracking-[0.12em] text-ink-muted">Site keys</p>
+        <p class="mt-1 font-mono text-sm tabular-nums text-ink">{{ .SiteKeyCount }}</p>
+      </div>
+      <div class="flex gap-4 md:justify-end">
+        <a href="/admin/settings/captcha/{{ .ID }}" class="font-mono text-xs font-semibold text-ink underline decoration-rule underline-offset-4 hover:decoration-moss">View</a>
+        <a href="/admin/settings/captcha/{{ .ID }}/edit" class="font-mono text-xs font-semibold text-moss underline decoration-rule underline-offset-4 hover:decoration-moss">Edit</a>
+      </div>
+    </article>
     {{ end }}
-  </div>
+  </section>
   {{ else }}
-  <!-- Empty State -->
-  <div class="rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-6 py-12 text-center">
-    <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-indigo-100">
-      <svg class="h-8 w-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-          d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-      </svg>
-    </div>
-    <h3 class="mt-4 text-lg font-semibold text-gray-900">No captcha profiles yet</h3>
-    <p class="mt-2 text-sm text-gray-600">Get started by creating your first captcha configuration</p>
-    <a href="/admin/settings/captcha/new"
-      class="mt-6 inline-flex items-center rounded-lg border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-      <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-      </svg>
-      Create Captcha Profile
-    </a>
-  </div>
+  <section class="border-y border-rule py-16">
+    <p class="mf-kicker">No safeguards</p>
+    <h2 class="mt-3 font-display text-3xl tracking-[-0.03em] text-ink">Add protection only where it is needed.</h2>
+    <p class="mt-4 max-w-lg text-sm leading-6 text-ink-muted">Create a Turnstile policy, then assign it to one or more endpoints.</p>
+    <a href="/admin/settings/captcha/new" class="mf-button mt-7">Create a safeguard</a>
+  </section>
   {{ end }}
 </div>
 {{ end }}

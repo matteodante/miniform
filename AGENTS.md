@@ -2,11 +2,11 @@
 
 ## Project Overview
 
-Miniform is a self-hosted form backend written in Go. It uses Phoenix Context Architecture to organize code into bounded contexts with clear separation of concerns.
+Miniform is a self-hosted form inbox written in Go. It uses small domain packages with clear ownership and dependency boundaries.
 
 ## Architecture Patterns
 
-### Phoenix Context Architecture
+### Domain package architecture
 
 Code is organized into contexts (bounded domains):
 - **accounts** — User management

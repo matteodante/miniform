@@ -1,10 +1,11 @@
-// e2e/006-submissions.spec.js - Test form submissions and rate limiting
+// e2e/006-submissions.spec.js - Test inbox entries and rate limiting
 const { test, expect } = require("@playwright/test");
 const { TestHelpers } = require("./test-helpers");
 const { TEST_EMAIL, TEST_PASSWORD } = require("./test-constants");
 
-test.describe("Form Submissions", () => {
+test.describe("Inbox entries", () => {
   let helpers;
+  let formId;
   let formToken;
   let formSlug;
 
@@ -19,6 +20,7 @@ test.describe("Form Submissions", () => {
     const timestamp = Date.now();
     formSlug = `test-contact-form-${timestamp}`;
     const formData = await helpers.createFormData("Test Contact Form", formSlug);
+    formId = formData.formId;
     formToken = formData.token;
 
     helpers.log(`Created test form: ${formSlug} with token: ${formToken}`);
@@ -43,14 +45,11 @@ test.describe("Form Submissions", () => {
     helpers.log("✅ Form submitted successfully");
 
     // Check submission in admin
-    await helpers.navigateTo("/admin/forms");
-    await page.waitForSelector(`text=Test Contact Form`);
-    await page.locator('tr:has-text("Test Contact Form")').first().click();
-    await page.waitForLoadState("networkidle");
+    await helpers.navigateTo(`/admin/forms/${formId}`);
 
     // Should show submission count or content
     const pageContent = await page.textContent("body");
-    expect(pageContent).toMatch(/submissions?|Alice Smith/i);
+    expect(pageContent).toMatch(/inbox entries|Alice Smith/i);
 
     helpers.log("✅ Submission appears in admin");
   });

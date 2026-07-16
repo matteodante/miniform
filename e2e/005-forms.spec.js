@@ -1,9 +1,9 @@
-// e2e/005-forms.spec.js - Test form CRUD operations
+// e2e/005-forms.spec.js - Test endpoint CRUD operations
 const { test, expect } = require("@playwright/test");
 const { TestHelpers } = require("./test-helpers");
 const { TEST_EMAIL, TEST_PASSWORD } = require("./test-constants");
 
-test.describe("Forms Management", () => {
+test.describe("Endpoint management", () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -21,19 +21,19 @@ test.describe("Forms Management", () => {
   });
 
   test("1. Create a new form", async ({ page }) => {
-    helpers.log("=== Creating New Form ===");
+    helpers.log("=== Creating New Endpoint ===");
 
     await helpers.navigateTo("/admin/forms");
 
-    // Click New Form button to go to template selector
-    await page.click('text=New Form');
+    // Open the endpoint starting-point selector.
+    await page.click('text=New endpoint');
 
     // Wait for template selector page to load
     await page.waitForURL("**/admin/forms/new");
     helpers.log(`Template selector URL: ${page.url()}`);
 
     // Wait for template selector content
-    await page.waitForSelector('h1:has-text("Choose a Template")');
+    await page.waitForSelector('h1:has-text("Choose a starting point")');
 
     // Click on Contact Form template
     await page.click('text=Contact Form');
@@ -47,36 +47,22 @@ test.describe("Forms Management", () => {
     expect(await page.inputValue('input[name="name"]')).toBe("Contact Form");
     expect(await page.inputValue('input[name="slug"]')).toBe("contact");
 
+    const endpointSlug = `contact-${Date.now()}`;
+    await page.fill('input[name="slug"]', endpointSlug);
+    await page.fill('input[name="allowed_origins"]', '*');
+    await page.uncheck('input[name="email_enabled"]');
+
     // Submit the form
-    await page.click('text=Create Form');
-    helpers.log("Clicked Create Form button");
+    await page.click('main form[action="/admin/forms"] button[type="submit"]');
+    helpers.log("Clicked Create endpoint button");
 
-    // Wait a moment and check URL to see what happened
-    await page.waitForLoadState("networkidle");
-    helpers.log(`After submit URL: ${page.url()}`);
+    await page.waitForURL(/\/admin\/forms\/\d+$/);
 
-    // Check if there are any validation errors on the page
-    const pageContent = await page.textContent("body");
-    if (pageContent.includes("error") || pageContent.includes("Error") || pageContent.includes("required")) {
-      helpers.log(`Potential error on page: ${pageContent.includes("error") || pageContent.includes("Error") || pageContent.includes("required")}`);
-    }
+    const endpointContent = await page.textContent("body");
+    expect(endpointContent).toContain("Contact Form");
+    expect(endpointContent).toContain(endpointSlug);
 
-    // If still on form page, check for errors, otherwise expect redirect
-    if (page.url().includes("/admin/forms/new")) {
-      helpers.log("Still on form creation page - checking for validation errors");
-      const errorContent = await page.textContent("body");
-      helpers.log(`Page has error content: ${errorContent.substring(0, 200)}`);
-    } else {
-      // Should redirect to forms list
-      await page.waitForURL("**/admin/forms");
-
-      // Verify the form was created
-      const formsContent = await page.textContent("body");
-      expect(formsContent).toContain("Contact Form");
-      expect(formsContent).toContain("/contact");
-
-      helpers.log("✅ Form created successfully");
-    }
+    helpers.log("✅ Endpoint created successfully");
   });
 
   test("2. View form details and get token", async ({ page }) => {

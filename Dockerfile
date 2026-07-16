@@ -57,6 +57,7 @@ RUN apk add --no-cache ca-certificates tzdata curl && \
   mkdir -p /app/storage /app/storage/logs
 
 COPY --from=builder /src/miniform /usr/local/bin/miniform
+COPY --from=builder /src/web /app/web
 
 ENV MINIFORM_ENV=production \
   MINIFORM_PORT=8080 \

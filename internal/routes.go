@@ -31,7 +31,7 @@ func MountRoutes(s *cartridge.Server, cfg *config.Config) {
 	})
 
 	s.Get("/", func(ctx *cartridge.Context) error {
-		return ctx.Redirect("/admin")
+		return ctx.Redirect("/admin/submissions")
 	})
 
 	// Public demo page
@@ -114,7 +114,9 @@ func MountRoutes(s *cartridge.Server, cfg *config.Config) {
 	}
 
 	// Protected routes (require a logged-in session).
-	s.Get("/admin", httphandlers.AdminDashboard, authConfig)
+	s.Get("/admin", func(ctx *cartridge.Context) error {
+		return ctx.Redirect("/admin/submissions")
+	}, authConfig)
 	s.Post("/admin/logout", httphandlers.AdminLogout, authConfig)
 	s.Get("/admin/forms", httphandlers.AdminFormsIndex, authConfig)
 	s.Get("/admin/forms/new", httphandlers.AdminFormsNew, authConfig)
@@ -124,8 +126,6 @@ func MountRoutes(s *cartridge.Server, cfg *config.Config) {
 	s.Post("/admin/forms/:id", httphandlers.AdminFormsUpdate, authConfig)
 	s.Get("/admin/submissions/:id", httphandlers.AdminSubmissionShow, authConfig)
 	s.Get("/admin/submissions/:id/files/:file_id", httphandlers.AdminSubmissionFileDownload, authConfig)
-
-	// Pro feature paywall pages
 
 	// Settings routes
 	s.Get("/admin/settings", httphandlers.AdminSettingsPage, authConfig)

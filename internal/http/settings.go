@@ -8,7 +8,6 @@ import (
 	"github.com/karloscodes/cartridge"
 
 	"github.com/matteodante/miniform/internal/accounts"
-	"github.com/matteodante/miniform/pkg/extension"
 )
 
 // AdminSettingsPage renders the settings page.
@@ -26,22 +25,11 @@ func AdminSettingsPage(ctx *cartridge.Context) error {
 		return fiber.ErrInternalServerError
 	}
 
-	// Base template data
-	data := fiber.Map{
-		"Title":       "Settings",
+	return ctx.Render("layouts/base", fiber.Map{
+		"Title":       "Workspace",
 		"ContentView": "admin/settings/content",
 		"User":        user,
-	}
-
-	// Allow pro to extend settings data
-	proData := extension.GetSettingsData()
-	if proData != nil {
-		for k, v := range proData {
-			data[k] = v
-		}
-	}
-
-	return ctx.Render("layouts/base", data, "")
+	}, "")
 }
 
 // AdminSettingsUpdatePassword handles password updates from settings page.
@@ -139,7 +127,7 @@ func renderSettingsError(ctx *cartridge.Context, message string) error {
 	user, _ := accounts.FindByID(db, userID)
 
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Settings",
+		"Title":       "Workspace",
 		"Error":       message,
 		"ContentView": "admin/settings/content",
 		"User":        user,
@@ -153,7 +141,7 @@ func renderSettingsSuccess(ctx *cartridge.Context, message string) error {
 	user, _ := accounts.FindByID(db, userID)
 
 	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Settings",
+		"Title":       "Workspace",
 		"Success":     message,
 		"ContentView": "admin/settings/content",
 		"User":        user,

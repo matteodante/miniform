@@ -4,15 +4,20 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"log/slog"
 	"os"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/matteodante/miniform/internal"
+	"github.com/matteodante/miniform/internal/cli"
+	"github.com/matteodante/miniform/internal/config"
 	"github.com/matteodante/miniform/internal/database"
 
+	cartridgesqlite "github.com/karloscodes/cartridge/sqlite"
 	"github.com/karloscodes/matcha"
 	"golang.org/x/term"
 )
@@ -24,7 +29,14 @@ var (
 )
 
 func main() {
-	if len(os.Args) < 2 || strings.HasPrefix(os.Args[1], "-") {
+	if len(os.Args) < 2 {
+		runServer()
+		return
+	}
+	if cli.IsInvocation(os.Args[1:]) {
+		os.Exit(runDataCLI(os.Args[1:]))
+	}
+	if strings.HasPrefix(os.Args[1], "-") {
 		runServer()
 		return
 	}
@@ -73,6 +85,46 @@ func main() {
 		printUsage()
 		os.Exit(1)
 	}
+}
+
+func runDataCLI(args []string) int {
+	var cfg *config.Config
+	if cli.RequiresConfig(args) {
+		loaded, err := config.Load()
+		if err != nil {
+			return cli.WriteStartupFailure(args, os.Stderr, "load configuration")
+		}
+		cfg = loaded
+	}
+	dependencies := cli.Dependencies{Config: cfg}
+
+	if cli.RequiresDatabase(args) {
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		manager := cartridgesqlite.NewManager(cartridgesqlite.Config{
+			Path:         cfg.DatabasePath,
+			MaxOpenConns: cfg.GetMaxOpenConns(),
+			MaxIdleConns: cfg.GetMaxIdleConns(),
+			Logger:       logger,
+		})
+		db, err := manager.Connect()
+		if err != nil {
+			return cli.WriteStartupFailure(args, os.Stderr, "connect database")
+		}
+		if err := database.Migrate(db); err != nil {
+			return cli.WriteStartupFailure(args, os.Stderr, "prepare database")
+		}
+		defer func() {
+			if err := manager.Close(); err != nil {
+				log.Printf("close database: %v", err)
+			}
+		}()
+
+		dependencies.DB = db
+		dependencies.Logger = logger
+	}
+
+	runner := cli.NewRunner(dependencies)
+	return runner.Run(args)
 }
 
 func newMatcha() *matcha.Matcha {
@@ -201,6 +253,17 @@ func printUsage() {
 	fmt.Println("  restore-db                  Restore database from backup")
 	fmt.Println("  change-admin-password       Change admin password")
 	fmt.Println("  check                       Check server security")
+	fmt.Println("")
+	fmt.Println("Data Commands:")
+	fmt.Println("  account <action>            Manage operator credentials")
+	fmt.Println("  config <action>             Inspect or persist runtime configuration")
+	fmt.Println("  setting <action>            Manage database-backed settings")
+	fmt.Println("  form <action>               Manage endpoints and delivery policies")
+	fmt.Println("  mailer <action>             Manage SMTP and Mailgun profiles")
+	fmt.Println("  captcha <action>            Manage captcha profiles")
+	fmt.Println("  submission <action>         Manage inbox entries and files")
+	fmt.Println("  event <action>              Inspect or retry delivery events")
+	fmt.Println("  commands --json             Print the machine-readable command catalog")
 	fmt.Println("")
 	fmt.Println("Other Commands:")
 	fmt.Println("  version                     Show version info")

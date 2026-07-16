@@ -4,90 +4,99 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        white: "#FFFEFA",
+        white: "#FFFFFF",
         gray: {
-          50: "#F8F5EE",
-          100: "#F1ECE2",
-          200: "#E2DACC",
-          300: "#CFC4B2",
-          400: "#989D93",
-          500: "#6E756B",
-          600: "#555D53",
-          700: "#3D443C",
-          800: "#2E332C",
-          900: "#242820"
+          50: "#F7F8FC",
+          100: "#F1F3F9",
+          200: "#E3E6F0",
+          300: "#CCD2E2",
+          400: "#9CA5BC",
+          500: "#6F7891",
+          600: "#515A73",
+          700: "#373E55",
+          800: "#24293D",
+          900: "#171A2B"
         },
         blue: {
-          50: "#EDF2EC",
-          100: "#DDE5DC",
-          200: "#C2D0C1",
-          300: "#9EB29F",
-          400: "#718A74",
-          500: "#5C765F",
-          600: "#4E6653",
-          700: "#34473A",
-          800: "#29382F",
-          900: "#202B24"
+          50: "#EEF0FF",
+          100: "#E1E5FF",
+          200: "#C9D0FF",
+          300: "#A6B2FF",
+          400: "#7487FF",
+          500: "#4057F4",
+          600: "#3348D5",
+          700: "#2D3EC3",
+          800: "#29379D",
+          900: "#252F7C"
         },
         green: {
-          50: "#EDF2EC",
-          100: "#DDE5DC",
-          200: "#C2D0C1",
-          500: "#5C765F",
-          600: "#4E6653",
-          700: "#34473A",
-          800: "#29382F",
-          900: "#202B24"
+          50: "#EAF8F4",
+          100: "#D2F0E7",
+          200: "#A7E0D1",
+          500: "#1D9A7A",
+          600: "#147D64",
+          700: "#126552",
+          800: "#114F43",
+          900: "#103F37"
         },
         purple: {
-          50: "#EDF2EC",
-          100: "#DDE5DC",
-          500: "#5C765F",
-          600: "#4E6653",
-          700: "#34473A"
+          50: "#F3F0FF",
+          100: "#E9E3FF",
+          500: "#7257E8",
+          600: "#6044CF",
+          700: "#4E36AD"
+        },
+        indigo: {
+          50: "#EEF0FF",
+          100: "#E1E5FF",
+          500: "#4057F4",
+          600: "#3348D5",
+          700: "#2D3EC3",
+          900: "#171A2B"
         },
         red: {
-          50: "#F8EFEC",
-          100: "#F0DDD7",
-          200: "#E4C1B8",
-          500: "#B85C47",
-          600: "#9B4335",
-          700: "#7E352B",
-          800: "#652D26"
+          50: "#FFF0EE",
+          100: "#FFDED9",
+          200: "#FFBDB5",
+          500: "#E65B4F",
+          600: "#C9483E",
+          700: "#A83A33",
+          800: "#89332E"
         },
         rose: {
-          50: "#F8EFEC",
-          100: "#F0DDD7",
-          200: "#E4C1B8",
-          500: "#B85C47",
-          600: "#9B4335",
-          700: "#7E352B",
-          800: "#652D26"
+          50: "#FFF0EE",
+          100: "#FFDED9",
+          200: "#FFBDB5",
+          500: "#E65B4F",
+          600: "#C9483E",
+          700: "#A83A33",
+          800: "#89332E"
         },
         ink: {
-          DEFAULT: "#242820",
-          muted: "#6E756B"
+          DEFAULT: "#171A2B",
+          muted: "#6F7891"
         },
         paper: {
-          DEFAULT: "#F5F1E8",
-          raised: "#FFFEFA"
+          DEFAULT: "#F1F3F9",
+          raised: "#FFFFFF"
         },
-        parchment: "#E8E0D1",
-        rule: "#D4CBBB",
+        parchment: "#D9DEEC",
+        rule: "#D8DDEA",
         moss: {
-          DEFAULT: "#4E6653",
-          dark: "#34473A",
-          pale: "#DDE5DC"
+          DEFAULT: "#4057F4",
+          dark: "#2D3EC3",
+          pale: "#E1E5FF"
         },
-        clay: "#9B4335"
+        clay: "#E65B4F"
       },
       fontFamily: {
-        display: ['"Iowan Old Style"', '"Palatino Linotype"', "Palatino", "Georgia", "serif"],
-        sans: ['"Avenir Next"', "Avenir", '"Segoe UI"', "sans-serif"],
+        display: ['"Avenir Next Condensed"', '"Arial Narrow"', '"Roboto Condensed"', "sans-serif"],
+        sans: ['"Avenir Next"', "Avenir", '"Segoe UI"', "system-ui", "sans-serif"],
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "monospace"]
       },
       boxShadow: {
-        paper: "0 18px 50px rgba(36, 40, 32, 0.08)"
+        paper: "0 24px 70px rgba(23, 26, 43, 0.10)",
+        lift: "0 12px 30px rgba(23, 26, 43, 0.08)"
       }
     }
   },

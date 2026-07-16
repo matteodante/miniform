@@ -29,7 +29,7 @@ func TestVerifyTurnstileToken(t *testing.T) {
 				Success:     true,
 				Hostname:    "example.com",
 				Action:      "submit",
-				ChallengeTS: time.Now().Format(time.RFC3339),
+				ChallengeTS: time.Now().UTC().Format(time.RFC3339),
 			})
 		}))
 		defer server.Close()

@@ -69,6 +69,7 @@ Production mode requires HTTPS and a persistent `MINIFORM_SESSION_SECRET`. See t
 
 - [Installation and upgrades](docs/installation.md)
 - [Configuration reference](docs/configuration.md)
+- [CLI reference](docs/cli.md)
 - [Architecture](docs/architecture.md)
 - [Development guide](docs/development.md)
 - [Troubleshooting](docs/troubleshooting.md)

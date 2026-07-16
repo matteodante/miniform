@@ -7,6 +7,11 @@ import (
 	"time"
 
 	"github.com/matteodante/miniform/internal/config"
+	"github.com/matteodante/miniform/internal/forms"
+	"github.com/matteodante/miniform/internal/pkg/testsupport"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewRetryStrategy(t *testing.T) {
@@ -89,6 +94,75 @@ func TestNextRetryEmptySchedule(t *testing.T) {
 	if nextRetry == nil {
 		t.Error("NextRetry() with empty schedule should use default and return non-nil")
 	}
+}
+
+func TestEventScheduling(t *testing.T) {
+	t.Run("normalizes scheduled instants to UTC", func(t *testing.T) {
+		scheduled := time.Date(2026, time.July, 16, 16, 30, 0, 0, time.FixedZone("CEST", 2*60*60))
+
+		webhook := forms.NewWebhookEvent(1, scheduled)
+		require.NotNil(t, webhook.NextAttemptAt)
+		assert.Equal(t, time.UTC, webhook.NextAttemptAt.Location())
+		assert.True(t, webhook.NextAttemptAt.Equal(scheduled))
+
+		email := forms.NewEmailEvent(1, scheduled)
+		require.NotNil(t, email.NextAttemptAt)
+		assert.Equal(t, time.UTC, email.NextAttemptAt.Location())
+		assert.True(t, email.NextAttemptAt.Equal(scheduled))
+	})
+
+	t.Run("selects due events by UTC timestamp", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form := &forms.Form{Name: "Timezone", Slug: "timezone", AllowedOrigins: "*"}
+		require.NoError(t, db.Create(form).Error)
+		submission := &forms.Submission{FormID: form.ID, DataJSON: `{}`}
+		require.NoError(t, db.Create(submission).Error)
+
+		now := time.Now().UTC()
+		dueAt := now.Add(-time.Hour)
+		futureAt := now.Add(time.Hour)
+		due := &forms.EmailEvent{SubmissionID: submission.ID, Status: forms.WebhookStatusRetrying, NextAttemptAt: &dueAt}
+		future := &forms.EmailEvent{SubmissionID: submission.ID, Status: forms.WebhookStatusRetrying, NextAttemptAt: &futureAt}
+		complete := &forms.EmailEvent{SubmissionID: submission.ID, Status: forms.WebhookStatusDelivered}
+		require.NoError(t, db.Create(due).Error)
+		require.NoError(t, db.Create(future).Error)
+		require.NoError(t, db.Create(complete).Error)
+
+		var events []forms.EmailEvent
+		require.NoError(t, dueEventQuery(db.Model(&forms.EmailEvent{}), now).Find(&events).Error)
+		require.Len(t, events, 1)
+		assert.Equal(t, due.ID, events[0].ID)
+	})
+
+	t.Run("orders due events by scheduled UTC time", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form := &forms.Form{Name: "Timezone", Slug: "timezone-order", AllowedOrigins: "*"}
+		require.NoError(t, db.Create(form).Error)
+		submission := &forms.Submission{FormID: form.ID, DataJSON: `{}`}
+		require.NoError(t, db.Create(submission).Error)
+
+		laterSchedule := time.Now().UTC().Add(-time.Minute)
+		earlierSchedule := laterSchedule.Add(-time.Minute)
+		older := &forms.EmailEvent{
+			SubmissionID:  submission.ID,
+			Status:        forms.WebhookStatusPending,
+			NextAttemptAt: &laterSchedule,
+			CreatedAt:     time.Date(2026, time.July, 16, 14, 30, 0, 0, time.UTC),
+		}
+		newer := &forms.EmailEvent{
+			SubmissionID:  submission.ID,
+			Status:        forms.WebhookStatusPending,
+			NextAttemptAt: &earlierSchedule,
+			CreatedAt:     time.Date(2026, time.July, 16, 15, 0, 0, 0, time.UTC),
+		}
+		require.NoError(t, db.Create(older).Error)
+		require.NoError(t, db.Create(newer).Error)
+
+		var events []forms.EmailEvent
+		require.NoError(t, dueEventQuery(db.Model(&forms.EmailEvent{}), time.Now().UTC()).Find(&events).Error)
+		require.Len(t, events, 2)
+		assert.Equal(t, []uint{newer.ID, older.ID}, []uint{events[0].ID, events[1].ID})
+	})
 }
 
 func TestShouldRetry(t *testing.T) {
@@ -202,13 +276,15 @@ func TestUpdateOptions(t *testing.T) {
 
 	t.Run("WithNextAttempt", func(t *testing.T) {
 		values := make(map[string]any)
-		now := time.Now()
+		now := time.Now().In(time.FixedZone("CEST", 2*60*60))
 		opt := WithNextAttempt(&now)
 		opt(values)
 
-		if values["next_attempt_at"] != &now {
-			t.Error("WithNextAttempt() did not set next_attempt_at correctly")
-		}
+		next, ok := values["next_attempt_at"].(*time.Time)
+		require.True(t, ok)
+		require.NotNil(t, next)
+		assert.Equal(t, time.UTC, next.Location())
+		assert.True(t, next.Equal(now))
 	})
 
 	t.Run("WithNextAttempt nil", func(t *testing.T) {
@@ -229,7 +305,7 @@ func TestUpdateOptions(t *testing.T) {
 
 	t.Run("multiple options", func(t *testing.T) {
 		values := make(map[string]any)
-		now := time.Now()
+		now := time.Now().UTC()
 
 		opt1 := WithAttemptCount(3)
 		opt2 := WithNextAttempt(&now)
@@ -240,9 +316,10 @@ func TestUpdateOptions(t *testing.T) {
 		if values["attempt_count"] != 3 {
 			t.Error("Multiple options: attempt_count not set")
 		}
-		if values["next_attempt_at"] != &now {
-			t.Error("Multiple options: next_attempt_at not set")
-		}
+		next, ok := values["next_attempt_at"].(*time.Time)
+		require.True(t, ok)
+		require.NotNil(t, next)
+		assert.True(t, next.Equal(now))
 	})
 }
 

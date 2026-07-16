@@ -5,78 +5,124 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="A quiet, self-hosted inbox for every form on your websites.">
-    <meta name="theme-color" content="#F5F1E8">
+    <meta name="description" content="A self-hosted inbox for every form on your websites.">
+    <meta name="theme-color" content="#171A2B">
     <title>{{ if .Title }}{{ .Title }} · Miniform{{ else }}Miniform{{ end }}</title>
     <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/app.built.css?v={{ assetVersion }}">
 </head>
 
-<body hx-boost="true" class="flex min-h-screen flex-col bg-paper font-sans text-ink antialiased">
+<body hx-boost="true" class="min-h-screen bg-paper font-sans text-ink antialiased">
     <a href="#content"
-        class="sr-only z-50 bg-ink px-4 py-2 text-paper focus:not-sr-only focus:fixed focus:left-4 focus:top-4">
+        class="sr-only z-[80] rounded-lg bg-ink px-4 py-2 text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4">
         Skip to content
     </a>
     <div id="page-loader" aria-hidden="true"></div>
 
-    <header class="border-b border-rule bg-paper/95">
-        <div class="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-8 gap-y-4 px-5 py-4 sm:px-8">
-            <a href="/admin/submissions" class="group flex items-center gap-3" aria-label="Miniform inbox">
-                <img src="/assets/mark.svg" alt="Miniform" class="h-8 w-8 transition-transform duration-200 group-hover:-rotate-3">
+    {{ if .HideHeaderActions }}
+    <div class="flex min-h-screen flex-col">
+        <header class="mf-auth-header">
+            <a href="/admin/login" class="mf-auth-brand" aria-label="Miniform sign in">
+                <img src="/assets/mark.svg" alt="" class="mf-brand-mark">
                 <span>
-                    <span class="block font-display text-xl leading-none tracking-[-0.03em]">Miniform</span>
-                    <span class="mt-1 block font-mono text-[0.625rem] uppercase tracking-[0.16em] text-ink-muted">quiet form inbox</span>
+                    <span class="block font-display text-2xl font-bold leading-none tracking-[-0.035em]">Miniform</span>
+                    <span class="mt-1 block font-mono text-[0.625rem] uppercase tracking-[0.18em] text-ink-muted">signal desk</span>
+                </span>
+            </a>
+            <span class="hidden items-center gap-2 font-mono text-[0.625rem] uppercase tracking-[0.16em] text-ink-muted sm:inline-flex">
+                <span class="h-2 w-2 rounded-full bg-green-600"></span>
+                Self-hosted
+            </span>
+        </header>
+
+        <main id="content" class="mf-auth-main">
+            {{ if .ContentView }}
+            {{ render .ContentView . }}
+            {{ end }}
+        </main>
+
+        <footer class="px-5 pb-6 text-center font-mono text-[0.625rem] uppercase tracking-[0.16em] text-ink-muted sm:px-8">
+            Your server. Your responses.
+        </footer>
+    </div>
+    {{ else }}
+    <div class="mf-app-shell">
+        <aside class="mf-sidebar" aria-label="Workspace navigation">
+            <a href="/admin/submissions" class="mf-brand" aria-label="Miniform inbox">
+                <img src="/assets/mark.svg" alt="" class="mf-brand-mark">
+                <span>
+                    <span class="block font-display text-2xl font-bold leading-none tracking-[-0.035em]">Miniform</span>
+                    <span class="mt-1 block font-mono text-[0.625rem] uppercase tracking-[0.18em] text-gray-400">signal desk</span>
                 </span>
             </a>
 
-            {{ if not .HideHeaderActions }}
-            <nav class="order-3 flex w-full items-center gap-1 overflow-x-auto border-t border-rule pt-3 sm:order-none sm:w-auto sm:flex-1 sm:border-0 sm:pt-0"
-                aria-label="Primary navigation">
-                <a href="/admin/submissions" data-nav
-                    class="whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm font-medium text-ink-muted transition-colors hover:text-ink aria-[current=page]:border-moss aria-[current=page]:text-ink">
-                    Inbox
+            <nav class="mf-route-nav" aria-label="Primary navigation">
+                <a href="/admin/submissions" data-nav class="mf-route-link">
+                    <span class="mf-route-port" aria-hidden="true"></span>
+                    <span>Inbox</span>
+                    <span class="ml-auto hidden font-mono text-[0.5625rem] uppercase tracking-wider opacity-50 lg:block">receive</span>
                 </a>
-                <a href="/admin/forms" data-nav
-                    class="whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm font-medium text-ink-muted transition-colors hover:text-ink aria-[current=page]:border-moss aria-[current=page]:text-ink">
-                    Endpoints
+                <a href="/admin/forms" data-nav class="mf-route-link">
+                    <span class="mf-route-port" aria-hidden="true"></span>
+                    <span>Endpoints</span>
+                    <span class="ml-auto hidden font-mono text-[0.5625rem] uppercase tracking-wider opacity-50 lg:block">route</span>
                 </a>
-                <a href="/admin/settings/mailers" data-nav
-                    class="whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm font-medium text-ink-muted transition-colors hover:text-ink aria-[current=page]:border-moss aria-[current=page]:text-ink">
-                    Delivery
+                <a href="/admin/settings/mailers" data-nav class="mf-route-link">
+                    <span class="mf-route-port" aria-hidden="true"></span>
+                    <span>Delivery</span>
+                    <span class="ml-auto hidden font-mono text-[0.5625rem] uppercase tracking-wider opacity-50 lg:block">send</span>
                 </a>
-                <a href="/admin/settings/captcha" data-nav
-                    class="whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm font-medium text-ink-muted transition-colors hover:text-ink aria-[current=page]:border-moss aria-[current=page]:text-ink">
-                    Safeguards
+                <a href="/admin/settings/captcha" data-nav class="mf-route-link">
+                    <span class="mf-route-port" aria-hidden="true"></span>
+                    <span>Safeguards</span>
+                    <span class="ml-auto hidden font-mono text-[0.5625rem] uppercase tracking-wider opacity-50 lg:block">filter</span>
                 </a>
-                <a href="/admin/settings" data-nav
-                    class="whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm font-medium text-ink-muted transition-colors hover:text-ink aria-[current=page]:border-moss aria-[current=page]:text-ink">
-                    Workspace
+                <a href="/admin/settings" data-nav class="mf-route-link">
+                    <span class="mf-route-port" aria-hidden="true"></span>
+                    <span>Workspace</span>
+                    <span class="ml-auto hidden font-mono text-[0.5625rem] uppercase tracking-wider opacity-50 lg:block">access</span>
                 </a>
             </nav>
 
-            <form action="/admin/logout" method="post" class="ml-auto sm:ml-0">
-                <button type="submit"
-                    class="rounded-md border border-rule bg-transparent px-3 py-2 text-xs font-semibold text-ink-muted transition-colors hover:border-ink hover:text-ink focus:outline-none focus:ring-2 focus:ring-moss focus:ring-offset-2 focus:ring-offset-paper">
-                    Sign out
-                </button>
-            </form>
-            {{ end }}
-        </div>
-    </header>
+            <div class="mf-sidebar-status">
+                <div class="flex items-center gap-2">
+                    <span class="relative flex h-2.5 w-2.5">
+                        <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-40"></span>
+                        <span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500"></span>
+                    </span>
+                    <span class="text-xs font-semibold text-white">Ingress ready</span>
+                </div>
+                <p class="mt-2 text-xs leading-5 text-gray-400">Responses are landing on this server.</p>
+            </div>
+        </aside>
 
-    <main id="content" class="mx-auto w-full max-w-7xl flex-1 px-5 py-10 sm:px-8 sm:py-14">
-        {{ if .ContentView }}
-        {{ render .ContentView . }}
-        {{ end }}
-    </main>
+        <section class="mf-workspace flex min-h-screen flex-col">
+            <header class="mf-topbar">
+                <div>
+                    <p class="font-mono text-[0.625rem] font-semibold uppercase tracking-[0.18em] text-ink-muted">Operator console</p>
+                    <p class="mt-0.5 text-sm font-semibold text-ink">Private workspace · <span data-timezone-label>browser time</span></p>
+                </div>
+                <form action="/admin/logout" method="post">
+                    <button type="submit" class="mf-button-secondary px-3 py-2 text-xs">Sign out</button>
+                </form>
+            </header>
 
-    <footer class="border-t border-rule px-5 py-5 text-xs text-ink-muted sm:px-8">
-        <div class="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-2">
-            <span>Miniform keeps the inbox on your server.</span>
-            <a href="https://github.com/matteodante/miniform" target="_blank" rel="noopener"
-                class="font-mono underline decoration-rule underline-offset-4 hover:decoration-moss">source</a>
-        </div>
-    </footer>
+            <main id="content" class="mf-main">
+                {{ if .ContentView }}
+                {{ render .ContentView . }}
+                {{ end }}
+            </main>
+
+            <footer class="mf-footer">
+                <div class="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-2">
+                    <span>Miniform keeps every response on your server.</span>
+                    <a href="https://github.com/matteodante/miniform" target="_blank" rel="noopener"
+                        class="font-mono font-semibold underline decoration-rule underline-offset-4 hover:decoration-moss">Source ↗</a>
+                </div>
+            </footer>
+        </section>
+    </div>
+    {{ end }}
 
     <script src="/assets/vendor/htmx.min.js?v={{ assetVersion }}"></script>
     <script>
@@ -89,8 +135,35 @@
             if (current) current.setAttribute('aria-current', 'page');
         }
 
+        function localizeTimes(root = document) {
+            const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local time';
+
+            root.querySelectorAll('[data-timezone-label]').forEach((label) => {
+                label.textContent = timeZone;
+            });
+
+            root.querySelectorAll('time[data-local-time]').forEach((element) => {
+                const timestamp = new Date(element.dateTime);
+                if (Number.isNaN(timestamp.getTime())) return;
+
+                const options = {};
+                if (element.dataset.dateStyle) options.dateStyle = element.dataset.dateStyle;
+                if (element.dataset.timeStyle) options.timeStyle = element.dataset.timeStyle;
+
+                element.textContent = new Intl.DateTimeFormat(undefined, options).format(timestamp);
+                element.title = `${new Intl.DateTimeFormat(undefined, {
+                    dateStyle: 'full',
+                    timeStyle: 'long',
+                }).format(timestamp)} · ${timeZone}`;
+            });
+        }
+
         markCurrentNavigation();
-        document.body.addEventListener('htmx:afterSwap', markCurrentNavigation);
+        localizeTimes();
+        document.body.addEventListener('htmx:afterSwap', (event) => {
+            markCurrentNavigation();
+            localizeTimes(event.target);
+        });
     </script>
 </body>
 

@@ -21,7 +21,7 @@ test.describe("Local test page", () => {
     });
 
     await page.goto(`/_demo?slug=${slug}`);
-    await expect(page.getByRole("heading", { name: "Send a real submission." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Send one. Trace everything." })).toBeVisible();
 
     await page.getByLabel("Name").fill("Browser Tester");
     await page.getByLabel("Email", { exact: true }).fill("browser@example.com");
@@ -51,6 +51,10 @@ test.describe("Local test page", () => {
       message: "Testing the local demo end to end.",
       channels: ["email", "webhook"],
     });
+    await expect(page.getByRole("link", { name: `Open submission #${submission.id}` })).toHaveAttribute(
+      "href",
+      `/admin/submissions/${submission.id}`
+    );
 
     const attachment = await helpers.getSQL(
       "SELECT filename FROM submission_files WHERE submission_id = ?",

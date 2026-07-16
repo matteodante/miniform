@@ -27,7 +27,7 @@ func MailerProfileList(ctx *cartridge.Context) error {
 	db := ctx.DB()
 
 	var profiles []integrations.MailerProfile
-	if err := db.Order("created_at DESC").Find(&profiles).Error; err != nil {
+	if err := db.Order("created_at DESC, id DESC").Find(&profiles).Error; err != nil {
 		return fiber.ErrInternalServerError
 	}
 

@@ -120,7 +120,7 @@ func Authenticate(logger *slog.Logger, db *gorm.DB, email, password string) (*Au
 	isFirstLogin := user.LastLoginAt == nil
 
 	// Update last login timestamp
-	now := time.Now()
+	now := time.Now().UTC()
 	user.LastLoginAt = &now
 
 	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {

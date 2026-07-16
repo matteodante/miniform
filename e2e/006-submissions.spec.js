@@ -74,7 +74,61 @@ test.describe("Inbox entries", () => {
     const pageContent = await page.textContent("body");
     expect(pageContent).toMatch(/bob@example\.com|Test Contact Form/i);
 
+    const receivedDate = page.locator('time[data-local-time][data-date-style="medium"]').first();
+    const timestamp = await receivedDate.getAttribute("datetime");
+    expect(timestamp).toMatch(/Z$/);
+    const expectedDate = await page.evaluate(
+      (value) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value)),
+      timestamp
+    );
+    await expect(receivedDate).toHaveText(expectedDate);
+    const browserTimeZone = await page.evaluate(
+      () => Intl.DateTimeFormat().resolvedOptions().timeZone || "local time"
+    );
+    await expect(page.locator("[data-timezone-label]")).toHaveText(browserTimeZone);
+
     helpers.log("✅ Submission list displayed correctly");
+  });
+
+  test("renders one UTC instant in each browser timezone", async ({ browser, page }) => {
+    const response = await helpers.submitToForm(formSlug, formToken, {
+      name: "Timezone Tester",
+      email: "timezone@example.com",
+      message: "Same instant, different local presentation",
+    });
+    expect(response.status()).toBe(200);
+
+    const baseURL = new URL(page.url()).origin;
+    const renderedTimes = [];
+    let expectedInstant;
+
+    for (const timezoneId of ["Europe/Rome", "America/New_York"]) {
+      const context = await browser.newContext({ baseURL, locale: "en-US", timezoneId });
+      try {
+        const zonedPage = await context.newPage();
+        const zonedHelpers = new TestHelpers(zonedPage);
+        await zonedHelpers.login(TEST_EMAIL, TEST_PASSWORD);
+        await zonedHelpers.navigateTo("/admin/submissions");
+
+        const receivedTime = zonedPage.locator('time[data-local-time][data-time-style="short"]').first();
+        const instant = await receivedTime.getAttribute("datetime");
+        expect(instant).toMatch(/Z$/);
+        expectedInstant ??= instant;
+        expect(instant).toBe(expectedInstant);
+
+        const expectedTime = await zonedPage.evaluate(
+          (value) => new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(value)),
+          instant
+        );
+        await expect(receivedTime).toHaveText(expectedTime);
+        await expect(zonedPage.locator("[data-timezone-label]")).toHaveText(timezoneId);
+        renderedTimes.push(expectedTime);
+      } finally {
+        await context.close();
+      }
+    }
+
+    expect(renderedTimes[0]).not.toBe(renderedTimes[1]);
   });
 
   test("3. Test rate limiting", async ({ page }) => {

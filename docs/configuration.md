@@ -13,8 +13,13 @@ Miniform reads environment variables prefixed with `MINIFORM_` and an optional l
 | `MINIFORM_LOG_LEVEL` | `error` | Use `info` unless diagnosing a problem |
 | `MINIFORM_DATA_DIR` | `./storage` | Mount persistent, access-controlled storage |
 | `MINIFORM_DATABASE_FILENAME` | `miniform.db` | Change only before first deployment |
+| `MINIFORM_DATABASE_PATH` | Derived from data directory, environment, and filename | Use only when an explicit SQLite path is required |
 | `MINIFORM_LOGS_DIR` | Under the data directory | Keep on persistent storage if logs are retained |
 | `MINIFORM_SESSION_TIMEOUT_SECONDS` | Framework default | Set an explicit organizational policy if needed |
+| `MINIFORM_MAX_INPUT_FIELDS` | `200` | Maximum scalar fields accepted in one submission |
+| `MINIFORM_WEBHOOK_SIGNATURE_HEADER` | `X-Miniform-Signature` | Header used for outbound webhook signatures |
+| `MINIFORM_WEBHOOK_RETRY_LIMIT` | `3` | Maximum configured webhook delivery attempts |
+| `MINIFORM_WEBHOOK_BACKOFF_SCHEDULE` | `1,5,15,60` | Retry delays in seconds |
 
 Generate secrets with:
 
@@ -38,6 +43,8 @@ MINIFORM_DATABASE_FILENAME=miniform.db
 
 Do not store production secrets in a repository, container image, shell history, support ticket, or public log.
 
-## Dashboard-managed settings
+## Dashboard and CLI-managed settings
 
-Mailer profiles, Turnstile profiles, allowed origins, rate limits, webhook credentials, and per-form delivery policies are stored in SQLite and managed through the operator UI. Protect backups accordingly.
+Mailer profiles, Turnstile profiles, allowed origins, webhook credentials, submissions, and per-form delivery policies are stored in SQLite. Manage them through the operator UI or the [CLI](cli.md). Protect backups accordingly.
+
+Use `miniform config show` to inspect the resolved paths and runtime values. `miniform config set` and `config unset` update a local dotenv file; restart the server afterward. In container deployments, change the container environment instead of an ephemeral file inside the image.

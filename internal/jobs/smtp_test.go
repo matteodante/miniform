@@ -176,7 +176,7 @@ func TestEmailDispatcherDeliversViaSMTP(t *testing.T) {
 	sub := &forms.Submission{FormID: form.ID, DataJSON: `{"name":"Alice","email":"alice@example.com"}`}
 	require.NoError(t, db.Create(sub).Error)
 
-	event := &forms.EmailEvent{SubmissionID: sub.ID, Status: forms.WebhookStatusPending}
+	event := forms.NewEmailEvent(sub.ID, time.Now().UTC())
 	require.NoError(t, db.Create(event).Error)
 
 	d := NewEmailDispatcher(&config.Config{})

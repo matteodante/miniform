@@ -13,38 +13,42 @@ import (
 
 // CreateParams holds parameters for creating a new form
 type CreateParams struct {
-	Name               string
-	Slug               string
-	AllowedOrigins     string
-	UseSDK             bool
-	GeneratedHTML      string
-	MailerProfileID    *uint
-	CaptchaProfileID   *uint
-	EmailRecipient     string
-	EmailEnabled       bool
-	WebhookEnabled     bool
-	WebhookURL         string
-	WebhookSecret      string
-	WebhookHeadersJSON string
-	TemplateID         string
+	Name                 string
+	Slug                 string
+	AllowedOrigins       string
+	UseSDK               bool
+	GeneratedHTML        string
+	MailerProfileID      *uint
+	CaptchaProfileID     *uint
+	CaptchaOverridesJSON string
+	EmailRecipient       string
+	EmailEnabled         bool
+	WebhookEnabled       bool
+	WebhookURL           string
+	WebhookSecret        string
+	WebhookHeadersJSON   string
+	TemplateID           string
 }
 
 // UpdateParams holds parameters for updating a form
 type UpdateParams struct {
-	ID                 uint
-	Name               string
-	Slug               string
-	AllowedOrigins     string
-	UseSDK             bool
-	GeneratedHTML      string
-	MailerProfileID    *uint
-	CaptchaProfileID   *uint
-	EmailRecipient     string
-	EmailEnabled       bool
-	WebhookEnabled     bool
-	WebhookURL         string
-	WebhookSecret      string
-	WebhookHeadersJSON string
+	ID                     uint
+	Name                   string
+	Slug                   string
+	AllowedOrigins         string
+	UseSDK                 bool
+	GeneratedHTML          string
+	MailerProfileID        *uint
+	CaptchaProfileID       *uint
+	CaptchaOverridesJSON   string
+	UpdateGeneratedHTML    bool
+	UpdateCaptchaOverrides bool
+	EmailRecipient         string
+	EmailEnabled           bool
+	WebhookEnabled         bool
+	WebhookURL             string
+	WebhookSecret          string
+	WebhookHeadersJSON     string
 }
 
 // ValidationError represents a validation error
@@ -118,14 +122,25 @@ func Create(logger *slog.Logger, db *gorm.DB, params CreateParams) (*Form, error
 		webhookHeadersJSON = string(normalized)
 	}
 
+	captchaOverridesJSON := strings.TrimSpace(params.CaptchaOverridesJSON)
+	if captchaOverridesJSON != "" {
+		var overrides map[string]any
+		if err := json.Unmarshal([]byte(captchaOverridesJSON), &overrides); err != nil {
+			return nil, &ValidationError{Field: "captcha_overrides", Message: "Captcha overrides must be valid JSON"}
+		}
+		normalized, _ := json.Marshal(overrides)
+		captchaOverridesJSON = string(normalized)
+	}
+
 	// Create form model
 	form := &Form{
-		Name:             strings.TrimSpace(params.Name),
-		Slug:             slug,
-		AllowedOrigins:   strings.TrimSpace(params.AllowedOrigins),
-		UseSDK:           params.UseSDK,
-		GeneratedHTML:    strings.TrimSpace(params.GeneratedHTML),
-		CaptchaProfileID: params.CaptchaProfileID,
+		Name:                 strings.TrimSpace(params.Name),
+		Slug:                 slug,
+		AllowedOrigins:       strings.TrimSpace(params.AllowedOrigins),
+		UseSDK:               params.UseSDK,
+		GeneratedHTML:        strings.TrimSpace(params.GeneratedHTML),
+		CaptchaProfileID:     params.CaptchaProfileID,
+		CaptchaOverridesJSON: captchaOverridesJSON,
 	}
 
 	// Create delivery records
@@ -183,7 +198,7 @@ func List(db *gorm.DB) ([]Form, error) {
 func GetSubmissions(db *gorm.DB, formID uint, limit int) ([]Submission, error) {
 	var submissions []Submission
 	if err := db.Where("form_id = ?", formID).
-		Order("created_at DESC").
+		Order("created_at DESC, id DESC").
 		Limit(limit).
 		Find(&submissions).Error; err != nil {
 		return nil, err
@@ -196,7 +211,7 @@ func GetWebhookEvents(db *gorm.DB, formID uint, limit int) ([]WebhookEvent, erro
 	var events []WebhookEvent
 	if err := db.Preload("Submission").
 		Where("submission_id IN (?)", db.Model(&Submission{}).Select("id").Where("form_id = ?", formID)).
-		Order("created_at DESC").
+		Order("created_at DESC, id DESC").
 		Limit(limit).
 		Find(&events).Error; err != nil {
 		return nil, err
@@ -209,7 +224,7 @@ func GetEmailEvents(db *gorm.DB, formID uint, limit int) ([]EmailEvent, error) {
 	var events []EmailEvent
 	if err := db.Preload("Submission").
 		Where("submission_id IN (?)", db.Model(&Submission{}).Select("id").Where("form_id = ?", formID)).
-		Order("created_at DESC").
+		Order("created_at DESC, id DESC").
 		Limit(limit).
 		Find(&events).Error; err != nil {
 		return nil, err
@@ -220,7 +235,38 @@ func GetEmailEvents(db *gorm.DB, formID uint, limit int) ([]EmailEvent, error) {
 // Delete deletes a form
 func Delete(logger *slog.Logger, db *gorm.DB, id uint) error {
 	return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		return tx.Delete(&Form{}, id).Error
+		var submissionIDs []uint
+		if err := tx.Model(&Submission{}).Where("form_id = ?", id).Pluck("id", &submissionIDs).Error; err != nil {
+			return err
+		}
+		if len(submissionIDs) > 0 {
+			if err := tx.Where("submission_id IN ?", submissionIDs).Delete(&WebhookEvent{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("submission_id IN ?", submissionIDs).Delete(&EmailEvent{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("submission_id IN ?", submissionIDs).Delete(&SubmissionFile{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("form_id = ?", id).Delete(&Submission{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("form_id = ?", id).Delete(&EmailDelivery{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("form_id = ?", id).Delete(&WebhookDelivery{}).Error; err != nil {
+			return err
+		}
+		result := tx.Delete(&Form{}, id)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
 	})
 }
 
@@ -279,6 +325,32 @@ func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error
 		return nil, err
 	}
 
+	allowedOrigins := form.AllowedOrigins
+	if strings.TrimSpace(params.AllowedOrigins) != "" {
+		allowedOrigins = strings.TrimSpace(params.AllowedOrigins)
+	}
+
+	slug := form.Slug
+	if strings.TrimSpace(params.Slug) != "" {
+		slug = Slugify(params.Slug)
+	}
+	generatedHTML := form.GeneratedHTML
+	if params.UpdateGeneratedHTML {
+		generatedHTML = strings.TrimSpace(params.GeneratedHTML)
+	}
+	captchaOverridesJSON := form.CaptchaOverridesJSON
+	if params.UpdateCaptchaOverrides {
+		captchaOverridesJSON = strings.TrimSpace(params.CaptchaOverridesJSON)
+		if captchaOverridesJSON != "" {
+			var overrides map[string]any
+			if err := json.Unmarshal([]byte(captchaOverridesJSON), &overrides); err != nil {
+				return nil, &ValidationError{Field: "captcha_overrides", Message: "Captcha overrides must be valid JSON"}
+			}
+			normalized, _ := json.Marshal(overrides)
+			captchaOverridesJSON = string(normalized)
+		}
+	}
+
 	// Build email overrides JSON
 	emailOverrides := make(map[string]interface{})
 	if recipient := strings.TrimSpace(params.EmailRecipient); recipient != "" {
@@ -327,10 +399,13 @@ func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error
 		if err := tx.Model(&Form{}).
 			Where("id = ?", params.ID).
 			Updates(map[string]any{
-				"name":               strings.TrimSpace(params.Name),
-				"captcha_profile_id": params.CaptchaProfileID,
-				"allowed_origins":    strings.TrimSpace(params.AllowedOrigins),
-				"use_sdk":            params.UseSDK,
+				"name":                   strings.TrimSpace(params.Name),
+				"slug":                   slug,
+				"captcha_profile_id":     params.CaptchaProfileID,
+				"captcha_overrides_json": captchaOverridesJSON,
+				"allowed_origins":        allowedOrigins,
+				"use_sdk":                params.UseSDK,
+				"generated_html":         generatedHTML,
 			}).Error; err != nil {
 			return err
 		}
@@ -360,6 +435,9 @@ func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error
 
 		return nil
 	}); err != nil {
+		if isUniqueConstraint(err) {
+			return nil, &ValidationError{Field: "slug", Message: "Slug already exists"}
+		}
 		logger.Error("failed to update form", slog.Any("error", err), slog.Uint64("form_id", uint64(params.ID)))
 		return nil, err
 	}

@@ -1,0 +1,66 @@
+package embed_test
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/matteodante/miniform/internal/forms"
+	formembed "github.com/matteodante/miniform/internal/forms/embed"
+	"github.com/matteodante/miniform/internal/integrations"
+)
+
+func TestBuild(t *testing.T) {
+	t.Run("redacts token and follows SDK option", func(t *testing.T) {
+		form := &forms.Form{ID: 7, PublicID: "public-id", Slug: "contact", Token: "live-token"}
+
+		result := formembed.Build(form, formembed.Options{IncludeSDK: true})
+
+		assert.True(t, result.Redacted)
+		assert.True(t, result.IncludesSDK)
+		assert.Contains(t, result.Action, "token=YOUR_FORM_TOKEN")
+		assert.NotContains(t, result.HTML, "live-token")
+		assert.Contains(t, result.HTML, formembed.SDKScriptTag)
+	})
+
+	t.Run("normalizes generated HTML with the live action", func(t *testing.T) {
+		form := &forms.Form{
+			ID:            8,
+			PublicID:      "public-id",
+			Slug:          "feedback",
+			Token:         "live-token",
+			GeneratedHTML: `<section><form action="old" method="GET"><button>Send</button></form></section>`,
+		}
+
+		result := formembed.Build(form, formembed.Options{ShowToken: true})
+
+		require.Empty(t, result.Warning)
+		assert.False(t, result.Redacted)
+		assert.Contains(t, result.HTML, `action="/forms/feedback/submit?token=live-token"`)
+		assert.Contains(t, result.HTML, `method="POST"`)
+		assert.Contains(t, result.HTML, `data-form-id="8"`)
+	})
+
+	t.Run("injects the matching captcha site key", func(t *testing.T) {
+		profileID := uint(4)
+		form := &forms.Form{
+			ID:               9,
+			Slug:             "secure",
+			Token:            "token",
+			AllowedOrigins:   "app.example.com",
+			CaptchaProfileID: &profileID,
+			CaptchaProfile: &integrations.CaptchaProfile{
+				Provider:     "turnstile",
+				SiteKeysJSON: `[{"host_pattern":"*.example.com","site_key":"public-site-key"}]`,
+				PolicyJSON:   `{"theme":"dark","action":"contact"}`,
+			},
+		}
+
+		result := formembed.Build(form, formembed.Options{ShowToken: true})
+
+		assert.Contains(t, result.HTML, `data-sitekey="public-site-key"`)
+		assert.Contains(t, result.HTML, `data-theme="dark"`)
+		assert.Contains(t, result.HTML, "challenges.cloudflare.com/turnstile")
+	})
+}

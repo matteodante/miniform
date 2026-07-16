@@ -70,6 +70,7 @@ func mountTestServerForEnvironment(t *testing.T, environment string) *cartridget
 			internal.MountRoutes(s, flCfg)
 		},
 	})
+	ts.DB.GetConnection().Config.NowFunc = func() time.Time { return time.Now().UTC() }
 
 	return ts
 }
@@ -101,7 +102,7 @@ func seedAdmin(t *testing.T, ts *cartridgetestsupport.TestServer, email, passwor
 	t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	require.NoError(t, err)
-	now := time.Now()
+	now := time.Now().UTC()
 	user := &accounts.User{
 		Email:        email,
 		PasswordHash: string(hash),

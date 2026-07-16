@@ -21,9 +21,11 @@ var buildCommit = "dev"
 func TemplateFuncs() map[string]any {
 	return map[string]any{
 		"truncateJSON": truncateJSON,
+		"timeRFC3339":  timeRFC3339,
+		"formatUTC":    formatUTC,
 		"assetVersion": func() string {
 			if buildCommit == "dev" {
-				return time.Now().Format("20060102150405")
+				return time.Now().UTC().Format("20060102150405")
 			}
 			if len(buildCommit) > 8 {
 				return buildCommit[:8]
@@ -31,6 +33,34 @@ func TemplateFuncs() map[string]any {
 			return buildCommit
 		},
 	}
+}
+
+func timeRFC3339(value any) string {
+	timestamp, ok := utcTime(value)
+	if !ok {
+		return ""
+	}
+	return timestamp.Format(time.RFC3339Nano)
+}
+
+func formatUTC(value any, layout string) string {
+	timestamp, ok := utcTime(value)
+	if !ok {
+		return ""
+	}
+	return timestamp.Format(layout)
+}
+
+func utcTime(value any) (time.Time, bool) {
+	switch timestamp := value.(type) {
+	case time.Time:
+		return timestamp.UTC(), true
+	case *time.Time:
+		if timestamp != nil {
+			return timestamp.UTC(), true
+		}
+	}
+	return time.Time{}, false
 }
 
 // ErrorHandler returns miniform-specific error handler.

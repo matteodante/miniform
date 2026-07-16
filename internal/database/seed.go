@@ -30,7 +30,7 @@ func Seed(db *gorm.DB) error {
 			return fmt.Errorf("hash password: %w", err)
 		}
 
-		now := time.Now()
+		now := time.Now().UTC()
 		admin := &accounts.User{
 			Email:        "admin@miniform.local",
 			PasswordHash: string(hash),
@@ -157,6 +157,8 @@ func Seed(db *gorm.DB) error {
 	}
 	fmt.Println("✓ Created feedback form")
 
+	seededAt := time.Now().UTC()
+
 	// Create sample submissions for contact form
 	sampleSubmissions := []map[string]interface{}{
 		{
@@ -231,7 +233,7 @@ func Seed(db *gorm.DB) error {
 			IPHash:    fmt.Sprintf("hash_%d", i),
 			UserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
 			IsSpam:    false,
-			CreatedAt: time.Now().Add(-time.Duration(i*24) * time.Hour),
+			CreatedAt: seededAt.Add(-time.Duration(i*24) * time.Hour),
 		}
 
 		if err := createSeedRecord(db, submission); err != nil {
@@ -258,7 +260,7 @@ func Seed(db *gorm.DB) error {
 			IPHash:    fmt.Sprintf("hash_news_%d", i),
 			UserAgent: "Mozilla/5.0",
 			IsSpam:    false,
-			CreatedAt: time.Now().Add(-time.Duration(i*12) * time.Hour),
+			CreatedAt: seededAt.Add(-time.Duration(i*12) * time.Hour),
 		}
 
 		if err := createSeedRecord(db, submission); err != nil {

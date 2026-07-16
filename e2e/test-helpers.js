@@ -121,7 +121,7 @@ class TestHelpers {
 
       // Create password hash
       const passwordHash = await bcrypt.hash(password, 12);
-      const now = new Date().toISOString();
+      const now = sqliteUTCTimestamp();
 
       // Create user
       const result = await this.execSQL(
@@ -142,7 +142,7 @@ class TestHelpers {
    */
   async createMailerProfile(name = "Test Mailer", provider = "mailgun", fromEmail = "test@example.com") {
     try {
-      const now = new Date().toISOString();
+      const now = sqliteUTCTimestamp();
 
       const result = await this.execSQL(
         `INSERT INTO mailer_profiles (name, provider, default_from_name, default_from_email, created_at, updated_at) 
@@ -163,7 +163,7 @@ class TestHelpers {
    */
   async createCaptchaProfile(name = "Test Captcha", provider = "turnstile", secretKey = "test-secret-key") {
     try {
-      const now = new Date().toISOString();
+      const now = sqliteUTCTimestamp();
       const siteKeys = JSON.stringify([{ "host_pattern": "*", "site_key": "test-site-key" }]);
       const policy = JSON.stringify({ "required": false, "action": "submit", "widget": "managed" });
 
@@ -196,7 +196,7 @@ class TestHelpers {
         webhookUrl = null
       } = options;
 
-      const now = new Date().toISOString();
+      const now = sqliteUTCTimestamp();
 
       // Generate secure token
       const token = require('crypto').randomBytes(32).toString('hex');
@@ -545,6 +545,10 @@ class TestHelpers {
       this.log(`Cleanup failed: ${error.message}`, "warn");
     }
   }
+}
+
+function sqliteUTCTimestamp() {
+  return new Date().toISOString().replace("T", " ").replace("Z", "+00:00");
 }
 
 module.exports = { TestHelpers };

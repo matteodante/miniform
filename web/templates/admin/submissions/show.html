@@ -27,7 +27,7 @@
                 </span>
                 {{ end }}
             </div>
-            <p class="text-sm text-gray-600">Received {{ .Submission.CreatedAt.Format "Jan 2, 2006 at 3:04 PM" }}</p>
+            <p class="text-sm text-gray-600">Received <time datetime="{{ timeRFC3339 .Submission.CreatedAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .Submission.CreatedAt "Jan 2, 2006 at 3:04 PM UTC" }}</time></p>
         </div>
         <a href="/admin/forms/{{ .Submission.FormID }}"
             class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
@@ -151,7 +151,7 @@
                             end }}</span>
                     </div>
                     {{ if .LastAttemptAt }}
-                    <span class="text-xs text-gray-500">{{ .LastAttemptAt.Format "Jan 2 at 3:04 PM" }}</span>
+                    <time class="text-xs text-gray-500" datetime="{{ timeRFC3339 .LastAttemptAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .LastAttemptAt "Jan 2 at 3:04 PM UTC" }}</time>
                     {{ end }}
                 </div>
                 {{ if .LastAttemptErr }}
@@ -199,7 +199,7 @@
                             end }}</span>
                     </div>
                     {{ if .LastAttemptAt }}
-                    <span class="text-xs text-gray-500">{{ .LastAttemptAt.Format "Jan 2 at 3:04 PM" }}</span>
+                    <time class="text-xs text-gray-500" datetime="{{ timeRFC3339 .LastAttemptAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .LastAttemptAt "Jan 2 at 3:04 PM UTC" }}</time>
                     {{ end }}
                 </div>
                 {{ if .LastAttemptErr }}

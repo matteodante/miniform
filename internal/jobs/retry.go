@@ -65,7 +65,14 @@ func WithAttemptCount(count int) UpdateOption {
 
 // WithNextAttempt sets the next attempt time.
 func WithNextAttempt(next *time.Time) UpdateOption {
-	return func(values map[string]any) { values["next_attempt_at"] = next }
+	return func(values map[string]any) {
+		if next == nil {
+			values["next_attempt_at"] = (*time.Time)(nil)
+			return
+		}
+		utc := next.UTC()
+		values["next_attempt_at"] = &utc
+	}
 }
 
 // EventUpdater provides a generic way to update webhook/email events.
@@ -96,6 +103,12 @@ func (u *EventUpdater) Update(ctx *JobContext, db *gorm.DB, id uint, status stri
 	})
 }
 
+func dueEventQuery(db *gorm.DB, now time.Time) *gorm.DB {
+	return db.
+		Where("next_attempt_at <= ?", now.UTC()).
+		Order("next_attempt_at ASC, created_at ASC, id ASC")
+}
+
 // MarkAsRetry marks an event for retry with backoff.
 func MarkWebhookAsRetry(ctx *JobContext, db *gorm.DB, event *forms.WebhookEvent, strategy *RetryStrategy, err error) {
 	attemptCount := event.AttemptCount + 1
@@ -109,8 +122,9 @@ func MarkWebhookAsRetry(ctx *JobContext, db *gorm.DB, event *forms.WebhookEvent,
 		nextAttempt = strategy.NextRetry(attemptCount)
 	}
 
+	attemptTime := time.Now().UTC()
 	updater := NewEventUpdater(&forms.WebhookEvent{})
-	if err := updater.Update(ctx, db, event.ID, status, time.Now(), message, WithAttemptCount(attemptCount), WithNextAttempt(nextAttempt)); err != nil {
+	if err := updater.Update(ctx, db, event.ID, status, attemptTime, message, WithAttemptCount(attemptCount), WithNextAttempt(nextAttempt)); err != nil {
 		ctx.Logger.Error("update retry webhook", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
 		return
 	}
@@ -118,24 +132,23 @@ func MarkWebhookAsRetry(ctx *JobContext, db *gorm.DB, event *forms.WebhookEvent,
 	// Update in-memory event
 	event.Status = status
 	event.AttemptCount = attemptCount
-	last := time.Now().UTC()
-	event.LastAttemptAt = &last
+	event.LastAttemptAt = &attemptTime
 	event.LastAttemptErr = message
 	event.NextAttemptAt = nextAttempt
 }
 
 // MarkWebhookAsFinal marks an event as final (delivered or failed).
 func MarkWebhookAsFinal(ctx *JobContext, db *gorm.DB, event *forms.WebhookEvent, status, message string) {
+	attemptTime := time.Now().UTC()
 	updater := NewEventUpdater(&forms.WebhookEvent{})
-	if err := updater.Update(ctx, db, event.ID, status, time.Now(), message, WithNextAttempt(nil)); err != nil {
+	if err := updater.Update(ctx, db, event.ID, status, attemptTime, message, WithNextAttempt(nil)); err != nil {
 		ctx.Logger.Error("finalize webhook", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
 		return
 	}
 
 	// Update in-memory event
 	event.Status = status
-	last := time.Now().UTC()
-	event.LastAttemptAt = &last
+	event.LastAttemptAt = &attemptTime
 	event.LastAttemptErr = message
 	event.NextAttemptAt = nil
 }
@@ -153,8 +166,9 @@ func MarkEmailAsRetry(ctx *JobContext, db *gorm.DB, event *forms.EmailEvent, str
 		nextAttempt = strategy.NextRetry(attemptCount)
 	}
 
+	attemptTime := time.Now().UTC()
 	updater := NewEventUpdater(&forms.EmailEvent{})
-	if err := updater.Update(ctx, db, event.ID, status, time.Now(), message, WithAttemptCount(attemptCount), WithNextAttempt(nextAttempt)); err != nil {
+	if err := updater.Update(ctx, db, event.ID, status, attemptTime, message, WithAttemptCount(attemptCount), WithNextAttempt(nextAttempt)); err != nil {
 		ctx.Logger.Error("update email retry", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
 		return
 	}
@@ -162,24 +176,23 @@ func MarkEmailAsRetry(ctx *JobContext, db *gorm.DB, event *forms.EmailEvent, str
 	// Update in-memory event
 	event.Status = status
 	event.AttemptCount = attemptCount
-	last := time.Now().UTC()
-	event.LastAttemptAt = &last
+	event.LastAttemptAt = &attemptTime
 	event.LastAttemptErr = message
 	event.NextAttemptAt = nextAttempt
 }
 
 // MarkEmailAsFinal marks an email event as final (delivered or failed).
 func MarkEmailAsFinal(ctx *JobContext, db *gorm.DB, event *forms.EmailEvent, status, message string) {
+	attemptTime := time.Now().UTC()
 	updater := NewEventUpdater(&forms.EmailEvent{})
-	if err := updater.Update(ctx, db, event.ID, status, time.Now(), message, WithNextAttempt(nil)); err != nil {
+	if err := updater.Update(ctx, db, event.ID, status, attemptTime, message, WithNextAttempt(nil)); err != nil {
 		ctx.Logger.Error("finalize email event", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
 		return
 	}
 
 	// Update in-memory event
 	event.Status = status
-	last := time.Now().UTC()
-	event.LastAttemptAt = &last
+	event.LastAttemptAt = &attemptTime
 	event.LastAttemptErr = message
 	event.NextAttemptAt = nil
 }

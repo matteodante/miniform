@@ -3,17 +3,19 @@ package forms_test
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/matteodante/miniform/internal/forms"
 	"github.com/matteodante/miniform/internal/pkg/testsupport"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"io"
-	"log/slog"
 )
 
 func TestCreateSubmission(t *testing.T) {
@@ -38,6 +40,14 @@ func TestCreateSubmission(t *testing.T) {
 		assert.Equal(t, form.ID, submission.FormID)
 		assert.Equal(t, "TestAgent/1.0", submission.UserAgent)
 		assert.False(t, submission.IsSpam)
+		assert.Equal(t, time.UTC, submission.CreatedAt.Location())
+
+		var storedCreatedAt string
+		require.NoError(t, db.Raw(
+			"SELECT CAST(created_at AS TEXT) FROM submissions WHERE id = ?",
+			submission.ID,
+		).Scan(&storedCreatedAt).Error)
+		assert.True(t, strings.HasSuffix(storedCreatedAt, "+00:00"), storedCreatedAt)
 
 		// Verify JSON encoding
 		var decoded map[string]any
@@ -345,6 +355,7 @@ func TestCreateSubmission(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, submission.IsSpam, "empty honeypot must not flag spam")
 	})
+
 }
 
 func TestSlugify(t *testing.T) {

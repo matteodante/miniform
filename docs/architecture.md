@@ -35,9 +35,13 @@ Handlers parse transport input, call the owning domain package, and map results 
 
 SQLite permits one writer at a time. Every mutation must use `internal/pkg/dbtxn.WithRetry`, which combines immediate transactions, bounded exponential backoff, and jitter. The database runs in WAL mode with busy timeouts. Raw `Create`, `Save`, `Update`, or `Delete` calls outside the retry transaction are not accepted in production code.
 
+## Time handling
+
+Miniform stores and exchanges instants canonically in UTC. SQLite compares the canonical values directly and uses timestamp indexes for inbox and delivery-queue queries. API and webhook timestamps use RFC 3339 UTC. The operator UI converts those instants to the browser's IANA timezone and exposes the active timezone in the header and timestamp tooltip. Durations use Go's monotonic clock and are not converted. A future feature based on civil time or recurrence must store the originating IANA timezone separately; current domains only model absolute instants.
+
 ## Background processing
 
-Webhook and email dispatchers run in process. Database rows are the durable queue and delivery history. Jobs must be idempotent where possible, use bounded retries, preserve error context, and never hold a database transaction open during network I/O.
+Webhook and email dispatchers run in process. Database rows are the durable queue and delivery history. `next_attempt_at` is the queue eligibility field: scheduled work has a UTC instant, while terminal events set it to `NULL`. Jobs must be idempotent where possible, use bounded retries, preserve error context, and never hold a database transaction open during network I/O.
 
 ## Assets and packaging
 

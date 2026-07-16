@@ -1,0 +1,192 @@
+package cli
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
+
+// CommandSpec is the machine-readable contract exposed by `miniform commands`.
+type CommandSpec struct {
+	Name             string   `json:"name"`
+	Summary          string   `json:"summary"`
+	Mutates          bool     `json:"mutates"`
+	RequiresDatabase bool     `json:"requires_database"`
+	SupportsJSON     bool     `json:"supports_json"`
+	Flags            []string `json:"flags,omitempty"`
+	Examples         []string `json:"examples,omitempty"`
+	Notes            []string `json:"notes,omitempty"`
+}
+
+func commandManifest() []CommandSpec {
+	commands := []CommandSpec{
+		{Name: "commands", Summary: "Print the complete machine-readable command catalog."},
+		{Name: "help", Summary: "Show help for all commands or one command family.", Flags: []string{"RESOURCE", "ACTION"}},
+		{Name: "serve", Summary: "Start the Miniform HTTP server.", Flags: []string{"--seed", "--version"}},
+		{Name: "install", Summary: "Install the self-hosted container deployment.", Mutates: true},
+		{Name: "update", Summary: "Update the installed container deployment.", Mutates: true},
+		{Name: "reload", Summary: "Reload the installed container deployment.", Mutates: true},
+		{Name: "restore-db", Summary: "Restore the installed deployment database from backup.", Mutates: true},
+		{Name: "check", Summary: "Run deployment security checks."},
+		{Name: "version", Summary: "Print build version, commit, and timestamp."},
+		{Name: "change-admin-password", Summary: "Run the legacy interactive container password recovery flow.", Mutates: true, Notes: []string{"Agents should prefer account reset-password with secret input from a file or stdin."}},
+		{Name: "account show", Summary: "Show the operator account without its password hash.", RequiresDatabase: true},
+		{Name: "account set-email", Summary: "Change the operator email after password verification.", Mutates: true, RequiresDatabase: true, Flags: []string{"--email STRING", "--current-password-file PATH|-"}, Examples: []string{"miniform account set-email --email admin@example.com --current-password-file -"}},
+		{Name: "account change-password", Summary: "Change the operator password after verifying the current password.", Mutates: true, RequiresDatabase: true, Flags: []string{"--current-password-file PATH|-", "--new-password-file PATH|-"}},
+		{Name: "account reset-password", Summary: "Administratively replace the password without the old password.", Mutates: true, RequiresDatabase: true, Flags: []string{"--email STRING", "--new-password-file PATH|-"}, Notes: []string{"Use only from a trusted local administrative shell."}},
+		{Name: "config show", Summary: "Show effective runtime configuration with secrets redacted.", Flags: []string{"--show-secrets"}},
+		{Name: "config set", Summary: "Persist one supported MINIFORM_* key in an env file.", Mutates: true, Flags: []string{"--key KEY", "--value STRING", "--value-file PATH|-", "--env-file PATH"}, Notes: []string{"Secret keys require --value-file.", "Changes apply after process restart."}},
+		{Name: "config unset", Summary: "Remove one supported MINIFORM_* key from an env file.", Mutates: true, Flags: []string{"--key KEY", "--env-file PATH"}},
+		{Name: "setting list", Summary: "List database-backed key/value settings.", RequiresDatabase: true},
+		{Name: "setting get", Summary: "Get a database-backed setting.", RequiresDatabase: true, Flags: []string{"--key KEY"}},
+		{Name: "setting set", Summary: "Create or update a database-backed setting.", Mutates: true, RequiresDatabase: true, Flags: []string{"--key KEY", "--value STRING", "--value-file PATH|-"}},
+		{Name: "setting delete", Summary: "Delete a database-backed setting.", Mutates: true, RequiresDatabase: true, Flags: []string{"--key KEY", "--yes"}},
+		{Name: "form list", Summary: "List configured form endpoints.", RequiresDatabase: true},
+		{Name: "form get", Summary: "Get one form by id or slug.", RequiresDatabase: true, Flags: []string{"--id UINT", "--slug STRING", "--show-secrets"}},
+		{Name: "form code", Summary: "Build copyable form HTML with captcha and optional SDK.", RequiresDatabase: true, Flags: []string{"--id UINT", "--slug STRING", "--include-sdk=BOOL", "--show-secrets"}, Notes: []string{"Omitting --include-sdk uses the form setting.", "The token is replaced with YOUR_FORM_TOKEN unless --show-secrets is set."}},
+		{Name: "form create", Summary: "Create a form endpoint and its delivery policies.", Mutates: true, RequiresDatabase: true, Flags: []string{"--template STRING", "--name STRING", "--slug STRING", "--allowed-origins STRING", "--use-sdk", "--generated-html-file PATH", "--mailer-profile-id UINT", "--captcha-profile-id UINT", "--captcha-overrides-file PATH", "--email-enabled", "--email-recipient STRING", "--webhook-enabled", "--webhook-url URL", "--webhook-secret-file PATH|-", "--webhook-headers-file PATH"}},
+		{Name: "form update", Summary: "Update form and delivery settings; omitted flags preserve current values.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--name STRING", "--slug STRING", "--allowed-origins STRING", "--use-sdk=BOOL", "--generated-html-file PATH", "--clear-generated-html", "--mailer-profile-id UINT", "--clear-mailer-profile", "--captcha-profile-id UINT", "--clear-captcha-profile", "--captcha-overrides-file PATH", "--clear-captcha-overrides", "--email-enabled=BOOL", "--email-recipient STRING", "--webhook-enabled=BOOL", "--webhook-url URL", "--webhook-secret-file PATH|-", "--clear-webhook-secret", "--webhook-headers-file PATH", "--clear-webhook-headers"}},
+		{Name: "form rotate-token", Summary: "Replace a form submission token and invalidate the old token.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--yes", "--show-secrets"}},
+		{Name: "form template-list", Summary: "List built-in form templates."},
+		{Name: "form template-get", Summary: "Get or render one built-in form template.", Flags: []string{"--template STRING", "--action URL"}},
+		{Name: "form delete", Summary: "Delete a form and related deliveries/submissions.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--yes"}},
+		{Name: "mailer list", Summary: "List reusable mailer profiles with secrets redacted.", RequiresDatabase: true, Flags: []string{"--show-secrets"}},
+		{Name: "mailer get", Summary: "Get a mailer profile and usage count.", RequiresDatabase: true, Flags: []string{"--id UINT", "--show-secrets"}},
+		{Name: "mailer create", Summary: "Create an SMTP or Mailgun profile.", Mutates: true, RequiresDatabase: true, Flags: []string{"--name STRING", "--provider smtp|mailgun", "--api-key-file PATH|-", "--domain STRING", "--default-from-name STRING", "--default-from-email STRING", "--defaults-file PATH", "--smtp-host STRING", "--smtp-port INT", "--smtp-username STRING", "--smtp-password-file PATH|-", "--smtp-encryption starttls|tls|none"}},
+		{Name: "mailer update", Summary: "Update a mailer; omitted flags preserve current values.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--name STRING", "--provider smtp|mailgun", "--api-key-file PATH|-", "--domain STRING", "--default-from-name STRING", "--default-from-email STRING", "--defaults-file PATH", "--smtp-host STRING", "--smtp-port INT", "--smtp-username STRING", "--smtp-password-file PATH|-", "--smtp-encryption starttls|tls|none", "--clear-api-key", "--clear-smtp-password", "--clear-defaults"}},
+		{Name: "mailer delete", Summary: "Delete an unused mailer profile.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--yes"}},
+		{Name: "captcha list", Summary: "List captcha profiles with secrets redacted.", RequiresDatabase: true, Flags: []string{"--show-secrets"}},
+		{Name: "captcha get", Summary: "Get a captcha profile and usage count.", RequiresDatabase: true, Flags: []string{"--id UINT", "--show-secrets"}},
+		{Name: "captcha create", Summary: "Create a captcha profile.", Mutates: true, RequiresDatabase: true, Flags: []string{"--name STRING", "--provider turnstile", "--secret-key-file PATH|-", "--site-keys-file PATH", "--policy-file PATH"}},
+		{Name: "captcha update", Summary: "Update a captcha profile; omitted flags preserve current values.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--name STRING", "--provider turnstile", "--secret-key-file PATH|-", "--site-keys-file PATH", "--policy-file PATH", "--clear-secret-key", "--clear-site-keys", "--clear-policy"}},
+		{Name: "captcha delete", Summary: "Delete an unused captcha profile.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--yes"}},
+		{Name: "submission list", Summary: "List and filter inbox submissions.", RequiresDatabase: true, Flags: []string{"--form-id UINT", "--range all|7d|30d|90d", "--query STRING", "--spam true|false", "--page INT", "--per-page INT"}},
+		{Name: "submission get", Summary: "Get a submission with payload, events, and files.", RequiresDatabase: true, Flags: []string{"--id UINT"}},
+		{Name: "submission delete", Summary: "Delete a submission and its uploaded files.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--yes"}},
+		{Name: "submission create", Summary: "Create a submission from a JSON payload with optional files.", Mutates: true, RequiresDatabase: true, Flags: []string{"--form-id UINT", "--slug STRING", "--data-file PATH|-", "--file FIELD=PATH (repeatable)", "--user-agent STRING"}},
+		{Name: "submission file-list", Summary: "List uploaded files for one submission.", RequiresDatabase: true, Flags: []string{"--id UINT"}},
+		{Name: "submission file-copy", Summary: "Copy one uploaded file to a local path or stdout.", RequiresDatabase: true, Flags: []string{"--id UINT", "--file-id UINT", "--output PATH|-", "--force"}},
+		{Name: "event list", Summary: "List webhook or email delivery events.", RequiresDatabase: true, Flags: []string{"--type webhook|email", "--form-id UINT", "--status STRING", "--limit INT"}},
+		{Name: "event retry", Summary: "Schedule one failed webhook or email event for immediate retry.", Mutates: true, RequiresDatabase: true, Flags: []string{"--type webhook|email", "--id UINT", "--yes"}},
+	}
+	for index := range commands {
+		commands[index].SupportsJSON = supportsJSON(commands[index].Name)
+	}
+	sort.Slice(commands, func(i, j int) bool { return commands[i].Name < commands[j].Name })
+	return commands
+}
+
+func supportsJSON(command string) bool {
+	resource, _, _ := strings.Cut(command, " ")
+	switch resource {
+	case "account", "captcha", "commands", "config", "event", "form", "help", "mailer", "setting", "submission":
+		return true
+	default:
+		return false
+	}
+}
+
+//nolint:errcheck // Help cannot recover from a closed output stream.
+func (r *Runner) runHelp(args []string) (any, error) {
+	query := strings.TrimSpace(strings.Join(args, " "))
+	if r.JSON {
+		if query == "" {
+			return commandManifest(), nil
+		}
+		matching := matchingCommands(query)
+		if len(matching) == 0 {
+			return nil, usageError("unknown command help topic: " + query)
+		}
+		return matching, nil
+	}
+
+	if query == "" {
+		r.writeRootHelp()
+		return nil, nil
+	}
+	matching := matchingCommands(query)
+	if len(matching) == 0 {
+		return nil, usageError("unknown command help topic: " + query)
+	}
+	for i, spec := range matching {
+		if i > 0 {
+			fmt.Fprintln(r.Stdout)
+		}
+		writeSpec(r, spec)
+	}
+	return nil, nil
+}
+
+//nolint:errcheck // Help cannot recover from a closed output stream.
+func (r *Runner) writeRootHelp() {
+	fmt.Fprintln(r.Stdout, "Miniform CLI — local administration and automation")
+	fmt.Fprintln(r.Stdout)
+	fmt.Fprintln(r.Stdout, "Usage:")
+	fmt.Fprintln(r.Stdout, "  miniform [--json] [--show-secrets] <resource> <action> [flags]")
+	fmt.Fprintln(r.Stdout)
+	fmt.Fprintln(r.Stdout, "Resources:")
+	fmt.Fprintln(r.Stdout, "  account     Operator email and password")
+	fmt.Fprintln(r.Stdout, "  config      Runtime configuration and .env persistence")
+	fmt.Fprintln(r.Stdout, "  setting     Database-backed key/value settings")
+	fmt.Fprintln(r.Stdout, "  form        Form endpoints and delivery policies")
+	fmt.Fprintln(r.Stdout, "  mailer      SMTP and Mailgun profiles")
+	fmt.Fprintln(r.Stdout, "  captcha     Captcha profiles")
+	fmt.Fprintln(r.Stdout, "  submission  Inbox entries and uploaded files")
+	fmt.Fprintln(r.Stdout, "  event       Webhook and email delivery events")
+	fmt.Fprintln(r.Stdout)
+	fmt.Fprintln(r.Stdout, "Discovery:")
+	fmt.Fprintln(r.Stdout, "  miniform commands --json")
+	fmt.Fprintln(r.Stdout, "  miniform help <resource> [action]")
+	fmt.Fprintln(r.Stdout)
+	fmt.Fprintln(r.Stdout, "Existing process/deployment commands remain available: serve, install, update, reload, restore-db, check, version.")
+}
+
+//nolint:errcheck // Help cannot recover from a closed output stream.
+func (r *Runner) writeCommandHelp(command string) {
+	matching := matchingCommands(strings.ReplaceAll(command, ".", " "))
+	if len(matching) == 0 {
+		r.writeRootHelp()
+		return
+	}
+	for i, spec := range matching {
+		if i > 0 {
+			fmt.Fprintln(r.Stdout)
+		}
+		writeSpec(r, spec)
+	}
+}
+
+func matchingCommands(query string) []CommandSpec {
+	query = strings.TrimSpace(strings.ReplaceAll(query, ".", " "))
+	var matching []CommandSpec
+	for _, spec := range commandManifest() {
+		if spec.Name == query || strings.HasPrefix(spec.Name, query+" ") {
+			matching = append(matching, spec)
+		}
+	}
+	return matching
+}
+
+//nolint:errcheck // Help cannot recover from a closed output stream.
+func writeSpec(r *Runner, spec CommandSpec) {
+	fmt.Fprintf(r.Stdout, "Usage: miniform %s [flags]\n", spec.Name)
+	fmt.Fprintf(r.Stdout, "  %s\n", spec.Summary)
+	if len(spec.Flags) > 0 {
+		fmt.Fprintln(r.Stdout, "Flags:")
+		for _, item := range spec.Flags {
+			fmt.Fprintf(r.Stdout, "  %s\n", item)
+		}
+	}
+	if len(spec.Notes) > 0 {
+		fmt.Fprintln(r.Stdout, "Notes:")
+		for _, item := range spec.Notes {
+			fmt.Fprintf(r.Stdout, "  %s\n", item)
+		}
+	}
+	if len(spec.Examples) > 0 {
+		fmt.Fprintln(r.Stdout, "Examples:")
+		for _, item := range spec.Examples {
+			fmt.Fprintf(r.Stdout, "  %s\n", item)
+		}
+	}
+}

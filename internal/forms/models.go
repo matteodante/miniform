@@ -13,11 +13,10 @@ import (
 )
 
 const (
-	WebhookStatusPending    = "pending"
-	WebhookStatusDelivering = "delivering"
-	WebhookStatusDelivered  = "delivered"
-	WebhookStatusRetrying   = "retrying"
-	WebhookStatusFailed     = "failed"
+	WebhookStatusPending   = "pending"
+	WebhookStatusDelivered = "delivered"
+	WebhookStatusRetrying  = "retrying"
+	WebhookStatusFailed    = "failed"
 
 	// DefaultRetryLimit is the opinionated retry count for all deliveries
 	DefaultRetryLimit = 3
@@ -150,14 +149,14 @@ type EmailDelivery struct {
 
 // Submission stores the payload received from a public form post.
 type Submission struct {
-	ID        uint   `gorm:"primaryKey"`
-	FormID    uint   `gorm:"index;not null"`
-	Form      *Form  `gorm:"constraint:OnDelete:CASCADE"`
-	DataJSON  string `gorm:"type:text;not null"`
-	IPHash    string `gorm:"size:128;index"`
-	UserAgent string `gorm:"type:text"`
-	IsSpam    bool   `gorm:"index"`
-	CreatedAt time.Time
+	ID        uint      `gorm:"primaryKey"`
+	FormID    uint      `gorm:"not null;index:idx_submissions_form_created,priority:1"`
+	Form      *Form     `gorm:"constraint:OnDelete:CASCADE"`
+	DataJSON  string    `gorm:"type:text;not null"`
+	IPHash    string    `gorm:"size:128;index"`
+	UserAgent string    `gorm:"type:text"`
+	IsSpam    bool      `gorm:"index"`
+	CreatedAt time.Time `gorm:"index:idx_submissions_created_at;index:idx_submissions_form_created,priority:2"`
 	UpdatedAt time.Time
 
 	WebhookEvents []WebhookEvent
@@ -168,14 +167,14 @@ type Submission struct {
 // WebhookEvent captures delivery attempts for a submission.
 type WebhookEvent struct {
 	ID             uint        `gorm:"primaryKey"`
-	SubmissionID   uint        `gorm:"index;not null"`
+	SubmissionID   uint        `gorm:"not null;index:idx_webhook_events_submission_created,priority:1"`
 	Submission     *Submission `gorm:"constraint:OnDelete:CASCADE"`
 	Status         string      `gorm:"size:32;index;not null"`
 	AttemptCount   int         `gorm:"not null;default:0"`
 	LastAttemptErr string      `gorm:"type:text"`
-	NextAttemptAt  *time.Time
+	NextAttemptAt  *time.Time  `gorm:"index:idx_webhook_events_queue,priority:1"`
 	LastAttemptAt  *time.Time
-	CreatedAt      time.Time
+	CreatedAt      time.Time `gorm:"index:idx_webhook_events_submission_created,priority:2;index:idx_webhook_events_queue,priority:2"`
 	UpdatedAt      time.Time
 }
 
@@ -193,14 +192,14 @@ func NewWebhookEvent(submissionID uint, scheduledAt time.Time) *WebhookEvent {
 // EmailEvent captures outbound email forwarding attempts.
 type EmailEvent struct {
 	ID             uint        `gorm:"primaryKey"`
-	SubmissionID   uint        `gorm:"index;not null"`
+	SubmissionID   uint        `gorm:"not null;index:idx_email_events_submission_created,priority:1"`
 	Submission     *Submission `gorm:"constraint:OnDelete:CASCADE"`
 	Status         string      `gorm:"size:32;index;not null"`
 	AttemptCount   int         `gorm:"not null;default:0"`
 	LastAttemptErr string      `gorm:"type:text"`
-	NextAttemptAt  *time.Time
+	NextAttemptAt  *time.Time  `gorm:"index:idx_email_events_queue,priority:1"`
 	LastAttemptAt  *time.Time
-	CreatedAt      time.Time
+	CreatedAt      time.Time `gorm:"index:idx_email_events_submission_created,priority:2;index:idx_email_events_queue,priority:2"`
 	UpdatedAt      time.Time
 }
 

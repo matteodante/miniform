@@ -23,7 +23,7 @@ func CaptchaProfileList(ctx *cartridge.Context) error {
 	db := ctx.DB()
 
 	var profiles []integrations.CaptchaProfile
-	if err := db.Order("created_at DESC").Find(&profiles).Error; err != nil {
+	if err := db.Order("created_at DESC, id DESC").Find(&profiles).Error; err != nil {
 		return fiber.ErrInternalServerError
 	}
 

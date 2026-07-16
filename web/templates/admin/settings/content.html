@@ -1,6 +1,7 @@
 {{ define "admin/settings/content" }}
-<div class="space-y-10">
-    <header class="border-b border-rule pb-8">
+<div class="space-y-8">
+    <header class="mf-panel relative overflow-hidden p-7 sm:p-9">
+        <div class="absolute inset-y-0 left-0 w-1.5 bg-moss" aria-hidden="true"></div>
         <p class="mf-kicker">Workspace</p>
         <h1 class="mf-title mt-3">Operator access.</h1>
         <p class="mt-4 max-w-xl text-sm leading-6 text-ink-muted">Keep the email current and rotate the password used to open this installation.</p>
@@ -14,7 +15,7 @@
     {{ end }}
 
     <div class="grid gap-12 lg:grid-cols-2">
-        <form action="/admin/settings/email" method="post" class="space-y-6 border-t border-rule pt-6">
+        <form action="/admin/settings/email" method="post" class="mf-panel space-y-6 p-6 sm:p-7">
             <input type="hidden" name="username" value="{{ .User.Email }}" autocomplete="username">
             <div>
                 <p class="mf-kicker">Identity</p>
@@ -35,7 +36,7 @@
             <button type="submit" class="mf-button">Update email</button>
         </form>
 
-        <form action="/admin/settings/password" method="post" class="space-y-6 border-t border-rule pt-6">
+        <form action="/admin/settings/password" method="post" class="mf-panel space-y-6 p-6 sm:p-7">
             <input type="hidden" name="username" value="{{ .User.Email }}" autocomplete="username">
             <div>
                 <p class="mf-kicker">Security</p>
@@ -64,13 +65,13 @@
         </form>
     </div>
 
-    <nav class="grid gap-px border border-rule bg-rule sm:grid-cols-2" aria-label="Workspace configuration">
-        <a href="/admin/settings/mailers" class="bg-paper-raised p-6 transition-colors hover:bg-paper">
+    <nav class="grid gap-px overflow-hidden rounded-2xl border border-rule bg-rule shadow-lift sm:grid-cols-2" aria-label="Workspace configuration">
+        <a href="/admin/settings/mailers" class="bg-paper-raised p-6 transition-colors hover:bg-blue-50">
             <span class="mf-kicker">Delivery</span>
             <span class="mt-2 block font-display text-2xl tracking-[-0.025em] text-ink">Email routes →</span>
             <span class="mt-2 block text-sm text-ink-muted">SMTP and Mailgun connections.</span>
         </a>
-        <a href="/admin/settings/captcha" class="bg-paper-raised p-6 transition-colors hover:bg-paper">
+        <a href="/admin/settings/captcha" class="bg-paper-raised p-6 transition-colors hover:bg-blue-50">
             <span class="mf-kicker">Safeguards</span>
             <span class="mt-2 block font-display text-2xl tracking-[-0.025em] text-ink">Bot policies →</span>
             <span class="mt-2 block text-sm text-ink-muted">Turnstile keys and domain rules.</span>

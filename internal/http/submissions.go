@@ -50,7 +50,7 @@ func SubmissionList(ctx *cartridge.Context) error {
 	// Handle date range filter
 	if rangeFilter != "" && rangeFilter != "all" {
 		var startTime time.Time
-		now := time.Now()
+		now := time.Now().UTC()
 		switch rangeFilter {
 		case "7d":
 			startTime = now.AddDate(0, 0, -7)
@@ -72,7 +72,7 @@ func SubmissionList(ctx *cartridge.Context) error {
 
 	// Get submissions for current page
 	var submissions []forms.Submission
-	if err := query.Order("created_at DESC").
+	if err := query.Order("created_at DESC, id DESC").
 		Limit(perPage).
 		Offset(offset).
 		Find(&submissions).Error; err != nil {
@@ -101,7 +101,7 @@ func SubmissionList(ctx *cartridge.Context) error {
 	var endpointCount, entriesLast24h int64
 	db.Model(&forms.Form{}).Count(&endpointCount)
 	db.Model(&forms.Submission{}).
-		Where("created_at > ?", time.Now().Add(-24*time.Hour)).
+		Where("created_at > ?", time.Now().UTC().Add(-24*time.Hour)).
 		Count(&entriesLast24h)
 
 	// Calculate pagination info

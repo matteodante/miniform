@@ -63,6 +63,53 @@ func TestConfig(t *testing.T) {
 			t.Error("Expected different config instances after Reset()")
 		}
 	})
+
+	t.Run("loads every documented dotenv override", func(t *testing.T) {
+		defer Reset()
+		os.Clearenv()
+		t.Chdir(t.TempDir())
+
+		dotenv := []byte("MINIFORM_ENV=test\n" +
+			"MINIFORM_DATA_DIR=custom-data\n" +
+			"MINIFORM_DATABASE_FILENAME=custom.db\n" +
+			"MINIFORM_LOGS_DIR=custom-logs\n" +
+			"MINIFORM_SESSION_TIMEOUT_SECONDS=321\n" +
+			"MINIFORM_MAX_INPUT_FIELDS=123\n" +
+			"MINIFORM_WEBHOOK_SIGNATURE_HEADER=X-Custom-Signature\n" +
+			"MINIFORM_WEBHOOK_RETRY_LIMIT=7\n" +
+			"MINIFORM_WEBHOOK_BACKOFF_SCHEDULE=2,4,8\n")
+		if err := os.WriteFile(".env", dotenv, 0o600); err != nil {
+			t.Fatalf("write .env: %v", err)
+		}
+
+		cfg := Get()
+		if cfg.DatabasePath != "custom-data/custom.test.db" {
+			t.Errorf("DatabasePath = %q, want custom-data/custom.test.db", cfg.DatabasePath)
+		}
+		if cfg.LogsDirectory != "custom-logs" {
+			t.Errorf("LogsDirectory = %q, want custom-logs", cfg.LogsDirectory)
+		}
+		if cfg.SessionTimeout != 321 {
+			t.Errorf("SessionTimeout = %d, want 321", cfg.SessionTimeout)
+		}
+		if cfg.MaxInputFields != 123 {
+			t.Errorf("MaxInputFields = %d, want 123", cfg.MaxInputFields)
+		}
+		if cfg.Webhook.SignatureHeader != "X-Custom-Signature" || cfg.Webhook.RetryLimit != 7 || cfg.Webhook.BackoffSchedule != "2,4,8" {
+			t.Errorf("Webhook config = %#v, want dotenv overrides", cfg.Webhook)
+		}
+	})
+
+	t.Run("Load returns validation errors to CLI callers", func(t *testing.T) {
+		defer Reset()
+		os.Clearenv()
+		t.Chdir(t.TempDir())
+		os.Setenv("MINIFORM_ENV", "invalid")
+
+		if _, err := Load(); err == nil {
+			t.Fatal("Load() error = nil, want invalid environment error")
+		}
+	})
 }
 
 func TestEnvironmentVariableOverrides(t *testing.T) {

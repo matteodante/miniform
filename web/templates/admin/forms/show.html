@@ -415,8 +415,7 @@ ${doc.body.innerHTML}
                 <tbody class="divide-y divide-gray-200 bg-white">
                     {{ range .Submissions }}
                     <tr class="transition-colors hover:bg-gray-50">
-                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{{ .CreatedAt.Format "Jan 2 15:04"
-                            }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500"><time datetime="{{ timeRFC3339 .CreatedAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .CreatedAt "Jan 2 15:04 UTC" }}</time></td>
                         <td class="px-6 py-4 font-mono text-xs text-gray-900">{{ truncateJSON .DataJSON }}</td>
                         <td class="whitespace-nowrap px-6 py-4 text-right text-sm">
                             <a href="/admin/submissions/{{ .ID }}"
@@ -486,8 +485,7 @@ ${doc.body.innerHTML}
                             {{ end }}
                         </td>
                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ .AttemptCount }}</td>
-                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{{ if .LastAttemptAt }}{{
-                            .LastAttemptAt.Format "Jan 2 15:04" }}{{ else }}—{{ end }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{{ if .LastAttemptAt }}<time datetime="{{ timeRFC3339 .LastAttemptAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .LastAttemptAt "Jan 2 15:04 UTC" }}</time>{{ else }}—{{ end }}</td>
                     </tr>
                     {{ if .LastAttemptErr }}
                     <tr>
@@ -555,8 +553,7 @@ ${doc.body.innerHTML}
                             {{ end }}
                         </td>
                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ .AttemptCount }}</td>
-                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{{ if .LastAttemptAt }}{{
-                            .LastAttemptAt.Format "Jan 2 15:04" }}{{ else }}—{{ end }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{{ if .LastAttemptAt }}<time datetime="{{ timeRFC3339 .LastAttemptAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .LastAttemptAt "Jan 2 15:04 UTC" }}</time>{{ else }}—{{ end }}</td>
                     </tr>
                     {{ if .LastAttemptErr }}
                     <tr>

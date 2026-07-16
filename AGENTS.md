@@ -63,6 +63,8 @@ This handles:
 
 - GORM for ORM layer
 - SQLite with WAL mode
+- Store timestamps canonically in UTC and compare SQLite time columns directly
+- Emit RFC 3339 UTC timestamps and localize only at the browser boundary
 - Transactions with immediate locks (`_txlock=immediate`)
 - All writes via `dbtxn.WithRetry`
 - Migrations in `internal/database/migrate.go`

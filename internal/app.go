@@ -101,7 +101,7 @@ func ensureAdminUser(db *gorm.DB, cfg *config.Config, logger *slog.Logger) error
 	}
 
 	if cfg.IsTest() {
-		now := time.Now()
+		now := time.Now().UTC()
 		admin.LastLoginAt = &now
 	}
 

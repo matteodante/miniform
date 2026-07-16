@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	cartridgeconfig "github.com/karloscodes/cartridge/config"
@@ -55,5 +56,24 @@ func TestErrorHandler(t *testing.T) {
 		var body map[string]string
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 		assert.Equal(t, "Not Found", body["message"])
+	})
+}
+
+func TestTemplateFuncs(t *testing.T) {
+	funcs := TemplateFuncs()
+	timestamp := time.Date(2026, time.July, 16, 16, 30, 0, 123456789, time.FixedZone("CEST", 2*60*60))
+
+	t.Run("serializes timestamps as RFC3339 UTC", func(t *testing.T) {
+		format := funcs["timeRFC3339"].(func(any) string)
+
+		assert.Equal(t, "2026-07-16T14:30:00.123456789Z", format(timestamp))
+		assert.Equal(t, "2026-07-16T14:30:00.123456789Z", format(&timestamp))
+	})
+
+	t.Run("formats UTC fallbacks", func(t *testing.T) {
+		format := funcs["formatUTC"].(func(any, string) string)
+
+		assert.Equal(t, "16 Jul 2026 14:30 UTC", format(timestamp, "02 Jan 2006 15:04 UTC"))
+		assert.Empty(t, format((*time.Time)(nil), time.RFC3339))
 	})
 }

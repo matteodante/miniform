@@ -40,11 +40,10 @@ func (d *WebhookDispatcher) ProcessBatch(ctx *JobContext) error {
 	db := ctx.DB
 	now := time.Now().UTC()
 	var events []forms.WebhookEvent
-	if err := db.
+	query := db.
 		Preload("Submission").
-		Preload("Submission.Form.WebhookDelivery").
-		Where("status IN ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)", []string{forms.WebhookStatusPending, forms.WebhookStatusRetrying}, now).
-		Order("created_at ASC").
+		Preload("Submission.Form.WebhookDelivery")
+	if err := dueEventQuery(query, now).
 		Limit(10).
 		Find(&events).Error; err != nil {
 		ctx.Logger.Error("query pending webhooks", slog.Any("error", err))
@@ -106,7 +105,7 @@ func (d *WebhookDispatcher) handleEvent(ctx *JobContext, db *gorm.DB, event *for
 		req.Header.Set(d.cfg.Webhook.SignatureHeader, signature)
 	}
 
-	start := time.Now()
+	attemptTime := time.Now().UTC()
 	resp, err := d.http.Do(req)
 	if err != nil {
 		MarkWebhookAsRetry(ctx, db, event, d.retry, err)
@@ -122,12 +121,12 @@ func (d *WebhookDispatcher) handleEvent(ctx *JobContext, db *gorm.DB, event *for
 	// Success
 	updater := NewEventUpdater(&forms.WebhookEvent{})
 	attemptCount := event.AttemptCount + 1
-	if err := updater.Update(ctx, db, event.ID, forms.WebhookStatusDelivered, start, "", WithAttemptCount(attemptCount), WithNextAttempt(nil)); err != nil {
+	if err := updater.Update(ctx, db, event.ID, forms.WebhookStatusDelivered, attemptTime, "", WithAttemptCount(attemptCount), WithNextAttempt(nil)); err != nil {
 		ctx.Logger.Error("update webhook event", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
 	} else {
 		event.Status = forms.WebhookStatusDelivered
 		event.AttemptCount = attemptCount
-		last := start.UTC()
+		last := attemptTime
 		event.LastAttemptAt = &last
 		event.LastAttemptErr = ""
 		event.NextAttemptAt = nil

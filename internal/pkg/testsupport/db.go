@@ -2,6 +2,7 @@ package testsupport
 
 import (
 	"testing"
+	"time"
 
 	"github.com/matteodante/miniform/internal/accounts"
 	"github.com/matteodante/miniform/internal/forms"
@@ -16,7 +17,9 @@ import (
 // with all models migrated. This is useful for integration tests
 // that need a real database without external dependencies.
 func SetupTestDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		NowFunc: func() time.Time { return time.Now().UTC() },
+	})
 	require.NoError(t, err, "failed to open test database")
 
 	// Migrate all models

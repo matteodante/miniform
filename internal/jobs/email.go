@@ -39,12 +39,11 @@ func (d *EmailDispatcher) ProcessBatch(ctx *JobContext) error {
 	db := ctx.DB
 	now := time.Now().UTC()
 	var events []forms.EmailEvent
-	if err := db.
+	query := db.
 		Preload("Submission").
 		Preload("Submission.Form.EmailDelivery").
-		Preload("Submission.Form.EmailDelivery.MailerProfile").
-		Where("status IN ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)", []string{forms.WebhookStatusPending, forms.WebhookStatusRetrying}, now).
-		Order("created_at ASC").
+		Preload("Submission.Form.EmailDelivery.MailerProfile")
+	if err := dueEventQuery(query, now).
 		Limit(10).
 		Find(&events).Error; err != nil {
 		ctx.Logger.Error("query email events", slog.Any("error", err))
@@ -192,16 +191,16 @@ func (d *EmailDispatcher) sendMailgun(ctx *JobContext, profile *integrations.Mai
 
 // markEmailDelivered records a successful send on the event.
 func (d *EmailDispatcher) markEmailDelivered(ctx *JobContext, db *gorm.DB, event *forms.EmailEvent) {
-	updater := NewEventUpdater(&forms.EmailEvent{})
 	attemptCount := event.AttemptCount + 1
-	if err := updater.Update(ctx, db, event.ID, forms.WebhookStatusDelivered, time.Now(), "", WithAttemptCount(attemptCount), WithNextAttempt(nil)); err != nil {
+	attemptTime := time.Now().UTC()
+	updater := NewEventUpdater(&forms.EmailEvent{})
+	if err := updater.Update(ctx, db, event.ID, forms.WebhookStatusDelivered, attemptTime, "", WithAttemptCount(attemptCount), WithNextAttempt(nil)); err != nil {
 		ctx.Logger.Error("update email event", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
 		return
 	}
 	event.Status = forms.WebhookStatusDelivered
 	event.AttemptCount = attemptCount
-	last := time.Now().UTC()
-	event.LastAttemptAt = &last
+	event.LastAttemptAt = &attemptTime
 	event.LastAttemptErr = ""
 	event.NextAttemptAt = nil
 }

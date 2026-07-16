@@ -1,42 +1,59 @@
 {{ define "admin/login/content" }}
-<div class="mx-auto grid w-full max-w-5xl overflow-hidden border border-rule bg-paper-raised shadow-paper lg:grid-cols-[1.05fr_0.95fr]">
-    <section class="relative flex min-h-[28rem] flex-col justify-between overflow-hidden bg-ink p-8 text-paper sm:p-12">
-        <div class="absolute -right-24 -top-24 h-64 w-64 rounded-full border border-paper/10"></div>
-        <div class="absolute -right-10 -top-10 h-36 w-36 rounded-full border border-paper/10"></div>
-        <div>
-            <p class="font-mono text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-parchment">Private by default</p>
-            <h1 class="mt-5 max-w-md font-display text-5xl leading-[0.95] tracking-[-0.045em] text-paper sm:text-6xl">
-                Your forms<br>have an inbox.
+<div class="grid w-full overflow-hidden rounded-[1.75rem] border border-rule bg-paper-raised shadow-paper lg:grid-cols-[1.08fr_0.92fr]">
+    <section class="relative flex min-h-[34rem] flex-col justify-between overflow-hidden bg-ink p-8 text-white sm:p-12">
+        <div class="absolute -right-28 -top-28 h-72 w-72 rounded-full bg-moss/25 blur-2xl" aria-hidden="true"></div>
+
+        <div class="relative z-10">
+            <p class="font-mono text-[0.6875rem] font-bold uppercase tracking-[0.2em] text-blue-300">Private ingress</p>
+            <h1 class="mt-5 max-w-lg font-display text-5xl font-bold leading-[0.9] tracking-[-0.05em] text-white sm:text-6xl">
+                One route in.<br>Every signal accounted for.
             </h1>
-            <p class="mt-6 max-w-sm text-sm leading-6 text-parchment">
-                Responses, files and delivery history stay inside the server you control.
+            <p class="mt-6 max-w-md text-sm leading-6 text-gray-300">
+                Responses, files and delivery trails stay inside the server you operate.
             </p>
         </div>
-        <p class="font-mono text-[0.625rem] uppercase tracking-[0.16em] text-parchment/70">Miniform / operator access</p>
+
+        <div class="relative z-10 mt-12 max-w-md rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur">
+            <p class="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-gray-400">Live route</p>
+            <div class="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0">
+                <div class="flex flex-col items-center">
+                    <span class="h-3 w-3 rounded-full border-2 border-blue-300 bg-moss"></span>
+                    <span class="h-10 w-px bg-white/15"></span>
+                    <span class="h-3 w-3 rounded-full border-2 border-blue-300 bg-moss"></span>
+                    <span class="h-10 w-px bg-white/15"></span>
+                    <span class="h-3 w-3 rounded-full border-2 border-green-200 bg-green-500"></span>
+                </div>
+                <div class="grid content-start gap-7 text-sm">
+                    <p><span class="font-semibold text-white">Website form</span><span class="mt-0.5 block font-mono text-[0.6875rem] text-gray-400">POST /forms/contact</span></p>
+                    <p><span class="font-semibold text-white">Miniform endpoint</span><span class="mt-0.5 block font-mono text-[0.6875rem] text-gray-400">validated · stored</span></p>
+                    <p><span class="font-semibold text-white">Private inbox</span><span class="mt-0.5 block font-mono text-[0.6875rem] text-green-200">ready to inspect</span></p>
+                </div>
+            </div>
+        </div>
     </section>
 
     <section class="flex flex-col justify-center p-8 sm:p-12">
         <div class="mb-8">
-            <p class="mf-kicker">Sign in</p>
-            <h2 class="mt-3 font-display text-3xl tracking-[-0.035em] text-ink">Open your inbox</h2>
-            <p class="mt-2 text-sm text-ink-muted">Use the operator account for this installation.</p>
+            <p class="mf-kicker">Operator access</p>
+            <h2 class="mt-3 font-display text-4xl font-bold tracking-[-0.04em] text-ink">Open the signal desk</h2>
+            <p class="mt-3 text-sm leading-6 text-ink-muted">Use the account configured for this installation.</p>
         </div>
 
         {{ if .Error }}
-        <div class="mb-6 border-l-2 border-clay bg-red-50 px-4 py-3" role="alert">
-            <p class="text-sm font-medium text-clay">{{ .Error }}</p>
+        <div class="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3" role="alert">
+            <p class="text-sm font-semibold text-clay">{{ .Error }}</p>
         </div>
         {{ end }}
 
         <form action="/admin/login" method="post" class="space-y-5">
             <div>
-                <label for="email" class="block text-xs font-semibold text-ink">Email</label>
+                <label for="email" class="block text-xs font-bold text-ink">Email</label>
                 <input type="email" name="email" id="email" required autofocus autocomplete="username"
                     class="mf-input mt-2 block w-full px-4 py-3 text-sm" placeholder="operator@example.com">
             </div>
 
             <div>
-                <label for="password" class="block text-xs font-semibold text-ink">Password</label>
+                <label for="password" class="block text-xs font-bold text-ink">Password</label>
                 <input type="password" name="password" id="password" required autocomplete="current-password"
                     class="mf-input mt-2 block w-full px-4 py-3 text-sm" placeholder="••••••••">
             </div>
@@ -45,9 +62,9 @@
         </form>
 
         {{ if .ShowFirstLoginHelp }}
-        <div class="mt-7 border-t border-rule pt-5">
-            <p class="font-mono text-[0.625rem] uppercase tracking-[0.15em] text-ink-muted">First run</p>
-            <p class="mt-2 text-xs leading-5 text-ink-muted">Use <span class="font-mono text-ink">admin@miniform.local</span> and the unique temporary password printed in the application logs.</p>
+        <div class="mt-7 rounded-xl bg-gray-50 p-4">
+            <p class="font-mono text-[0.625rem] font-bold uppercase tracking-[0.16em] text-ink-muted">First run</p>
+            <p class="mt-2 text-xs leading-5 text-ink-muted">Use <span class="font-mono font-semibold text-ink">admin@miniform.local</span> and the temporary password printed in the application logs.</p>
         </div>
         {{ end }}
     </section>

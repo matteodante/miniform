@@ -25,7 +25,7 @@ func createTestUser(t *testing.T, db *gorm.DB, email, password string, withLastL
 	}
 
 	if withLastLogin {
-		now := time.Now()
+		now := time.Now().UTC()
 		user.LastLoginAt = &now
 	}
 

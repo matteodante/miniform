@@ -28,8 +28,10 @@ func TestForms(t *testing.T) {
 
 	t.Run("creates, loads, and rejects duplicate forms", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
-		profile := integrations.MailerProfile{Name: "Primary mailer"}
-		require.NoError(t, db.Create(&profile).Error)
+		profile, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
+			Name: "Primary mailer", SMTPHost: "smtp.example.com",
+		})
+		require.NoError(t, err)
 
 		created, err := forms.Create(logger, db, forms.CreateParams{
 			Name: "  Contact us  ", Slug: "Contact Form", AllowedOrigins: " example.com ",
@@ -267,8 +269,10 @@ func TestForms(t *testing.T) {
 
 	t.Run("updates form and delivery settings atomically", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
-		profile := integrations.MailerProfile{Name: "Transactional mailer"}
-		require.NoError(t, db.Create(&profile).Error)
+		profile, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
+			Name: "Transactional mailer", SMTPHost: "smtp.example.com",
+		})
+		require.NoError(t, err)
 		form, err := forms.Create(logger, db, forms.CreateParams{
 			Name: "Before", Slug: "stable-slug", AllowedOrigins: "old.example.com",
 		})

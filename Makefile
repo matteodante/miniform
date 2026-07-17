@@ -9,6 +9,7 @@ INSTALLER_BINARY ?= $(BIN_DIR)/miniform-linux
 INSTALLER_BINARY_DIR = $(abspath $(dir $(INSTALLER_BINARY)))
 INSTALLER_BINARY_NAME = $(notdir $(INSTALLER_BINARY))
 E2E_BINARY ?= $(BIN_DIR)/miniform-e2e
+PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/tmp/ms-playwright
 APPLE_CONTAINER_IMAGE ?= miniform:local
 APPLE_CONTAINER_NAME ?= miniform
 APPLE_CONTAINER_PORT ?= 8080
@@ -146,14 +147,14 @@ test-race: deps
 
 test-e2e-setup:
 	@echo ">> installing Playwright dependencies"
-	cd e2e && npm ci && npx playwright install chromium
+	cd e2e && npm ci && PLAYWRIGHT_BROWSERS_PATH="$(PLAYWRIGHT_BROWSERS_PATH)" npx playwright install chromium
 
 test-e2e: deps
 	@echo ">> building E2E server"
 	MINIFORM_ENV=test GOCACHE=$(GOCACHE) go build -trimpath -o $(E2E_BINARY) ./cmd/$(APP)
 	@echo ">> running Node and Playwright E2E tests"
 	cd e2e && npm run test:unit
-	cd e2e && MINIFORM_E2E_SERVER_COMMAND="$(E2E_BINARY)" npm test
+	cd e2e && PLAYWRIGHT_BROWSERS_PATH="$(PLAYWRIGHT_BROWSERS_PATH)" MINIFORM_E2E_SERVER_COMMAND="$(E2E_BINARY)" npm test
 
 test-integration: installer-binary
 	@echo ">> running VM-based installer integration tests"

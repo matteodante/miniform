@@ -106,6 +106,9 @@ func importDotEnv() (func(), error) {
 }
 
 func applyBaseEnvironment(base *cartridgeconfig.Config) {
+	if value := strings.TrimSpace(os.Getenv("MINIFORM_LOG_LEVEL")); value != "" {
+		base.LogLevel = value
+	}
 	if value := strings.TrimSpace(os.Getenv("MINIFORM_DATABASE_FILENAME")); value != "" {
 		base.DatabaseFilename = value
 	}

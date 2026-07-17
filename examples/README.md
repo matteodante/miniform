@@ -1,71 +1,17 @@
-# Form Examples
+# Plain HTML example
 
-This folder contains example HTML files showing how to integrate Miniform with your website.
+`simple-form.html` is a framework-free form that posts directly to Miniform. Copy it into a site and replace these placeholders in its `action` URL:
 
-## Custom Success/Error Redirects
+- `YOUR_FORM_SLUG` with the endpoint slug;
+- `YOUR_FORM_TOKEN` with its public submission token;
+- `http://localhost:8080` with the Miniform origin.
 
-Miniform supports custom redirects after form submission using special hidden input fields:
+The example also demonstrates:
 
-- `_success_url` - Redirect here after successful submission
-- `_error_url` - Redirect here if submission fails (optional)
+- `_success_url` and `_error_url` browser redirects;
+- the `__mf_hp` honeypot field;
+- regular named fields that Miniform stores as JSON.
 
-**These fields are NOT saved in your submission data** - they are only used for controlling redirects.
+The redirect controls and honeypot are consumed by Miniform and are not stored in the entry payload. Relative redirect paths must exist on the website serving the form; absolute redirects must match the endpoint’s allowed origins.
 
-## Files
-
-### `simple-form.html`
-Basic contact form example with custom redirects. Shows how to:
-- Set up a native HTML form (no JavaScript required)
-- Use `_success_url` and `_error_url` hidden fields
-- Configure form action with slug and token
-
-### `thank-you.html`
-Example success page with animated checkmark. Use this as your `_success_url` destination.
-
-### `error.html`
-Example error page. Use this as your `_error_url` destination.
-
-## Usage
-
-1. **Create a form** in Miniform admin panel and note the slug and token
-2. **Update** `simple-form.html` with your form slug and token
-3. **Customize** the redirect URLs to point to your own success/error pages
-4. **Deploy** these files to your website
-
-## Example Form
-
-```html
-<form action="http://localhost:8080/forms/contact/submit?token=abc123" method="POST">
-    <input type="text" name="name" required>
-    <input type="email" name="email" required>
-    <textarea name="message" required></textarea>
-    
-    <!-- Custom redirects -->
-    <input type="hidden" name="_success_url" value="/thank-you.html">
-    <input type="hidden" name="_error_url" value="/error.html">
-    
-    <button type="submit">Send</button>
-</form>
-```
-
-## How It Works
-
-1. User submits form
-2. Miniform validates and stores the submission
-3. If successful, redirects to `_success_url`
-4. If error, redirects to `_error_url` (or returns JSON error if not set)
-
-## JavaScript vs Native Forms
-
-You can use Miniform with:
-
-- **Native HTML forms** (uses redirects) - Works without JavaScript
-- **JavaScript/AJAX** (uses JSON response) - More control over UX
-
-Both approaches work with the same endpoint!
-
-## Notes
-
-- The `_success_url` and `_error_url` fields are filtered out before saving submission data
-- If you don't provide redirect URLs, the form will return JSON responses instead
-- Redirect URLs can be relative (`/thank-you`) or absolute (`https://example.com/thank-you`)
+Open `simple-form.html` through a local web server instead of `file://`, then allow that server’s host in the endpoint settings. JavaScript is optional: native forms use redirects, while the Miniform SDK or a custom `fetch` integration can handle the JSON response in place.

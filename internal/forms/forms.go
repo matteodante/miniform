@@ -2,16 +2,18 @@ package forms
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"gorm.io/gorm"
-	"log/slog"
 
+	"github.com/matteodante/miniform/internal/integrations"
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
+	"github.com/matteodante/miniform/internal/pkg/sqliteerr"
 )
 
-// CreateParams holds parameters for creating a new form
 type CreateParams struct {
 	Name                 string
 	Slug                 string
@@ -27,10 +29,8 @@ type CreateParams struct {
 	WebhookURL           string
 	WebhookSecret        string
 	WebhookHeadersJSON   string
-	TemplateID           string
 }
 
-// UpdateParams holds parameters for updating a form
 type UpdateParams struct {
 	ID                     uint
 	Name                   string
@@ -51,202 +51,200 @@ type UpdateParams struct {
 	WebhookHeadersJSON     string
 }
 
-// ValidationError represents a validation error
 type ValidationError struct {
 	Field   string
 	Message string
 }
 
-func (e *ValidationError) Error() string {
-	return fmt.Sprintf("%s: %s", e.Field, e.Message)
+func (err *ValidationError) Error() string {
+	return err.Field + ": " + err.Message
 }
 
-// Create creates a new form with the given parameters
+type deliveryValues struct {
+	emailOverrides string
+	webhookURL     string
+	webhookSecret  string
+	webhookHeaders string
+}
+
 func Create(logger *slog.Logger, db *gorm.DB, params CreateParams) (*Form, error) {
-	// Validate required fields
-	if strings.TrimSpace(params.Name) == "" {
-		return nil, &ValidationError{Field: "name", Message: "Name is required"}
-	}
-
-	// Validate slug is provided
+	name := strings.TrimSpace(params.Name)
 	slug := strings.TrimSpace(params.Slug)
+	origins := strings.TrimSpace(params.AllowedOrigins)
+	if name == "" {
+		return nil, invalid("name", "Name is required")
+	}
 	if slug == "" {
-		return nil, &ValidationError{Field: "slug", Message: "Slug is required"}
+		return nil, invalid("slug", "Slug is required")
 	}
-	slug = Slugify(slug)
-
-	// Validate allowed origins
-	if strings.TrimSpace(params.AllowedOrigins) == "" {
-		return nil, &ValidationError{Field: "allowed_origins", Message: "Allowed origins is required"}
+	if origins == "" {
+		return nil, invalid("allowed_origins", "Allowed origins is required")
 	}
 
-	// Build email overrides JSON
-	emailOverrides := make(map[string]interface{})
-	if recipient := strings.TrimSpace(params.EmailRecipient); recipient != "" {
-		emailOverrides["to"] = recipient
+	captchaOverrides, err := canonicalObject(
+		"captcha_overrides",
+		params.CaptchaOverridesJSON,
+		new(map[string]any),
+		"Captcha overrides must be valid JSON",
+	)
+	if err != nil {
+		return nil, err
 	}
-	emailOverridesJSON := ""
-	if len(emailOverrides) > 0 {
-		if data, err := json.Marshal(emailOverrides); err == nil {
-			emailOverridesJSON = string(data)
-		}
+	if err := integrations.ValidateCaptchaSettingsJSON(captchaOverrides); err != nil {
+		return nil, invalid("captcha_overrides", err.Error())
 	}
-
-	// Validate email delivery settings
-	if params.EmailEnabled && (params.MailerProfileID == nil || emailOverridesJSON == "") {
-		return nil, &ValidationError{
-			Field:   "email",
-			Message: "Mailer profile and email recipient required when email forwarding is enabled",
-		}
+	delivery, err := prepareDelivery(params.EmailEnabled, params.MailerProfileID, params.EmailRecipient, params.WebhookEnabled, params.WebhookURL, params.WebhookSecret, params.WebhookHeadersJSON)
+	if err != nil {
+		return nil, err
 	}
-
-	// Validate webhook delivery settings
-	if params.WebhookEnabled && strings.TrimSpace(params.WebhookURL) == "" {
-		return nil, &ValidationError{
-			Field:   "webhook",
-			Message: "Webhook URL required when webhook delivery is enabled",
-		}
+	normalizedSlug, err := Slugify(slug)
+	if err != nil {
+		return nil, fmt.Errorf("generate form slug: %w", err)
 	}
 
-	// Validate webhook headers JSON
-	webhookHeadersJSON := strings.TrimSpace(params.WebhookHeadersJSON)
-	if webhookHeadersJSON != "" {
-		var headers map[string]string
-		if err := json.Unmarshal([]byte(webhookHeadersJSON), &headers); err != nil {
-			return nil, &ValidationError{
-				Field:   "webhook_headers",
-				Message: "Webhook headers must be valid JSON",
-			}
-		}
-		normalized, _ := json.Marshal(headers)
-		webhookHeadersJSON = string(normalized)
-	}
-
-	captchaOverridesJSON := strings.TrimSpace(params.CaptchaOverridesJSON)
-	if captchaOverridesJSON != "" {
-		var overrides map[string]any
-		if err := json.Unmarshal([]byte(captchaOverridesJSON), &overrides); err != nil {
-			return nil, &ValidationError{Field: "captcha_overrides", Message: "Captcha overrides must be valid JSON"}
-		}
-		normalized, _ := json.Marshal(overrides)
-		captchaOverridesJSON = string(normalized)
-	}
-
-	// Create form model
 	form := &Form{
-		Name:                 strings.TrimSpace(params.Name),
-		Slug:                 slug,
-		AllowedOrigins:       strings.TrimSpace(params.AllowedOrigins),
+		Name:                 name,
+		Slug:                 normalizedSlug,
+		AllowedOrigins:       origins,
 		UseSDK:               params.UseSDK,
 		GeneratedHTML:        strings.TrimSpace(params.GeneratedHTML),
 		CaptchaProfileID:     params.CaptchaProfileID,
-		CaptchaOverridesJSON: captchaOverridesJSON,
+		CaptchaOverridesJSON: captchaOverrides,
+		EmailDelivery: &EmailDelivery{
+			Enabled:         params.EmailEnabled,
+			MailerProfileID: params.MailerProfileID,
+			OverridesJSON:   delivery.emailOverrides,
+		},
+		WebhookDelivery: &WebhookDelivery{
+			Enabled:     params.WebhookEnabled,
+			URL:         delivery.webhookURL,
+			Secret:      delivery.webhookSecret,
+			HeadersJSON: delivery.webhookHeaders,
+		},
 	}
 
-	// Create delivery records
-	form.EmailDelivery = &EmailDelivery{
-		Enabled:         params.EmailEnabled,
-		MailerProfileID: params.MailerProfileID,
-		OverridesJSON:   emailOverridesJSON,
-	}
-
-	form.WebhookDelivery = &WebhookDelivery{
-		Enabled:     params.WebhookEnabled,
-		URL:         strings.TrimSpace(params.WebhookURL),
-		Secret:      strings.TrimSpace(params.WebhookSecret),
-		HeadersJSON: webhookHeadersJSON,
-	}
-
-	// Persist to database
 	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
 		return tx.Create(form).Error
 	}); err != nil {
 		if isUniqueConstraint(err) {
-			return nil, &ValidationError{Field: "slug", Message: "Slug already exists"}
+			return nil, invalid("slug", "Slug already exists")
 		}
-		logger.Error("failed to create form", slog.Any("error", err))
-		return nil, err
+		return nil, fmt.Errorf("create form: %w", err)
 	}
-
 	return form, nil
 }
 
-// GetByID retrieves a form with all its relations
-func GetByID(db *gorm.DB, id uint) (*Form, error) {
-	var form Form
-	if err := db.Where("id = ?", id).
-		Preload("WebhookDelivery").
-		Preload("EmailDelivery").
-		Preload("EmailDelivery.MailerProfile").
-		Preload("CaptchaProfile").
-		First(&form).Error; err != nil {
+func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error) {
+	name := strings.TrimSpace(params.Name)
+	if name == "" {
+		return nil, invalid("name", "Name is required")
+	}
+
+	form, err := GetByID(db, params.ID)
+	if err != nil {
 		return nil, err
 	}
-	return &form, nil
-}
-
-// List retrieves all forms ordered by name
-func List(db *gorm.DB) ([]Form, error) {
-	var forms []Form
-	if err := db.Order("name ASC").Find(&forms).Error; err != nil {
+	delivery, err := prepareDelivery(params.EmailEnabled, params.MailerProfileID, params.EmailRecipient, params.WebhookEnabled, params.WebhookURL, params.WebhookSecret, params.WebhookHeadersJSON)
+	if err != nil {
 		return nil, err
 	}
-	return forms, nil
-}
 
-// GetSubmissions retrieves submissions for a form
-func GetSubmissions(db *gorm.DB, formID uint, limit int) ([]Submission, error) {
-	var submissions []Submission
-	if err := db.Where("form_id = ?", formID).
-		Order("created_at DESC, id DESC").
-		Limit(limit).
-		Find(&submissions).Error; err != nil {
+	origins := keepUnlessSet(form.AllowedOrigins, params.AllowedOrigins)
+	slug := form.Slug
+	if value := strings.TrimSpace(params.Slug); value != "" {
+		slug, err = Slugify(value)
+		if err != nil {
+			return nil, fmt.Errorf("generate form slug: %w", err)
+		}
+	}
+	generatedHTML := form.GeneratedHTML
+	if params.UpdateGeneratedHTML {
+		generatedHTML = strings.TrimSpace(params.GeneratedHTML)
+	}
+	captchaOverrides := form.CaptchaOverridesJSON
+	if params.UpdateCaptchaOverrides {
+		captchaOverrides, err = canonicalObject(
+			"captcha_overrides",
+			params.CaptchaOverridesJSON,
+			new(map[string]any),
+			"Captcha overrides must be valid JSON",
+		)
+		if err != nil {
+			return nil, err
+		}
+		if err := integrations.ValidateCaptchaSettingsJSON(captchaOverrides); err != nil {
+			return nil, invalid("captcha_overrides", err.Error())
+		}
+	}
+
+	if err := EnsureDeliveryRecords(logger, db, form); err != nil {
 		return nil, err
 	}
-	return submissions, nil
-}
-
-// GetWebhookEvents retrieves recent webhook events for a form
-func GetWebhookEvents(db *gorm.DB, formID uint, limit int) ([]WebhookEvent, error) {
-	var events []WebhookEvent
-	if err := db.Preload("Submission").
-		Where("submission_id IN (?)", db.Model(&Submission{}).Select("id").Where("form_id = ?", formID)).
-		Order("created_at DESC, id DESC").
-		Limit(limit).
-		Find(&events).Error; err != nil {
-		return nil, err
-	}
-	return events, nil
-}
-
-// GetEmailEvents retrieves recent email events for a form
-func GetEmailEvents(db *gorm.DB, formID uint, limit int) ([]EmailEvent, error) {
-	var events []EmailEvent
-	if err := db.Preload("Submission").
-		Where("submission_id IN (?)", db.Model(&Submission{}).Select("id").Where("form_id = ?", formID)).
-		Order("created_at DESC, id DESC").
-		Limit(limit).
-		Find(&events).Error; err != nil {
-		return nil, err
-	}
-	return events, nil
-}
-
-// Delete deletes a form
-func Delete(logger *slog.Logger, db *gorm.DB, id uint) error {
-	return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		var submissionIDs []uint
-		if err := tx.Model(&Submission{}).Where("form_id = ?", id).Pluck("id", &submissionIDs).Error; err != nil {
+	err = dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		if err := tx.Model(&Form{}).Where("id = ?", params.ID).Updates(map[string]any{
+			"name": name, "slug": slug, "allowed_origins": origins,
+			"use_sdk": params.UseSDK, "generated_html": generatedHTML,
+			"captcha_profile_id": params.CaptchaProfileID, "captcha_overrides_json": captchaOverrides,
+		}).Error; err != nil {
 			return err
 		}
-		if len(submissionIDs) > 0 {
-			if err := tx.Where("submission_id IN ?", submissionIDs).Delete(&WebhookEvent{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("submission_id IN ?", submissionIDs).Delete(&EmailEvent{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("submission_id IN ?", submissionIDs).Delete(&SubmissionFile{}).Error; err != nil {
+		if err := tx.Model(&EmailDelivery{}).Where("id = ?", form.EmailDelivery.ID).Updates(map[string]any{
+			"enabled": params.EmailEnabled, "mailer_profile_id": params.MailerProfileID,
+			"overrides_json": delivery.emailOverrides,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&WebhookDelivery{}).Where("id = ?", form.WebhookDelivery.ID).Updates(map[string]any{
+			"enabled": params.WebhookEnabled, "url": delivery.webhookURL,
+			"secret": delivery.webhookSecret, "headers_json": delivery.webhookHeaders,
+		}).Error
+	})
+	if isUniqueConstraint(err) {
+		return nil, invalid("slug", "Slug already exists")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update form %d: %w", params.ID, err)
+	}
+	return GetByID(db, params.ID)
+}
+
+func GetByID(db *gorm.DB, id uint) (*Form, error) {
+	return loadForm(db.Where("id = ?", id))
+}
+
+func GetBySlug(db *gorm.DB, slug string) (*Form, error) {
+	return loadForm(db.Where("slug = ?", slug))
+}
+
+func List(db *gorm.DB) ([]Form, error) {
+	var result []Form
+	if err := db.Preload("EmailDelivery").Preload("WebhookDelivery").Order("name ASC").Find(&result).Error; err != nil {
+		return nil, fmt.Errorf("list forms: %w", err)
+	}
+	return result, nil
+}
+
+func GetSubmissions(db *gorm.DB, formID uint, limit int) ([]Submission, error) {
+	var result []Submission
+	if err := db.Where("form_id = ?", formID).Order("created_at DESC, id DESC").Limit(limit).Find(&result).Error; err != nil {
+		return nil, fmt.Errorf("list form submissions: %w", err)
+	}
+	return result, nil
+}
+
+func GetWebhookEvents(db *gorm.DB, formID uint, limit int) ([]WebhookEvent, error) {
+	return recentEvents[WebhookEvent](db, formID, limit)
+}
+
+func GetEmailEvents(db *gorm.DB, formID uint, limit int) ([]EmailEvent, error) {
+	return recentEvents[EmailEvent](db, formID, limit)
+}
+
+func Delete(logger *slog.Logger, db *gorm.DB, id uint) error {
+	return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		submissionIDs := tx.Model(&Submission{}).Select("id").Where("form_id = ?", id)
+		for _, model := range []any{&WebhookEvent{}, &EmailEvent{}, &SubmissionFile{}} {
+			if err := tx.Where("submission_id IN (?)", submissionIDs).Delete(model).Error; err != nil {
 				return err
 			}
 		}
@@ -259,200 +257,132 @@ func Delete(logger *slog.Logger, db *gorm.DB, id uint) error {
 		if err := tx.Where("form_id = ?", id).Delete(&WebhookDelivery{}).Error; err != nil {
 			return err
 		}
-		result := tx.Delete(&Form{}, id)
-		if result.Error != nil {
-			return result.Error
+		deleted := tx.Delete(&Form{}, id)
+		if deleted.Error != nil {
+			return deleted.Error
 		}
-		if result.RowsAffected == 0 {
+		if deleted.RowsAffected == 0 {
 			return gorm.ErrRecordNotFound
 		}
 		return nil
 	})
 }
 
-// GetBySlug retrieves a form by slug
-func GetBySlug(db *gorm.DB, slug string) (*Form, error) {
-	var form Form
-	if err := db.Where("slug = ?", slug).
-		Preload("WebhookDelivery").
-		Preload("EmailDelivery").
-		Preload("EmailDelivery.MailerProfile").
-		Preload("CaptchaProfile").
-		First(&form).Error; err != nil {
-		return nil, err
-	}
-	return &form, nil
-}
-
-// EnsureDeliveryRecords creates delivery records if they don't exist
 func EnsureDeliveryRecords(logger *slog.Logger, db *gorm.DB, form *Form) error {
-	if form.EmailDelivery == nil {
-		form.EmailDelivery = &EmailDelivery{FormID: form.ID}
-		if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-			return tx.Create(form.EmailDelivery).Error
-		}); err != nil {
-			logger.Error("failed to create email delivery", slog.Any("error", err), slog.Uint64("form_id", uint64(form.ID)))
-			return err
-		}
+	if form.EmailDelivery != nil && form.WebhookDelivery != nil {
+		return nil
 	}
-	if form.WebhookDelivery == nil {
-		form.WebhookDelivery = &WebhookDelivery{FormID: form.ID}
-		if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-			return tx.Create(form.WebhookDelivery).Error
-		}); err != nil {
-			logger.Error("failed to create webhook delivery", slog.Any("error", err), slog.Uint64("form_id", uint64(form.ID)))
-			return err
+
+	var email *EmailDelivery
+	var webhook *WebhookDelivery
+	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		if form.EmailDelivery == nil {
+			email = &EmailDelivery{FormID: form.ID}
+			if err := tx.Create(email).Error; err != nil {
+				return err
+			}
 		}
+		if form.WebhookDelivery == nil {
+			webhook = &WebhookDelivery{FormID: form.ID}
+			if err := tx.Create(webhook).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("ensure form deliveries: %w", err)
+	}
+	if email != nil {
+		form.EmailDelivery = email
+	}
+	if webhook != nil {
+		form.WebhookDelivery = webhook
 	}
 	return nil
 }
 
-// Update updates an existing form
-func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error) {
-	// Validate required fields
-	if strings.TrimSpace(params.Name) == "" {
-		return nil, &ValidationError{Field: "name", Message: "Name is required"}
-	}
-
-	// Get existing form
-	form, err := GetByID(db, params.ID)
+func loadForm(query *gorm.DB) (*Form, error) {
+	var form Form
+	err := query.
+		Preload("EmailDelivery.MailerProfile").
+		Preload("WebhookDelivery").
+		Preload("CaptchaProfile").
+		First(&form).Error
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load form: %w", err)
 	}
-
-	// Ensure delivery records exist
-	if err := EnsureDeliveryRecords(logger, db, form); err != nil {
-		return nil, err
-	}
-
-	allowedOrigins := form.AllowedOrigins
-	if strings.TrimSpace(params.AllowedOrigins) != "" {
-		allowedOrigins = strings.TrimSpace(params.AllowedOrigins)
-	}
-
-	slug := form.Slug
-	if strings.TrimSpace(params.Slug) != "" {
-		slug = Slugify(params.Slug)
-	}
-	generatedHTML := form.GeneratedHTML
-	if params.UpdateGeneratedHTML {
-		generatedHTML = strings.TrimSpace(params.GeneratedHTML)
-	}
-	captchaOverridesJSON := form.CaptchaOverridesJSON
-	if params.UpdateCaptchaOverrides {
-		captchaOverridesJSON = strings.TrimSpace(params.CaptchaOverridesJSON)
-		if captchaOverridesJSON != "" {
-			var overrides map[string]any
-			if err := json.Unmarshal([]byte(captchaOverridesJSON), &overrides); err != nil {
-				return nil, &ValidationError{Field: "captcha_overrides", Message: "Captcha overrides must be valid JSON"}
-			}
-			normalized, _ := json.Marshal(overrides)
-			captchaOverridesJSON = string(normalized)
-		}
-	}
-
-	// Build email overrides JSON
-	emailOverrides := make(map[string]interface{})
-	if recipient := strings.TrimSpace(params.EmailRecipient); recipient != "" {
-		emailOverrides["to"] = recipient
-	}
-	emailOverridesJSON := ""
-	if len(emailOverrides) > 0 {
-		if data, err := json.Marshal(emailOverrides); err == nil {
-			emailOverridesJSON = string(data)
-		}
-	}
-
-	// Validate email delivery if enabled
-	if params.EmailEnabled && (params.MailerProfileID == nil || emailOverridesJSON == "") {
-		return nil, &ValidationError{
-			Field:   "email",
-			Message: "Mailer profile and email recipient required when email forwarding is enabled",
-		}
-	}
-
-	// Validate webhook delivery if enabled
-	if params.WebhookEnabled && strings.TrimSpace(params.WebhookURL) == "" {
-		return nil, &ValidationError{
-			Field:   "webhook",
-			Message: "Webhook URL required when webhook delivery is enabled",
-		}
-	}
-
-	// Validate webhook headers JSON if provided
-	webhookHeadersJSON := strings.TrimSpace(params.WebhookHeadersJSON)
-	if webhookHeadersJSON != "" {
-		var headers map[string]string
-		if err := json.Unmarshal([]byte(webhookHeadersJSON), &headers); err != nil {
-			return nil, &ValidationError{
-				Field:   "webhook_headers",
-				Message: "Webhook headers must be valid JSON",
-			}
-		}
-		normalized, _ := json.Marshal(headers)
-		webhookHeadersJSON = string(normalized)
-	}
-
-	// Update in transaction
-	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		// Update form fields
-		if err := tx.Model(&Form{}).
-			Where("id = ?", params.ID).
-			Updates(map[string]any{
-				"name":                   strings.TrimSpace(params.Name),
-				"slug":                   slug,
-				"captcha_profile_id":     params.CaptchaProfileID,
-				"captcha_overrides_json": captchaOverridesJSON,
-				"allowed_origins":        allowedOrigins,
-				"use_sdk":                params.UseSDK,
-				"generated_html":         generatedHTML,
-			}).Error; err != nil {
-			return err
-		}
-
-		// Update email delivery
-		if err := tx.Model(&EmailDelivery{}).
-			Where("id = ?", form.EmailDelivery.ID).
-			Updates(map[string]any{
-				"enabled":           params.EmailEnabled,
-				"mailer_profile_id": params.MailerProfileID,
-				"overrides_json":    emailOverridesJSON,
-			}).Error; err != nil {
-			return err
-		}
-
-		// Update webhook delivery
-		if err := tx.Model(&WebhookDelivery{}).
-			Where("id = ?", form.WebhookDelivery.ID).
-			Updates(map[string]any{
-				"enabled":      params.WebhookEnabled,
-				"url":          strings.TrimSpace(params.WebhookURL),
-				"secret":       strings.TrimSpace(params.WebhookSecret),
-				"headers_json": webhookHeadersJSON,
-			}).Error; err != nil {
-			return err
-		}
-
-		return nil
-	}); err != nil {
-		if isUniqueConstraint(err) {
-			return nil, &ValidationError{Field: "slug", Message: "Slug already exists"}
-		}
-		logger.Error("failed to update form", slog.Any("error", err), slog.Uint64("form_id", uint64(params.ID)))
-		return nil, err
-	}
-
-	// Reload form with updated data
-	return GetByID(db, params.ID)
+	return &form, nil
 }
 
-// isUniqueConstraint checks if an error is a unique constraint violation
-func isUniqueConstraint(err error) bool {
-	if err == nil {
-		return false
+func recentEvents[T any](db *gorm.DB, formID uint, limit int) ([]T, error) {
+	var events []T
+	submissionIDs := db.Model(&Submission{}).Select("id").Where("form_id = ?", formID)
+	if err := db.Preload("Submission").Where("submission_id IN (?)", submissionIDs).
+		Order("created_at DESC, id DESC").Limit(limit).Find(&events).Error; err != nil {
+		return nil, fmt.Errorf("list delivery events: %w", err)
 	}
-	errStr := strings.ToLower(err.Error())
-	return strings.Contains(errStr, "unique") ||
-		strings.Contains(errStr, "duplicate") ||
-		strings.Contains(errStr, "constraint")
+	return events, nil
+}
+
+func prepareDelivery(emailEnabled bool, mailerID *uint, recipient string, webhookEnabled bool, webhookURL, webhookSecret, webhookHeaders string) (deliveryValues, error) {
+	values := deliveryValues{
+		webhookURL:    strings.TrimSpace(webhookURL),
+		webhookSecret: strings.TrimSpace(webhookSecret),
+	}
+	recipient = strings.TrimSpace(recipient)
+	if recipient != "" {
+		encoded, err := json.Marshal(map[string]string{"to": recipient})
+		if err != nil {
+			return values, fmt.Errorf("encode email recipient: %w", err)
+		}
+		values.emailOverrides = string(encoded)
+	}
+	if emailEnabled && (mailerID == nil || recipient == "") {
+		return values, invalid("email", "Mailer profile and email recipient required when email forwarding is enabled")
+	}
+	if webhookEnabled && values.webhookURL == "" {
+		return values, invalid("webhook", "Webhook URL required when webhook delivery is enabled")
+	}
+
+	var err error
+	values.webhookHeaders, err = canonicalObject(
+		"webhook_headers",
+		webhookHeaders,
+		new(map[string]string),
+		"Webhook headers must be valid JSON",
+	)
+	return values, err
+}
+
+func canonicalObject(field, value string, object any, message string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	if err := json.Unmarshal([]byte(value), object); err != nil {
+		return "", invalid(field, message)
+	}
+	normalized, err := json.Marshal(object)
+	if err != nil {
+		return "", fmt.Errorf("normalize %s: %w", field, err)
+	}
+	return string(normalized), nil
+}
+
+func keepUnlessSet(current, candidate string) string {
+	if candidate = strings.TrimSpace(candidate); candidate != "" {
+		return candidate
+	}
+	return current
+}
+
+func invalid(field, message string) *ValidationError {
+	return &ValidationError{Field: field, Message: message}
+}
+
+func isUniqueConstraint(err error) bool {
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return true
+	}
+	return sqliteerr.IsUniqueOrPrimaryConstraint(err)
 }

@@ -61,6 +61,43 @@ func TestBuild(t *testing.T) {
 
 		assert.Contains(t, result.HTML, `data-sitekey="public-site-key"`)
 		assert.Contains(t, result.HTML, `data-theme="dark"`)
+		assert.Contains(t, result.HTML, `data-action="contact"`)
 		assert.Contains(t, result.HTML, "challenges.cloudflare.com/turnstile")
+	})
+
+	t.Run("endpoint captcha overrides replace profile widget settings", func(t *testing.T) {
+		profileID := uint(5)
+		form := &forms.Form{
+			ID: 10, Slug: "overridden", Token: "token", AllowedOrigins: "*",
+			CaptchaProfileID: &profileID,
+			CaptchaProfile: &integrations.CaptchaProfile{
+				Provider: "turnstile", SiteKeysJSON: `[{"host_pattern":"*","site_key":"profile-key"}]`,
+				PolicyJSON: `{"action":"profile-action","theme":"light"}`,
+			},
+			CaptchaOverridesJSON: `{"action":"form-action","theme":"dark","site_key":"override-key"}`,
+		}
+
+		result := formembed.Build(form, formembed.Options{ShowToken: true})
+
+		assert.Contains(t, result.HTML, `data-sitekey="override-key"`)
+		assert.Contains(t, result.HTML, `data-action="form-action"`)
+		assert.Contains(t, result.HTML, `data-theme="dark"`)
+	})
+
+	t.Run("matches wildcard origins to the corresponding site key", func(t *testing.T) {
+		profileID := uint(6)
+		form := &forms.Form{
+			ID: 11, Slug: "wildcard", Token: "token", AllowedOrigins: "*.b.test",
+			CaptchaProfileID: &profileID,
+			CaptchaProfile: &integrations.CaptchaProfile{
+				Provider:     "turnstile",
+				SiteKeysJSON: `[{"host_pattern":"a.test","site_key":"wrong-key"},{"host_pattern":"*.b.test","site_key":"matching-key"}]`,
+			},
+		}
+
+		result := formembed.Build(form, formembed.Options{ShowToken: true})
+
+		assert.Contains(t, result.HTML, `data-sitekey="matching-key"`)
+		assert.NotContains(t, result.HTML, "wrong-key")
 	})
 }

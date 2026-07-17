@@ -157,7 +157,7 @@ func validateConfigKey(key string) (string, bool, error) {
 }
 
 func updateEnvFile(path, key string, value *string) error {
-	lines, mode, err := readEnvLines(path)
+	lines, err := readEnvLines(path)
 	if err != nil {
 		return err
 	}
@@ -183,16 +183,17 @@ func updateEnvFile(path, key string, value *string) error {
 	if len(updated) > 0 {
 		content += "\n"
 	}
-	return writeFileAtomically(path, []byte(content), mode)
+	return writeFileAtomically(path, []byte(content))
 }
 
-func readEnvLines(path string) (lines []string, mode os.FileMode, resultErr error) {
+func readEnvLines(path string) (lines []string, resultErr error) {
+	// #nosec G304 -- The path is the operator's explicit --env-file target.
 	file, err := os.Open(path)
 	if os.IsNotExist(err) {
-		return nil, 0o600, nil
+		return nil, nil
 	}
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer func() {
 		if err := file.Close(); resultErr == nil {
@@ -200,23 +201,19 @@ func readEnvLines(path string) (lines []string, mode os.FileMode, resultErr erro
 		}
 	}()
 
-	mode = os.FileMode(0o600)
-	if info, statErr := file.Stat(); statErr == nil {
-		mode = info.Mode().Perm()
-	}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	return lines, mode, nil
+	return lines, nil
 }
 
-func writeFileAtomically(path string, content []byte, mode os.FileMode) error {
+func writeFileAtomically(path string, content []byte) error {
 	directory := filepath.Dir(path)
-	if err := os.MkdirAll(directory, 0o755); err != nil {
+	if err := os.MkdirAll(directory, 0o750); err != nil {
 		return err
 	}
 	temporary, err := os.CreateTemp(directory, ".miniform-env-*")
@@ -234,7 +231,7 @@ func writeFileAtomically(path string, content []byte, mode os.FileMode) error {
 		_ = temporary.Close()
 		return err
 	}
-	if err := temporary.Chmod(mode); err != nil {
+	if err := temporary.Chmod(0o600); err != nil {
 		_ = temporary.Close()
 		return err
 	}

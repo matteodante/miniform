@@ -1,206 +1,167 @@
 package tests
 
 import (
-	"crypto/tls"
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/karloscodes/matcha/testrunner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/karloscodes/matcha/testrunner"
 )
 
-func isRunningInCI() bool {
-	return os.Getenv("GITHUB_ACTIONS") == "true" || os.Getenv("GITHUB_RUN_NUMBER") != ""
+func TestInstallation(t *testing.T) {
+	t.Run("installs Miniform and exposes its health endpoint", func(t *testing.T) {
+		if os.Getenv("MINIFORM_RUN_INSTALLATION_TEST") != "1" {
+			t.Skip("set MINIFORM_RUN_INSTALLATION_TEST=1 to run the VM installer test")
+		}
+		t.Setenv("ENV", "test")
+
+		binary, err := installationBinary(t)
+		require.NoError(t, err)
+		configuration := installerConfig(binary)
+		keepEnvironmentForVerification(t, configuration.VMName)
+
+		runner := testrunner.NewTestRunner(configuration)
+		err = runner.Run()
+		require.NoErrorf(t, err, "installer failed\nstdout:\n%s\nstderr:\n%s", runner.Stdout(), runner.Stderr())
+
+		for _, text := range []string{"Domain", "Summary", "Proceed?", "Done.", "Visit"} {
+			assert.Contains(t, runner.Stdout(), text)
+		}
+		assert.True(t, installationHealthy(t, runner), "GET /_health did not become ready")
+		verifyInstalledState(t, runner)
+	})
 }
 
-func TestInstallation(t *testing.T) {
-	if os.Getenv("MINIFORM_RUN_INSTALLATION_TEST") != "1" {
-		t.Skip("set MINIFORM_RUN_INSTALLATION_TEST=1 to run the VM-based installer test")
+func installationBinary(t *testing.T) (string, error) {
+	t.Helper()
+	if configured := strings.TrimSpace(os.Getenv("BINARY_PATH")); configured != "" {
+		if info, err := os.Stat(configured); err != nil || info.IsDir() {
+			return "", fmt.Errorf("BINARY_PATH does not point to a file: %s", configured)
+		}
+		if !isLinuxExecutable(configured) {
+			return "", fmt.Errorf("BINARY_PATH is not a Linux executable: %s", configured)
+		}
+		return configured, nil
 	}
-	t.Setenv("ENV", "test")
+	if runtime.GOOS != "linux" {
+		return "", errors.New("set BINARY_PATH to a CGO-enabled Linux binary; make test-integration builds one automatically")
+	}
 
-	projectRoot, err := filepath.Abs("../..")
-	require.NoError(t, err, "Failed to find project root")
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		return "", fmt.Errorf("resolve project root: %w", err)
+	}
+	output := filepath.Join(t.TempDir(), "miniform-linux")
+	command := exec.CommandContext(t.Context(), "go", "build", "-trimpath", "-o", output, "./cmd/miniform")
+	command.Dir = root
+	command.Env = append(os.Environ(), "CGO_ENABLED=1")
+	if buildOutput, err := command.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("build Linux installer binary: %w\n%s", err, buildOutput)
+	}
+	return output, nil
+}
 
-	binaryPath := os.Getenv("BINARY_PATH")
-	if binaryPath == "" {
-		// First try the current development binary
-		currentBinary := filepath.Join(projectRoot, "bin", "miniform-current")
-		if _, err := os.Stat(currentBinary); err == nil {
-			binaryPath = currentBinary
-		} else {
-			// Fallback to default binary
-			defaultBinary := filepath.Join(projectRoot, "bin", "miniform")
-			if _, err := os.Stat(defaultBinary); err == nil {
-				binaryPath = defaultBinary
-			} else {
-				t.Fatalf("No binary found. Run 'go build -o bin/miniform-current ./cmd/miniform' first")
+func isLinuxExecutable(path string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	magic := make([]byte, 4)
+	_, err = file.Read(magic)
+	return err == nil && string(magic) == "\x7fELF"
+}
+
+func installerConfig(binary string) testrunner.Config {
+	appImage := strings.TrimSpace(os.Getenv("MINIFORM_INSTALLER_TEST_IMAGE"))
+	if appImage == "" {
+		appImage = "ghcr.io/matteodante/miniform:latest"
+	}
+	configuration := testrunner.DefaultConfig()
+	configuration.BinaryPath = binary
+	configuration.BinaryName = "miniform"
+	configuration.Args = []string{"install"}
+	configuration.StdinInput = "localhost\ny\n"
+	configuration.Timeout = 10 * time.Minute
+	configuration.VMName = "miniform-install-test"
+	configuration.Debug = os.Getenv("DEBUG") == "1"
+	configuration.SkipCleanup = true
+	configuration.EnvVars = map[string]string{
+		"ENV":                "test",
+		"SKIP_PORT_CHECKING": "1",
+		"APP_IMAGE":          appImage,
+	}
+	return configuration
+}
+
+func keepEnvironmentForVerification(t *testing.T, vmName string) {
+	t.Helper()
+	if os.Getenv("GITHUB_ACTIONS") == "true" || os.Getenv("KEEP_VM") == "1" {
+		return
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if output, err := exec.CommandContext(ctx, "orb", "delete", vmName, "-f").CombinedOutput(); err != nil {
+			t.Logf("delete test VM: %v (%s)", err, strings.TrimSpace(string(output)))
+		}
+	})
+}
+
+func installationHealthy(t *testing.T, runner *testrunner.TestRunner) bool {
+	t.Helper()
+	if os.Getenv("GITHUB_ACTIONS") != "true" {
+		return runner.CheckHealth("http://localhost/_health", 10)
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	for attempt := 0; attempt < 10; attempt++ {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://localhost/_health", nil)
+		if err != nil {
+			return false
+		}
+		response, err := client.Do(request)
+		if err == nil {
+			response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				return true
 			}
 		}
+		time.Sleep(2 * time.Second)
 	}
-
-	t.Logf("Using binary: %s", binaryPath)
-	assert.FileExists(t, binaryPath, "Binary should exist")
-
-	config := testrunner.DefaultConfig()
-	config.BinaryPath = binaryPath
-	config.Args = []string{"install"}
-
-	// Use localhost as domain for both CI and local tests
-	config.StdinInput = "localhost\ny\n"
-	config.Debug = os.Getenv("DEBUG") == "1"
-	config.Timeout = 10 * time.Minute
-	config.VMName = "miniform-test-vm"
-	config.EnvVars["ENV"] = "test"
-	config.EnvVars["SKIP_PORT_CHECKING"] = "1"
-	// Use the actual Miniform image for testing
-	config.EnvVars["APP_IMAGE"] = "ghcr.io/matteodante/miniform:latest"
-
-	runner := testrunner.NewTestRunner(config)
-	t.Setenv("KEEP_VM", "1")
-
-	t.Log("Configured interactive installation test with user input simulation")
-
-	err = runner.Run()
-	outputStr := runner.Stdout()
-	errorStr := runner.Stderr()
-
-	// Robust assertions - only if not skipped due to architecture issues
-	require.NoError(t, err, "Installation should complete without error")
-
-	// Only print installer output if the test fails
-	if t.Failed() {
-		t.Logf("Installer Output (on failure):\n%s", outputStr)
-		if errorStr != "" {
-			t.Logf("Installer Errors:\n%s", errorStr)
-		}
-	}
-
-	interactivePatterns := []string{
-		"Enter your domain name",
-		"Configuration Summary:",
-		"Proceed with this configuration?",
-	}
-
-	t.Log("Verifying interactive prompts were displayed...")
-	for _, pattern := range interactivePatterns {
-		if strings.Contains(outputStr, pattern) {
-			t.Logf("✅ Found expected interactive prompt: '%s'", pattern)
-		} else {
-			t.Logf("⚠️  Interactive prompt not found: '%s'", pattern)
-		}
-	}
-
-	successPatterns := []string{
-		"Installation completed in",
-		"Installation verified",
-	}
-
-	for _, pattern := range successPatterns {
-		assert.Contains(t, outputStr, pattern, "Output should contain success pattern '%s'", pattern)
-		if !strings.Contains(outputStr, pattern) {
-			t.Logf("Warning: Output doesn't contain expected pattern '%s', but command succeeded", pattern)
-		}
-	}
-	t.Log("Testing service availability...")
-	testServiceAvailability(t, isRunningInCI(), config.VMName)
-
-	if os.Getenv("KEEP_VM") != "1" {
-		cleanupTestEnvironment(t, config.VMName)
-	}
+	return false
 }
 
-func testServiceAvailability(t *testing.T, isCI bool, vmName string) {
-	serviceURL := "https://localhost"
-	if isCI {
-		t.Log("Testing HTTPS access with direct HTTP client...")
-		testDirectServiceAccess(t, serviceURL)
-	} else {
-		t.Log("Testing HTTPS access via VM curl command...")
-		testVMServiceAccess(t, vmName, serviceURL)
+func verifyInstalledState(t *testing.T, runner *testrunner.TestRunner) {
+	t.Helper()
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		output, err := exec.CommandContext(t.Context(), "docker", "ps", "--format", "{{.Names}}\t{{.Image}}", "--filter", "name=^miniform").CombinedOutput()
+		require.NoError(t, err, string(output))
+		assert.Contains(t, string(output), strings.TrimSpace(os.Getenv("MINIFORM_INSTALLER_TEST_IMAGE")))
+
+		registry, err := os.ReadFile("/etc/matcha/config.yml")
+		require.NoError(t, err)
+		assert.Contains(t, string(registry), "domain: localhost")
+		assert.Contains(t, string(registry), strings.TrimSpace(os.Getenv("MINIFORM_INSTALLER_TEST_IMAGE")))
+		return
 	}
-}
+	containers, err := runner.RunCommand("docker ps --format '{{.Names}}'", true)
+	require.NoError(t, err)
+	assert.Contains(t, containers, "miniform")
+	assert.Contains(t, containers, "matcha-proxy")
 
-func testDirectServiceAccess(t *testing.T, url string) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	var resp *http.Response
-	var err error
-	for i := 0; i < 6; i++ {
-		resp, err = client.Get(url)
-		if err == nil && (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusFound) {
-			break
-		}
-		if resp != nil {
-			resp.Body.Close()
-		}
-		t.Logf("Waiting for service (attempt %d/6)...", i+1)
-		time.Sleep(5 * time.Second)
-	}
-
-	require.NoError(t, err, "HTTPS request should succeed")
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusFound, resp.StatusCode, "Service should return 302 Found")
-	t.Logf("Service responded with %d, Location: %s", resp.StatusCode, resp.Header.Get("Location"))
-}
-
-func testVMServiceAccess(t *testing.T, vmName string, url string) {
-	var success bool
-	var finalOutput string
-	var is302 bool
-
-	for i := 0; i < 6; i++ {
-		cmd := exec.Command("multipass", "exec", vmName, "--", "curl", "-k", "-s", "-o", "/dev/null", "-w", "%{http_code}", url)
-		output, err := cmd.CombinedOutput()
-		outputStr := strings.TrimSpace(string(output))
-		finalOutput = outputStr
-
-		t.Logf("Curl attempt %d/6, result: %s, error: %v", i+1, outputStr, err)
-		if err == nil && outputStr == "302" {
-			success = true
-			is302 = true
-			break
-		} else if err == nil && outputStr == "200" {
-			success = true
-		}
-		time.Sleep(5 * time.Second)
-	}
-
-	if !success {
-		logCmd := exec.Command("multipass", "exec", vmName, "--", "sudo", "cat", "/opt/miniform/logs/miniform.log")
-		logOutput, _ := logCmd.CombinedOutput()
-		t.Logf("Service logs:\n%s", string(logOutput))
-	}
-
-	assert.True(t, success, fmt.Sprintf("Service should be accessible, got: %s", finalOutput))
-	assert.True(t, is302, "Service should return 302 redirect")
-	t.Log("Service verified in VM")
-}
-
-func cleanupTestEnvironment(t *testing.T, vmName string) {
-	t.Log("Cleaning up test environment...")
-	cmd := exec.Command("multipass", "delete", "--purge", vmName)
-	if err := cmd.Run(); err != nil {
-		t.Logf("Failed to delete VM %s: %v", vmName, err)
-	}
-	cmd = exec.Command("docker", "system", "prune", "-f")
-	if err := cmd.Run(); err != nil {
-		t.Logf("Failed to prune Docker: %v", err)
-	}
+	registry, err := runner.RunCommand("cat /etc/matcha/config.yml", true)
+	require.NoError(t, err)
+	assert.Contains(t, registry, "miniform:")
+	assert.Contains(t, registry, "domain: localhost")
+	assert.Contains(t, registry, "PRIVATE_KEY")
 }

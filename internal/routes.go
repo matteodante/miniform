@@ -9,151 +9,126 @@ import (
 	"github.com/karloscodes/cartridge"
 
 	"github.com/matteodante/miniform/internal/config"
-	httphandlers "github.com/matteodante/miniform/internal/http"
+	handlers "github.com/matteodante/miniform/internal/http"
 )
 
-// MountRoutes registers all application routes.
-func MountRoutes(s *cartridge.Server, cfg *config.Config) {
-	// Store miniform config and session in all requests for handlers
-	s.App().Use(func(c *fiber.Ctx) error {
-		c.Locals("app_config", cfg)
-		c.Locals("session", s.Session())
-		return c.Next()
-	})
+type endpoint struct {
+	post    bool
+	path    string
+	handler cartridge.HandlerFunc
+}
 
-	// Health Check - support both GET and HEAD requests
-	healthHandler := func(ctx *cartridge.Context) error {
-		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"status": "ok"})
+func MountRoutes(server *cartridge.Server, cfg *config.Config) {
+	mountUtilityRoutes(server, cfg)
+	mountPublicSubmission(server, cfg)
+	mountLogin(server, cfg)
+	mountAdmin(server, cfg)
+}
+
+func mountUtilityRoutes(server *cartridge.Server, cfg *config.Config) {
+	health := func(ctx *cartridge.Context) error {
+		return ctx.JSON(fiber.Map{"status": "ok"})
 	}
-	s.Get("/_health", healthHandler)
-	s.App().Head("/_health", func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "ok"})
-	})
-
-	s.Get("/", func(ctx *cartridge.Context) error {
-		return ctx.Redirect("/admin/submissions")
-	})
-
-	// The demo renders a form token, so it must never be available in production.
+	server.Get("/_health", health)
+	server.Head("/_health", health)
+	server.Get("/", func(ctx *cartridge.Context) error { return ctx.Redirect("/admin/submissions") })
 	if cfg.IsDevelopment() || cfg.IsTest() {
-		s.Get("/_demo", httphandlers.DemoContactForm)
+		server.Get("/_demo", handlers.DemoContactForm)
 	}
+}
 
-	// Build middleware chain for public routes (rate limiting disabled in dev/test)
-	publicMiddleware := []fiber.Handler{
-		limiter.New(limiter.Config{
-			Max:        30,
-			Expiration: 60 * time.Second,
-			KeyGenerator: func(c *fiber.Ctx) string {
-				return c.IP()
-			},
-			LimitReached: func(c *fiber.Ctx) error {
-				return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
-					"error": "rate limit exceeded",
-				})
-			},
-			Next: func(_ *fiber.Ctx) bool {
-				// Skip rate limiting in dev/test mode
-				return cfg.IsDevelopment() || cfg.IsTest()
-			},
-		}),
-	}
-
-	publicConfig := &cartridge.RouteConfig{
-		EnableSecFetchSite: cartridge.Bool(false), // Public APIs accept cross-origin requests
+func mountPublicSubmission(server *cartridge.Server, cfg *config.Config) {
+	public := &cartridge.RouteConfig{
+		EnableSecFetchSite: cartridge.Bool(false),
 		EnableCORS:         true,
 		CORSConfig: &cors.Config{
-			AllowOrigins: "*",
-			AllowMethods: "POST,OPTIONS",
+			AllowOrigins: "*", AllowMethods: "POST,OPTIONS",
 			AllowHeaders: "Content-Type, Authorization, User-Agent",
 		},
 		WriteConcurrency: true,
-		CustomMiddleware: publicMiddleware,
+		CustomMiddleware: []fiber.Handler{limiter.New(limiter.Config{
+			Max: 30, Expiration: time.Minute,
+			KeyGenerator: func(ctx *fiber.Ctx) string { return ctx.IP() },
+			LimitReached: func(ctx *fiber.Ctx) error {
+				return ctx.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "rate limit exceeded"})
+			},
+			Next: func(*fiber.Ctx) bool { return cfg.IsDevelopment() || cfg.IsTest() },
+		})},
 	}
-
-	s.Post("/forms/:slug/submit", httphandlers.PublicFormSubmission, publicConfig)
-	s.Options("/forms/:slug/submit", func(ctx *cartridge.Context) error {
+	server.Post("/forms/:slug/submit", func(ctx *cartridge.Context) error {
+		return handlers.PublicFormSubmission(ctx, cfg)
+	}, public)
+	server.Options("/forms/:slug/submit", func(ctx *cartridge.Context) error {
 		return ctx.SendStatus(fiber.StatusNoContent)
-	}, publicConfig)
+	}, public)
+}
 
-	s.Get("/admin/login", httphandlers.AdminLoginPage)
-
-	// Rate limit login attempts: 5 per minute per IP (disabled in dev/test mode)
-	loginRateLimiter := limiter.New(limiter.Config{
-		Max:        5,
-		Expiration: 60 * time.Second,
-		KeyGenerator: func(c *fiber.Ctx) string {
-			return c.IP()
-		},
-		LimitReached: func(c *fiber.Ctx) error {
-			return c.Status(fiber.StatusTooManyRequests).Render("layouts/base", fiber.Map{
-				"Title":             "Sign in",
-				"Error":             "Too many login attempts. Please try again in a minute.",
-				"HideHeaderActions": true,
-				"ContentView":       "admin/login/content",
+func mountLogin(server *cartridge.Server, cfg *config.Config) {
+	server.Get("/admin/login", handlers.AdminLoginPage)
+	loginLimiter := limiter.New(limiter.Config{
+		Max: 5, Expiration: time.Minute,
+		KeyGenerator: func(ctx *fiber.Ctx) string { return ctx.IP() },
+		LimitReached: func(ctx *fiber.Ctx) error {
+			return ctx.Status(fiber.StatusTooManyRequests).Render("layouts/base", fiber.Map{
+				"Title": "Sign in", "Error": "Too many login attempts. Please try again in a minute.",
+				"HideHeaderActions": true, "ContentView": "admin/login/content",
 			}, "")
 		},
-		Next: func(_ *fiber.Ctx) bool {
-			// Skip rate limiting in dev/test mode
-			return cfg.IsDevelopment() || cfg.IsTest()
-		},
+		Next: func(*fiber.Ctx) bool { return cfg.IsDevelopment() || cfg.IsTest() },
 	})
-
-	// Disable Sec-Fetch-Site enforcement on login: cartridge's strict
-	// middleware rejects requests missing the header (older browsers,
-	// reverse proxies that strip fetch-metadata), which locked users
-	// out of fresh deployments. CSRF on an unauthenticated login form
-	// is low-risk — the attacker gains nothing by forcing a victim to
-	// submit credentials they don't already control.
-	s.Post("/admin/login", httphandlers.AdminLoginSubmit, &cartridge.RouteConfig{
-		EnableSecFetchSite: cartridge.Bool(false),
-		CustomMiddleware:   []fiber.Handler{loginRateLimiter},
+	server.Post("/admin/login", handlers.AdminLoginSubmit, &cartridge.RouteConfig{
+		EnableSecFetchSite: cartridge.Bool(false), CustomMiddleware: []fiber.Handler{loginLimiter},
 	})
+}
 
-	// Auth config for protected routes: a valid session.
-	authConfig := &cartridge.RouteConfig{
-		CustomMiddleware: []fiber.Handler{s.Session().Middleware()},
+func mountAdmin(server *cartridge.Server, cfg *config.Config) {
+	authenticated := &cartridge.RouteConfig{CustomMiddleware: []fiber.Handler{server.Session().Middleware()}}
+	registerEndpoints(server, authenticated, []endpoint{
+		{false, "/admin", redirectTo("/admin/submissions")},
+		{true, "/admin/logout", handlers.AdminLogout},
+		{false, "/admin/forms", handlers.AdminFormsIndex},
+		{false, "/admin/forms/new", handlers.AdminFormsNew},
+		{true, "/admin/forms", handlers.AdminFormsCreate},
+		{false, "/admin/forms/:id", handlers.AdminFormShow},
+		{false, "/admin/forms/:id/edit", handlers.AdminFormsEdit},
+		{true, "/admin/forms/:id", handlers.AdminFormsUpdate},
+		{false, "/admin/submissions", handlers.SubmissionList},
+		{false, "/admin/submissions/:id", handlers.AdminSubmissionShow},
+		{false, "/admin/submissions/:id/files/:file_id", func(ctx *cartridge.Context) error {
+			return handlers.AdminSubmissionFileDownload(ctx, cfg)
+		}},
+		{false, "/admin/settings", handlers.AdminSettingsPage},
+		{true, "/admin/settings/password", handlers.AdminSettingsUpdatePassword},
+		{true, "/admin/settings/email", handlers.AdminSettingsUpdateEmail},
+		{true, "/admin/settings/mailgun", handlers.AdminSettingsUpdateMailgun},
+		{true, "/admin/settings/turnstile", handlers.AdminSettingsUpdateTurnstile},
+		{false, "/admin/settings/mailers", handlers.MailerProfileList},
+		{false, "/admin/settings/mailers/new", handlers.MailerProfileNew},
+		{true, "/admin/settings/mailers", handlers.MailerProfileCreate},
+		{false, "/admin/settings/mailers/:id", handlers.MailerProfileShow},
+		{false, "/admin/settings/mailers/:id/edit", handlers.MailerProfileEdit},
+		{true, "/admin/settings/mailers/:id", handlers.MailerProfileUpdate},
+		{true, "/admin/settings/mailers/:id/delete", handlers.MailerProfileDelete},
+		{false, "/admin/settings/captcha", handlers.CaptchaProfileList},
+		{false, "/admin/settings/captcha/new", handlers.CaptchaProfileNew},
+		{true, "/admin/settings/captcha", handlers.CaptchaProfileCreate},
+		{false, "/admin/settings/captcha/:id", handlers.CaptchaProfileShow},
+		{false, "/admin/settings/captcha/:id/edit", handlers.CaptchaProfileEdit},
+		{true, "/admin/settings/captcha/:id", handlers.CaptchaProfileUpdate},
+		{true, "/admin/settings/captcha/:id/delete", handlers.CaptchaProfileDelete},
+	})
+}
+
+func registerEndpoints(server *cartridge.Server, cfg *cartridge.RouteConfig, endpoints []endpoint) {
+	for _, route := range endpoints {
+		if route.post {
+			server.Post(route.path, route.handler, cfg)
+		} else {
+			server.Get(route.path, route.handler, cfg)
+		}
 	}
+}
 
-	// Protected routes (require a logged-in session).
-	s.Get("/admin", func(ctx *cartridge.Context) error {
-		return ctx.Redirect("/admin/submissions")
-	}, authConfig)
-	s.Post("/admin/logout", httphandlers.AdminLogout, authConfig)
-	s.Get("/admin/forms", httphandlers.AdminFormsIndex, authConfig)
-	s.Get("/admin/forms/new", httphandlers.AdminFormsNew, authConfig)
-	s.Post("/admin/forms", httphandlers.AdminFormsCreate, authConfig)
-	s.Get("/admin/forms/:id", httphandlers.AdminFormShow, authConfig)
-	s.Get("/admin/forms/:id/edit", httphandlers.AdminFormsEdit, authConfig)
-	s.Post("/admin/forms/:id", httphandlers.AdminFormsUpdate, authConfig)
-	s.Get("/admin/submissions/:id", httphandlers.AdminSubmissionShow, authConfig)
-	s.Get("/admin/submissions/:id/files/:file_id", httphandlers.AdminSubmissionFileDownload, authConfig)
-
-	// Settings routes
-	s.Get("/admin/settings", httphandlers.AdminSettingsPage, authConfig)
-	s.Post("/admin/settings/password", httphandlers.AdminSettingsUpdatePassword, authConfig)
-	s.Post("/admin/settings/email", httphandlers.AdminSettingsUpdateEmail, authConfig)
-	s.Post("/admin/settings/mailgun", httphandlers.AdminSettingsUpdateMailgun, authConfig)
-	s.Post("/admin/settings/turnstile", httphandlers.AdminSettingsUpdateTurnstile, authConfig)
-
-	// Mailer Profile routes
-	s.Get("/admin/settings/mailers", httphandlers.MailerProfileList, authConfig)
-	s.Get("/admin/settings/mailers/new", httphandlers.MailerProfileNew, authConfig)
-	s.Post("/admin/settings/mailers", httphandlers.MailerProfileCreate, authConfig)
-	s.Get("/admin/settings/mailers/:id", httphandlers.MailerProfileShow, authConfig)
-	s.Get("/admin/settings/mailers/:id/edit", httphandlers.MailerProfileEdit, authConfig)
-	s.Post("/admin/settings/mailers/:id", httphandlers.MailerProfileUpdate, authConfig)
-	s.Post("/admin/settings/mailers/:id/delete", httphandlers.MailerProfileDelete, authConfig)
-
-	// Captcha Profile routes
-	s.Get("/admin/settings/captcha", httphandlers.CaptchaProfileList, authConfig)
-	s.Get("/admin/settings/captcha/new", httphandlers.CaptchaProfileNew, authConfig)
-	s.Post("/admin/settings/captcha", httphandlers.CaptchaProfileCreate, authConfig)
-	s.Get("/admin/settings/captcha/:id", httphandlers.CaptchaProfileShow, authConfig)
-	s.Get("/admin/settings/captcha/:id/edit", httphandlers.CaptchaProfileEdit, authConfig)
-	s.Post("/admin/settings/captcha/:id", httphandlers.CaptchaProfileUpdate, authConfig)
-	s.Post("/admin/settings/captcha/:id/delete", httphandlers.CaptchaProfileDelete, authConfig)
-
-	// Submissions routes
-	s.Get("/admin/submissions", httphandlers.SubmissionList, authConfig)
+func redirectTo(path string) cartridge.HandlerFunc {
+	return func(ctx *cartridge.Context) error { return ctx.Redirect(path) }
 }

@@ -1,17 +1,12 @@
 package integrations
 
 import (
-	"encoding/json"
-	"fmt"
+	"log/slog"
 	"strings"
 
 	"gorm.io/gorm"
-	"log/slog"
-
-	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 )
 
-// MailerProfileParams holds parameters for creating/updating a mailer profile
 type MailerProfileParams struct {
 	Name             string
 	Provider         string
@@ -27,126 +22,92 @@ type MailerProfileParams struct {
 	SMTPEncryption   string
 }
 
-// ValidationError represents a validation error
-type ValidationError struct {
-	Field   string
-	Message string
-}
-
-func (e *ValidationError) Error() string {
-	return fmt.Sprintf("%s: %s", e.Field, e.Message)
-}
-
-// CreateMailerProfile creates a new mailer profile
 func CreateMailerProfile(logger *slog.Logger, db *gorm.DB, params MailerProfileParams) (*MailerProfile, error) {
-	// Validate required fields
-	name := strings.TrimSpace(params.Name)
-	if name == "" {
-		return nil, &ValidationError{Field: "name", Message: "Name is required"}
-	}
-
-	// Check for duplicate name
-	var count int64
-	if err := db.Model(&MailerProfile{}).Where("name = ?", name).Count(&count).Error; err != nil {
+	profile, err := params.mailerProfile()
+	if err != nil {
 		return nil, err
 	}
-	if count > 0 {
-		return nil, &ValidationError{Field: "name", Message: "A profile with this name already exists"}
+	if err := persistProfile(logger, db, "create", func(tx *gorm.DB) error {
+		return tx.Create(profile).Error
+	}); err != nil {
+		return nil, err
 	}
+	return profile, nil
+}
 
-	// Validate JSON if provided
-	defaultsJSON := strings.TrimSpace(params.DefaultsJSON)
-	if defaultsJSON != "" {
-		var temp interface{}
-		if err := json.Unmarshal([]byte(defaultsJSON), &temp); err != nil {
-			return nil, &ValidationError{Field: "defaults_json", Message: "Invalid JSON in defaults field"}
-		}
+func UpdateMailerProfile(logger *slog.Logger, db *gorm.DB, id uint, params MailerProfileParams) (*MailerProfile, error) {
+	profile, err := params.mailerProfile()
+	if err != nil {
+		return nil, err
 	}
+	if _, err := GetMailerProfileByID(db, id); err != nil {
+		return nil, err
+	}
+	if err := persistProfile(logger, db, "update", func(tx *gorm.DB) error {
+		return tx.Model(&MailerProfile{ID: id}).Updates(profile.mailerValues()).Error
+	}); err != nil {
+		return nil, err
+	}
+	return GetMailerProfileByID(db, id)
+}
 
-	profile := &MailerProfile{
+func DeleteMailerProfile(logger *slog.Logger, db *gorm.DB, id uint) error {
+	return deleteProfile[MailerProfile](logger, db, id)
+}
+
+func (params MailerProfileParams) mailerProfile() (*MailerProfile, error) {
+	name, err := profileName(params.Name)
+	if err != nil {
+		return nil, err
+	}
+	provider := strings.ToLower(strings.TrimSpace(params.Provider))
+	if provider == "" {
+		provider = "smtp"
+	}
+	if provider != "smtp" && provider != "mailgun" {
+		return nil, &ValidationError{Field: "provider", Message: "Provider must be smtp or mailgun"}
+	}
+	port := params.SMTPPort
+	if port == 0 {
+		port = 587
+	}
+	if port < 1 || port > 65535 {
+		return nil, &ValidationError{Field: "smtp_port", Message: "SMTP port must be between 1 and 65535"}
+	}
+	encryption := strings.ToLower(strings.TrimSpace(params.SMTPEncryption))
+	if encryption == "" {
+		encryption = "starttls"
+	}
+	if encryption != "starttls" && encryption != "tls" && encryption != "none" {
+		return nil, &ValidationError{Field: "smtp_encryption", Message: "SMTP encryption must be starttls, tls, or none"}
+	}
+	defaults, err := jsonObjectField(params.DefaultsJSON, "defaults_json", "Defaults must be a JSON object")
+	if err != nil {
+		return nil, err
+	}
+	return &MailerProfile{
 		Name:             name,
-		Provider:         strings.TrimSpace(params.Provider),
+		Provider:         provider,
 		APIKey:           strings.TrimSpace(params.APIKey),
 		Domain:           strings.TrimSpace(params.Domain),
 		DefaultFromName:  strings.TrimSpace(params.DefaultFromName),
 		DefaultFromEmail: strings.TrimSpace(params.DefaultFromEmail),
-		DefaultsJSON:     defaultsJSON,
+		DefaultsJSON:     defaults,
 		SMTPHost:         strings.TrimSpace(params.SMTPHost),
-		SMTPPort:         params.SMTPPort,
+		SMTPPort:         port,
 		SMTPUsername:     strings.TrimSpace(params.SMTPUsername),
 		SMTPPassword:     strings.TrimSpace(params.SMTPPassword),
-		SMTPEncryption:   strings.TrimSpace(params.SMTPEncryption),
-	}
-
-	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		return tx.Create(profile).Error
-	}); err != nil {
-		logger.Error("failed to create mailer profile", slog.Any("error", err))
-		return nil, fmt.Errorf("failed to create profile: %w", err)
-	}
-
-	return profile, nil
+		SMTPEncryption:   encryption,
+	}, nil
 }
 
-// UpdateMailerProfile updates an existing mailer profile
-func UpdateMailerProfile(logger *slog.Logger, db *gorm.DB, id uint, params MailerProfileParams) (*MailerProfile, error) {
-	// Validate required fields
-	name := strings.TrimSpace(params.Name)
-	if name == "" {
-		return nil, &ValidationError{Field: "name", Message: "Name is required"}
+func (profile *MailerProfile) mailerValues() map[string]any {
+	return map[string]any{
+		"name": profile.Name, "provider": profile.Provider,
+		"api_key": profile.APIKey, "domain": profile.Domain,
+		"default_from_name": profile.DefaultFromName, "default_from_email": profile.DefaultFromEmail,
+		"defaults_json": profile.DefaultsJSON, "smtp_host": profile.SMTPHost,
+		"smtp_port": profile.SMTPPort, "smtp_username": profile.SMTPUsername,
+		"smtp_password": profile.SMTPPassword, "smtp_encryption": profile.SMTPEncryption,
 	}
-
-	// Get existing profile
-	profile, err := GetMailerProfileByID(db, id)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check for duplicate name (excluding current profile)
-	var count int64
-	if err := db.Model(&MailerProfile{}).Where("name = ? AND id != ?", name, id).Count(&count).Error; err != nil {
-		return nil, err
-	}
-	if count > 0 {
-		return nil, &ValidationError{Field: "name", Message: "A profile with this name already exists"}
-	}
-
-	// Validate JSON if provided
-	defaultsJSON := strings.TrimSpace(params.DefaultsJSON)
-	if defaultsJSON != "" {
-		var temp interface{}
-		if err := json.Unmarshal([]byte(defaultsJSON), &temp); err != nil {
-			return nil, &ValidationError{Field: "defaults_json", Message: "Invalid JSON in defaults field"}
-		}
-	}
-
-	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		return tx.Model(profile).Updates(map[string]any{
-			"name":               name,
-			"provider":           strings.TrimSpace(params.Provider),
-			"api_key":            strings.TrimSpace(params.APIKey),
-			"domain":             strings.TrimSpace(params.Domain),
-			"default_from_name":  strings.TrimSpace(params.DefaultFromName),
-			"default_from_email": strings.TrimSpace(params.DefaultFromEmail),
-			"defaults_json":      defaultsJSON,
-			"smtp_host":          strings.TrimSpace(params.SMTPHost),
-			"smtp_port":          params.SMTPPort,
-			"smtp_username":      strings.TrimSpace(params.SMTPUsername),
-			"smtp_password":      strings.TrimSpace(params.SMTPPassword),
-			"smtp_encryption":    strings.TrimSpace(params.SMTPEncryption),
-		}).Error
-	}); err != nil {
-		logger.Error("failed to update mailer profile", slog.Any("error", err), slog.Uint64("id", uint64(id)))
-		return nil, fmt.Errorf("failed to update profile: %w", err)
-	}
-
-	// Reload profile
-	return GetMailerProfileByID(db, id)
-}
-
-// DeleteMailerProfile deletes a mailer profile
-func DeleteMailerProfile(logger *slog.Logger, db *gorm.DB, id uint) error {
-	return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		return tx.Delete(&MailerProfile{}, id).Error
-	})
 }

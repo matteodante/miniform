@@ -6,25 +6,20 @@ import (
 )
 
 //go:embed templates
-var templatesFS embed.FS
+var embeddedTemplates embed.FS
 
 //go:embed static
-var staticFS embed.FS
+var embeddedStatic embed.FS
 
-// Templates provides access to embedded templates with the 'templates' prefix stripped
-var Templates fs.FS
+var (
+	Templates = subdirectory(embeddedTemplates, "templates")
+	Static    = subdirectory(embeddedStatic, "static")
+)
 
-// Static provides access to embedded static assets with the 'static' prefix stripped
-var Static fs.FS
-
-func init() {
-	var err error
-	Templates, err = fs.Sub(templatesFS, "templates")
+func subdirectory(files embed.FS, name string) fs.FS {
+	root, err := fs.Sub(files, name)
 	if err != nil {
-		panic(err)
+		panic("web: embedded " + name + " unavailable: " + err.Error())
 	}
-	Static, err = fs.Sub(staticFS, "static")
-	if err != nil {
-		panic(err)
-	}
+	return root
 }

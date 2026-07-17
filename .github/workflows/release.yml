@@ -9,9 +9,9 @@ permissions:
 
 env:
   GO_VERSION: 1.26.5
-  NODE_VERSION: 20
+  NODE_VERSION: 24
   GORELEASER_VERSION: v2.17.0
-  SYFT_VERSION: v1.46.0
+  SYFT_VERSION: v1.48.0
 
 jobs:
   validate:
@@ -47,10 +47,21 @@ jobs:
           cache: npm
           cache-dependency-path: e2e/package-lock.json
 
+      - name: Install browser dependencies
+        run: |
+          cd e2e
+          npm ci
+          npx playwright install --with-deps chromium
+
       - name: Run checks and audits
         run: |
           make check
+          make test-race
           make audit
+          make test-e2e
+
+      - name: Test release container
+        run: make container-test
 
   binaries:
     name: Build draft release

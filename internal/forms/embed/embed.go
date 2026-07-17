@@ -1,27 +1,28 @@
-// Package embed builds the copyable HTML snippet for a configured form.
+// Package embed produces copyable form markup from a stored endpoint.
 package embed
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	htmlstd "html"
+	"io"
+	"net/url"
 	"strings"
 
 	"github.com/matteodante/miniform/internal/forms"
+	"github.com/matteodante/miniform/internal/integrations"
 	htmlnode "golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 )
 
-const SDKScriptTag = `<!-- Miniform SDK: adds automatic retry & loading states -->
+const SDKScriptTag = `<!-- Optional Miniform SDK: retry and pending-state helpers -->
 <script src="/assets/miniform.js"></script>`
 
-// Options controls secret disclosure and optional SDK inclusion.
 type Options struct {
 	ShowToken  bool
 	IncludeSDK bool
 }
 
-// Result contains the resolved form action and copyable HTML.
 type Result struct {
 	Action      string
 	HTML        string
@@ -30,393 +31,293 @@ type Result struct {
 	Warning     string
 }
 
-// Build renders the same form snippet exposed by the Web UI.
 func Build(form *forms.Form, options Options) Result {
 	if form == nil {
 		return Result{Warning: "form context missing"}
 	}
 
-	formCopy := *form
+	view := *form
 	if !options.ShowToken {
-		formCopy.Token = "YOUR_FORM_TOKEN"
+		view.Token = "YOUR_FORM_TOKEN"
 	}
-	action := liveFormAction(formCopy.Slug, formCopy.Token)
-	captcha := buildCaptchaEmbed(&formCopy)
-	result := Result{
-		Action:      action,
-		IncludesSDK: options.IncludeSDK,
-		Redacted:    !options.ShowToken,
-	}
+	action := formAction(view.Slug, view.Token)
+	result := Result{Action: action, IncludesSDK: options.IncludeSDK, Redacted: !options.ShowToken}
 
-	if strings.TrimSpace(formCopy.GeneratedHTML) != "" {
-		prepared, err := normalizeFormHTML(formCopy.GeneratedHTML, action, &formCopy)
-		if err != nil {
-			result.Warning = err.Error()
-			prepared = formCopy.GeneratedHTML
-		}
-		result.HTML = injectCaptchaSnippet(prepared, captcha)
+	if strings.TrimSpace(view.GeneratedHTML) == "" {
+		result.HTML = defaultMarkup(&view, action)
 	} else {
-		result.HTML = buildDefaultFormCode(action, &formCopy, captcha)
+		result.HTML, result.Warning = rewriteForm(view.GeneratedHTML, &view, action)
 	}
-
+	result.HTML = addTurnstile(result.HTML, turnstileFor(&view))
 	if options.IncludeSDK {
-		result.HTML = strings.TrimRight(result.HTML, "\n") + "\n\n" + SDKScriptTag
+		result.HTML = appendBlock(result.HTML, SDKScriptTag)
 	}
 	return result
 }
 
-func buildDefaultFormCode(actionURL string, form *forms.Form, captcha *captchaEmbed) string {
-	publicAttr := ""
-	if publicID := strings.TrimSpace(form.PublicID); publicID != "" {
-		publicAttr = fmt.Sprintf(` data-form-public-id="%s"`, htmlstd.EscapeString(publicID))
+func defaultMarkup(form *forms.Form, action string) string {
+	opening := htmlnode.Token{Type: htmlnode.StartTagToken, DataAtom: atom.Form, Data: "form"}
+	setAttribute(&opening, "action", action)
+	setAttribute(&opening, "method", "POST")
+	setAttribute(&opening, "data-form-id", fmt.Sprint(form.ID))
+	if form.PublicID != "" {
+		setAttribute(&opening, "data-form-public-id", form.PublicID)
 	}
-	tokenAttr := ""
-	if token := strings.TrimSpace(form.Token); token != "" {
-		tokenAttr = fmt.Sprintf(` data-form-token="%s"`, htmlstd.EscapeString(token))
+	if form.Token != "" {
+		setAttribute(&opening, "data-form-token", form.Token)
 	}
 
-	baseForm := fmt.Sprintf(`<form action="%s" method="POST" data-form-id="%d"%s%s>
-    <label>Name
-        <input type="text" name="name" required>
-    </label>
-
-    <label>Email
-        <input type="email" name="email" required>
-    </label>
-
-    <label>Message
-        <textarea name="message" rows="4"></textarea>
-    </label>
-
-    <button type="submit">Send</button>
-</form>`, htmlstd.EscapeString(actionURL), form.ID, publicAttr, tokenAttr)
-
-	return injectCaptchaSnippet(baseForm, captcha)
+	return opening.String() + `
+  <label>Name
+    <input type="text" name="name" required>
+  </label>
+  <label>Email
+    <input type="email" name="email" required>
+  </label>
+  <label>Message
+    <textarea name="message" rows="4"></textarea>
+  </label>
+  <button type="submit">Send</button>
+</form>`
 }
 
-func normalizeFormHTML(rawHTML, actionURL string, form *forms.Form) (string, error) {
-	if strings.TrimSpace(rawHTML) == "" {
-		return "", errors.New("generated HTML is empty")
-	}
-	start, end := findFormTagBounds(rawHTML)
-	if start == -1 || end == -1 {
-		return rawHTML, errors.New("form tag not found in generated HTML")
-	}
-
-	opening := rawHTML[start : end+1]
-	rewritten, err := rewriteOpeningFormTag(opening, actionURL, form)
+func rewriteForm(source string, form *forms.Form, action string) (string, string) {
+	start, end, token, err := firstFormTag(source)
 	if err != nil {
-		return rawHTML, err
+		return source, err.Error()
 	}
-	return rawHTML[:start] + rewritten + rawHTML[end+1:], nil
+	setAttribute(&token, "action", action)
+	setAttribute(&token, "method", "POST")
+	setAttribute(&token, "data-form-id", fmt.Sprint(form.ID))
+	if form.PublicID != "" {
+		setAttribute(&token, "data-form-public-id", form.PublicID)
+	}
+	if form.Token != "" {
+		setAttribute(&token, "data-form-token", form.Token)
+	}
+	return source[:start] + token.String() + source[end:], ""
 }
 
-func rewriteOpeningFormTag(tag, actionURL string, form *forms.Form) (string, error) {
-	nodes, err := htmlnode.ParseFragment(strings.NewReader(tag+"</form>"), nil)
-	if err != nil {
-		return "", err
-	}
-	var formNode *htmlnode.Node
-	for _, node := range nodes {
-		formNode = findFormNode(node)
-		if formNode != nil {
-			break
+func firstFormTag(source string) (int, int, htmlnode.Token, error) {
+	tokenizer := htmlnode.NewTokenizer(strings.NewReader(source))
+	offset := 0
+	for {
+		kind := tokenizer.Next()
+		raw := tokenizer.Raw()
+		start := offset
+		offset += len(raw)
+		switch kind {
+		case htmlnode.ErrorToken:
+			if !errors.Is(tokenizer.Err(), io.EOF) {
+				return 0, 0, htmlnode.Token{}, fmt.Errorf("parse generated HTML: %w", tokenizer.Err())
+			}
+			return 0, 0, htmlnode.Token{}, errors.New("form tag not found in generated HTML")
+		case htmlnode.StartTagToken:
+			token := tokenizer.Token()
+			if token.DataAtom == atom.Form || strings.EqualFold(token.Data, "form") {
+				return start, offset, token, nil
+			}
 		}
 	}
-	if formNode == nil {
-		return "", errors.New("form node missing in fragment")
-	}
-
-	setOrAddAttr(formNode, "action", actionURL)
-	setOrAddAttr(formNode, "method", "POST")
-	setOrAddAttr(formNode, "data-form-id", fmt.Sprintf("%d", form.ID))
-	if publicID := strings.TrimSpace(form.PublicID); publicID != "" {
-		setOrAddAttr(formNode, "data-form-public-id", publicID)
-	}
-	if token := strings.TrimSpace(form.Token); token != "" {
-		setOrAddAttr(formNode, "data-form-token", token)
-	}
-	return serializeOpeningTag(formNode), nil
 }
 
-func findFormNode(node *htmlnode.Node) *htmlnode.Node {
-	if node == nil {
-		return nil
-	}
-	if node.Type == htmlnode.ElementNode && strings.EqualFold(node.Data, "form") {
-		return node
-	}
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if found := findFormNode(child); found != nil {
-			return found
-		}
-	}
-	return nil
-}
-
-func setOrAddAttr(node *htmlnode.Node, key, value string) {
-	for i := range node.Attr {
-		attr := &node.Attr[i]
-		if attr.Namespace == "" && strings.EqualFold(attr.Key, key) {
-			attr.Key = key
-			attr.Val = value
+func setAttribute(token *htmlnode.Token, name, value string) {
+	for index := range token.Attr {
+		if token.Attr[index].Namespace == "" && strings.EqualFold(token.Attr[index].Key, name) {
+			token.Attr[index].Key = name
+			token.Attr[index].Val = value
 			return
 		}
 	}
-	node.Attr = append(node.Attr, htmlnode.Attribute{Key: key, Val: value})
+	token.Attr = append(token.Attr, htmlnode.Attribute{Key: name, Val: value})
 }
 
-func serializeOpeningTag(node *htmlnode.Node) string {
-	var builder strings.Builder
-	builder.WriteString("<")
-	builder.WriteString(node.Data)
-	for _, attr := range node.Attr {
-		if attr.Key == "" {
-			continue
-		}
-		builder.WriteString(" ")
-		if attr.Namespace != "" {
-			builder.WriteString(attr.Namespace)
-			builder.WriteString(":")
-		}
-		builder.WriteString(attr.Key)
-		builder.WriteString(`="`)
-		builder.WriteString(htmlstd.EscapeString(attr.Val))
-		builder.WriteString(`"`)
-	}
-	builder.WriteString(">")
-	return builder.String()
+type captchaMarkup struct {
+	widget string
+	script string
 }
 
-func findFormTagBounds(input string) (int, int) {
-	lower := strings.ToLower(input)
-	start := strings.Index(lower, "<form")
-	if start == -1 {
-		return -1, -1
+func turnstileFor(form *forms.Form) *captchaMarkup {
+	if form.CaptchaProfileID == nil || form.CaptchaProfile == nil ||
+		!strings.EqualFold(strings.TrimSpace(form.CaptchaProfile.Provider), "turnstile") {
+		return nil
 	}
 
-	var quote byte
-	for i := start; i < len(input); i++ {
-		character := input[i]
-		if quote != 0 {
-			if character == quote {
-				quote = 0
-			} else if character == '\\' && i+1 < len(input) {
-				i++
-			}
-			continue
-		}
-		if character == '"' || character == '\'' {
-			quote = character
-			continue
-		}
-		if character == '>' {
-			return start, i
+	settings := integrations.ResolveCaptchaSettings(form.CaptchaProfile.PolicyJSON, form.CaptchaOverridesJSON)
+	if settings.SiteKey == "" {
+		settings.SiteKey = chooseSiteKey(form.AllowedOrigins, decodeSiteKeys(form.CaptchaProfile.SiteKeysJSON))
+	}
+	if settings.SiteKey == "" {
+		settings.SiteKey = "YOUR_TURNSTILE_SITE_KEY"
+	}
+
+	widget := htmlnode.Token{Type: htmlnode.StartTagToken, Data: "div", Attr: []htmlnode.Attribute{
+		{Key: "class", Val: "cf-turnstile"},
+		{Key: "data-sitekey", Val: settings.SiteKey},
+	}}
+	for _, attribute := range []struct{ name, value string }{
+		{"data-action", settings.Action}, {"data-theme", settings.Theme},
+		{"data-language", settings.Language}, {"data-size", settings.Size},
+	} {
+		if attribute.value != "" {
+			setAttribute(&widget, attribute.name, attribute.value)
 		}
 	}
-	return start, -1
+	return &captchaMarkup{
+		widget: `  <div class="miniform-captcha-block">` + widget.String() + `</div>`,
+		script: `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>`,
+	}
 }
 
-type captchaEmbed struct {
-	WidgetMarkup string
-	ScriptTag    string
-}
-
-func injectCaptchaSnippet(html string, captcha *captchaEmbed) string {
+func addTurnstile(source string, captcha *captchaMarkup) string {
 	if captcha == nil {
-		return html
+		return source
 	}
-	widget := strings.TrimSpace(captcha.WidgetMarkup)
-	script := strings.TrimSpace(captcha.ScriptTag)
-	if widget == "" && script == "" {
-		return html
+	if position := closingFormOffset(source); position >= 0 {
+		source = strings.TrimRight(source[:position], "\n") + "\n" + captcha.widget + "\n" + source[position:]
+	} else {
+		source = appendBlock(source, captcha.widget)
 	}
+	return appendBlock(source, captcha.script)
+}
 
-	closeIndex := strings.Index(strings.ToLower(html), "</form>")
-	if closeIndex == -1 {
-		parts := []string{strings.TrimRight(html, "\n")}
-		if widget != "" {
-			parts = append(parts, widget)
+func closingFormOffset(source string) int {
+	tokenizer := htmlnode.NewTokenizer(strings.NewReader(source))
+	offset := 0
+	for {
+		kind := tokenizer.Next()
+		raw := tokenizer.Raw()
+		start := offset
+		offset += len(raw)
+		if kind == htmlnode.ErrorToken {
+			return -1
 		}
-		if script != "" {
-			parts = append(parts, script)
+		if kind == htmlnode.EndTagToken {
+			token := tokenizer.Token()
+			if token.DataAtom == atom.Form || strings.EqualFold(token.Data, "form") {
+				return start
+			}
 		}
-		return strings.Join(parts, "\n")
-	}
-
-	before := html[:closeIndex]
-	after := html[closeIndex:]
-	if widget != "" {
-		before = strings.TrimRight(before, "\n") + "\n" + widget + "\n"
-	}
-	result := before + after
-	if script != "" {
-		result = strings.TrimRight(result, "\n") + "\n" + script
-	}
-	return result
-}
-
-func buildCaptchaEmbed(form *forms.Form) *captchaEmbed {
-	if form.CaptchaProfileID == nil || form.CaptchaProfile == nil {
-		return nil
-	}
-	if !strings.EqualFold(strings.TrimSpace(form.CaptchaProfile.Provider), "turnstile") {
-		return nil
-	}
-	return buildTurnstileEmbed(form)
-}
-
-func buildTurnstileEmbed(form *forms.Form) *captchaEmbed {
-	profile := form.CaptchaProfile
-	policy := parseCaptchaPolicy(profile.PolicyJSON, form.CaptchaOverridesJSON)
-	siteKey := strings.TrimSpace(policy.SiteKey)
-	if siteKey == "" {
-		siteKey = selectCaptchaSiteKey(form, parseCaptchaSiteKeys(profile.SiteKeysJSON))
-	}
-	if siteKey == "" {
-		siteKey = "YOUR_TURNSTILE_SITE_KEY"
-	}
-
-	attrs := []string{fmt.Sprintf(`data-sitekey="%s"`, htmlstd.EscapeString(siteKey))}
-	if policy.Action != "" {
-		attrs = append(attrs, fmt.Sprintf(`data-action="%s"`, htmlstd.EscapeString(policy.Action)))
-	}
-	if policy.Theme != "" {
-		attrs = append(attrs, fmt.Sprintf(`data-theme="%s"`, htmlstd.EscapeString(policy.Theme)))
-	}
-	if policy.Language != "" {
-		attrs = append(attrs, fmt.Sprintf(`data-language="%s"`, htmlstd.EscapeString(policy.Language)))
-	}
-	if policy.Size != "" {
-		attrs = append(attrs, fmt.Sprintf(`data-size="%s"`, htmlstd.EscapeString(policy.Size)))
-	} else if strings.EqualFold(policy.Widget, "invisible") {
-		attrs = append(attrs, `data-size="invisible"`)
-	}
-
-	return &captchaEmbed{
-		WidgetMarkup: fmt.Sprintf(`    <div class="miniform-captcha-block">
-        <div class="cf-turnstile" %s></div>
-    </div>`, strings.Join(attrs, " ")),
-		ScriptTag: `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>`,
 	}
 }
 
-type captchaSiteKeyEntry struct {
+func appendBlock(source, block string) string {
+	if strings.TrimSpace(block) == "" {
+		return source
+	}
+	return strings.TrimRight(source, "\n") + "\n" + strings.TrimSpace(block)
+}
+
+type siteKey struct {
 	HostPattern string `json:"host_pattern"`
 	SiteKey     string `json:"site_key"`
 }
 
-func parseCaptchaSiteKeys(raw string) []captchaSiteKeyEntry {
-	var entries []captchaSiteKeyEntry
-	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &entries) != nil {
+func decodeSiteKeys(raw string) []siteKey {
+	var keys []siteKey
+	if json.Unmarshal([]byte(raw), &keys) != nil {
 		return nil
 	}
-	return entries
+	return keys
 }
 
-type captchaPolicy struct {
-	Action   string
-	Theme    string
-	Language string
-	Widget   string
-	Size     string
-	SiteKey  string
-}
-
-func parseCaptchaPolicy(baseJSON, overrideJSON string) captchaPolicy {
-	policy := captchaPolicy{Action: "submit", Theme: "auto"}
-	policy = applyPolicyJSON(policy, baseJSON)
-	return applyPolicyJSON(policy, overrideJSON)
-}
-
-func applyPolicyJSON(policy captchaPolicy, raw string) captchaPolicy {
-	var data map[string]any
-	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &data) != nil {
-		return policy
-	}
-	apply := func(key string, target *string) {
-		if value, ok := data[key].(string); ok && strings.TrimSpace(value) != "" {
-			*target = value
-		}
-	}
-	apply("action", &policy.Action)
-	apply("theme", &policy.Theme)
-	apply("language", &policy.Language)
-	apply("widget", &policy.Widget)
-	apply("size", &policy.Size)
-	apply("site_key", &policy.SiteKey)
-	return policy
-}
-
-func selectCaptchaSiteKey(form *forms.Form, entries []captchaSiteKeyEntry) string {
-	allowedOrigins := strings.TrimSpace(form.AllowedOrigins)
-	if allowedOrigins != "" && allowedOrigins != "*" {
-		for _, origin := range strings.Split(allowedOrigins, ",") {
-			origin = strings.TrimSpace(origin)
-			if origin == "" || strings.Contains(origin, "*") {
+func chooseSiteKey(origins string, keys []siteKey) string {
+	if origins = strings.TrimSpace(origins); origins != "" && origins != "*" {
+		for _, origin := range strings.Split(origins, ",") {
+			pattern := normalizedHostPattern(origin)
+			if strings.HasPrefix(pattern, "*.") {
+				if key := keyForWildcard(strings.TrimPrefix(pattern, "*."), keys); key != "" {
+					return key
+				}
 				continue
 			}
-			if key := findSiteKeyForHost(extractDomain(origin), entries); key != "" {
+			if key := keyForHost(originHost(origin), keys); key != "" {
 				return key
 			}
 		}
 	}
-	for _, entry := range entries {
-		if strings.TrimSpace(entry.HostPattern) == "*" && strings.TrimSpace(entry.SiteKey) != "" {
-			return entry.SiteKey
-		}
-	}
-	for _, entry := range entries {
-		if strings.TrimSpace(entry.SiteKey) != "" {
-			return entry.SiteKey
+	for _, pattern := range []string{"*", ""} {
+		for _, key := range keys {
+			if strings.TrimSpace(key.SiteKey) != "" && (pattern == "" || strings.TrimSpace(key.HostPattern) == pattern) {
+				return strings.TrimSpace(key.SiteKey)
+			}
 		}
 	}
 	return ""
 }
 
-func findSiteKeyForHost(host string, entries []captchaSiteKeyEntry) string {
-	host = strings.ToLower(strings.TrimSpace(host))
-	for _, entry := range entries {
-		pattern := strings.ToLower(strings.TrimSpace(entry.HostPattern))
+func keyForWildcard(base string, keys []siteKey) string {
+	for _, entry := range keys {
+		pattern := normalizedHostPattern(entry.HostPattern)
 		key := strings.TrimSpace(entry.SiteKey)
-		if pattern == "" || key == "" {
+		if key == "" || !strings.HasPrefix(pattern, "*.") {
 			continue
 		}
-		switch {
-		case pattern == "*" || pattern == host:
+		keyBase := strings.TrimPrefix(pattern, "*.")
+		if base == keyBase || strings.HasSuffix(base, "."+keyBase) {
 			return key
-		case strings.HasPrefix(pattern, "*."):
-			base := strings.TrimPrefix(pattern, "*.")
+		}
+	}
+	return ""
+}
+
+func keyForHost(host string, keys []siteKey) string {
+	for _, entry := range keys {
+		pattern := strings.ToLower(strings.TrimSpace(entry.HostPattern))
+		key := strings.TrimSpace(entry.SiteKey)
+		if host == "" || pattern == "" || key == "" {
+			continue
+		}
+		if pattern == "*" || pattern == host {
+			return key
+		}
+		if strings.HasPrefix(pattern, "*.") || strings.HasPrefix(pattern, ".") {
+			base := strings.TrimPrefix(strings.TrimPrefix(pattern, "*."), ".")
 			if host == base || strings.HasSuffix(host, "."+base) {
 				return key
 			}
-		case strings.HasPrefix(pattern, ".") && strings.HasSuffix(host, strings.TrimPrefix(pattern, ".")):
-			return key
 		}
 	}
 	return ""
 }
 
-func extractDomain(value string) string {
-	value = strings.TrimPrefix(value, "https://")
-	value = strings.TrimPrefix(value, "http://")
-	if index := strings.IndexAny(value, "/?#"); index >= 0 {
-		value = value[:index]
+func originHost(origin string) string {
+	origin = strings.TrimSpace(origin)
+	if origin == "" {
+		return ""
 	}
-	if index := strings.LastIndex(value, ":"); index >= 0 {
-		value = value[:index]
+	if !strings.Contains(origin, "://") {
+		origin = "//" + origin
 	}
-	return strings.ToLower(value)
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
 }
 
-func liveFormAction(slug, token string) string {
-	slug = strings.TrimSpace(slug)
-	if slug == "" {
+func normalizedHostPattern(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	wildcard := strings.HasPrefix(value, "*.")
+	if wildcard {
+		value = strings.TrimPrefix(value, "*.")
+	}
+	host := originHost(value)
+	if host == "" {
+		return ""
+	}
+	if wildcard {
+		return "*." + host
+	}
+	return host
+}
+
+func formAction(slug, token string) string {
+	if slug = strings.TrimSpace(slug); slug == "" {
 		slug = "your-form"
 	}
-	token = strings.TrimSpace(token)
-	if token == "" {
+	if token = strings.TrimSpace(token); token == "" {
 		token = "YOUR_FORM_TOKEN"
 	}
-	return fmt.Sprintf("/forms/%s/submit?token=%s", slug, token)
+	return "/forms/" + url.PathEscape(slug) + "/submit?token=" + url.QueryEscape(token)
 }

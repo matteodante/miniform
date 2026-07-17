@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"github.com/matteodante/miniform/internal/accounts"
@@ -15,266 +14,89 @@ import (
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 )
 
-// Seed populates the database with sample data for development/testing.
 func Seed(db *gorm.DB) error {
-	// Create admin user if not exists
-	var userCount int64
-	if err := db.Model(&accounts.User{}).Count(&userCount).Error; err != nil {
-		return fmt.Errorf("count users: %w", err)
+	logger := slog.Default()
+	if _, err := accounts.EnsureAdmin(logger, db, "miniform", true); err != nil {
+		return fmt.Errorf("seed admin: %w", err)
 	}
 
-	if userCount == 0 {
-		// Create default admin for seeding (no password change required for dev)
-		hash, err := bcrypt.GenerateFromPassword([]byte("miniform"), bcrypt.DefaultCost)
-		if err != nil {
-			return fmt.Errorf("hash password: %w", err)
+	createdForms := 0
+	createdEntries := 0
+	err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		if err := ensureSeedProfiles(tx); err != nil {
+			return err
 		}
-
-		now := time.Now().UTC()
-		admin := &accounts.User{
-			Email:        "admin@miniform.local",
-			PasswordHash: string(hash),
-			LastLoginAt:  &now, // Set to now = not first login, no password change required (for dev)
+		var count int64
+		if err := tx.Model(&forms.Form{}).Count(&count).Error; err != nil {
+			return fmt.Errorf("count demo forms: %w", err)
 		}
-
-		if err := createSeedRecord(db, admin); err != nil {
-			return fmt.Errorf("create admin user: %w", err)
+		if count != 0 {
+			return nil
 		}
-		fmt.Println("✓ Created admin user: admin@miniform.local / miniform")
-	} else {
-		fmt.Println("✓ Admin user already exists")
+		var err error
+		createdForms, createdEntries, err = createDemoInbox(tx, time.Now().UTC())
+		return err
+	})
+	if err != nil {
+		return err
 	}
-
-	// Create default settings if not exists
-	var settingsCount int64
-	if err := db.Model(&accounts.Settings{}).Count(&settingsCount).Error; err != nil {
-		return fmt.Errorf("count settings: %w", err)
-	}
-
-	if settingsCount == 0 {
-		settings := &accounts.Settings{}
-
-		if err := createSeedRecord(db, settings); err != nil {
-			return fmt.Errorf("create settings: %w", err)
-		}
-		fmt.Println("✓ Created default settings")
-	}
-
-	// Create default mailer profile if not exists
-	var mailerCount int64
-	if err := db.Model(&integrations.MailerProfile{}).Count(&mailerCount).Error; err != nil {
-		return fmt.Errorf("count mailer profiles: %w", err)
-	}
-
-	if mailerCount == 0 {
-		mailer := &integrations.MailerProfile{
-			Name:             "default",
-			Provider:         "mailgun",
-			DefaultFromName:  "Miniform",
-			DefaultFromEmail: "no-reply@example.com",
-		}
-
-		if err := createSeedRecord(db, mailer); err != nil {
-			return fmt.Errorf("create default mailer profile: %w", err)
-		}
-		fmt.Println("✓ Created default mailer profile")
-	}
-
-	// Create default captcha profile if not exists
-	var captchaCount int64
-	if err := db.Model(&integrations.CaptchaProfile{}).Count(&captchaCount).Error; err != nil {
-		return fmt.Errorf("count captcha profiles: %w", err)
-	}
-
-	if captchaCount == 0 {
-		siteKeys := []map[string]string{
-			{"host_pattern": "*", "site_key": ""},
-		}
-		siteKeysJSON, _ := json.Marshal(siteKeys)
-
-		policy := map[string]interface{}{
-			"required": false,
-			"action":   "submit",
-			"widget":   "managed",
-		}
-		policyJSON, _ := json.Marshal(policy)
-
-		captcha := &integrations.CaptchaProfile{
-			Name:         "default",
-			Provider:     "turnstile",
-			SiteKeysJSON: string(siteKeysJSON),
-			PolicyJSON:   string(policyJSON),
-		}
-
-		if err := createSeedRecord(db, captcha); err != nil {
-			return fmt.Errorf("create default captcha profile: %w", err)
-		}
-		fmt.Println("✓ Created default captcha profile")
-	}
-
-	// Check if we already have forms
-	var formCount int64
-	if err := db.Model(&forms.Form{}).Count(&formCount).Error; err != nil {
-		return fmt.Errorf("count forms: %w", err)
-	}
-
-	if formCount > 0 {
-		fmt.Println("✓ Sample forms already exist")
-		return nil
-	}
-
-	// Create sample forms
-	contactForm := &forms.Form{
-		Name:           "Contact Form",
-		Slug:           "contact",
-		AllowedOrigins: "*",
-	}
-
-	if err := createSeedRecord(db, contactForm); err != nil {
-		return fmt.Errorf("create contact form: %w", err)
-	}
-	fmt.Println("✓ Created contact form")
-
-	newsletterForm := &forms.Form{
-		Name:           "Newsletter Signup",
-		Slug:           "newsletter",
-		AllowedOrigins: "*",
-	}
-
-	if err := createSeedRecord(db, newsletterForm); err != nil {
-		return fmt.Errorf("create newsletter form: %w", err)
-	}
-	fmt.Println("✓ Created newsletter form")
-
-	feedbackForm := &forms.Form{
-		Name:           "Feedback Form",
-		Slug:           "feedback",
-		AllowedOrigins: "*",
-	}
-
-	if err := createSeedRecord(db, feedbackForm); err != nil {
-		return fmt.Errorf("create feedback form: %w", err)
-	}
-	fmt.Println("✓ Created feedback form")
-
-	seededAt := time.Now().UTC()
-
-	// Create sample submissions for contact form
-	sampleSubmissions := []map[string]interface{}{
-		{
-			"name":    "Alice Johnson",
-			"email":   "alice@example.com",
-			"company": "Acme Corp",
-			"message": "I love using Miniform! It's so easy to set up.",
-		},
-		{
-			"name":    "Bob Smith",
-			"email":   "bob@example.com",
-			"company": "TechStart Inc",
-			"message": "Quick question about webhook configuration. Can I use multiple URLs?",
-		},
-		{
-			"name":    "Charlie Brown",
-			"email":   "charlie@example.com",
-			"message": "Just wanted to say thanks for creating this tool!",
-		},
-		{
-			"name":    "Diana Martinez",
-			"email":   "diana@bigcorp.com",
-			"company": "BigCorp",
-			"phone":   "+1-555-123-4567",
-			"message": "We're evaluating self-hosted form solutions. Can we schedule a demo?",
-		},
-		{
-			"name":    "Edward Kim",
-			"email":   "edward.kim@startup.io",
-			"message": "Bug report: file uploads failing on Safari. Please investigate.",
-		},
-		{
-			"name":    "Fiona O'Brien",
-			"email":   "fiona@agency.co",
-			"company": "Creative Agency",
-			"budget":  "$5k-10k",
-			"message": "Looking for a white-label solution for our clients.",
-		},
-		{
-			"name":    "George Wilson",
-			"email":   "george@freelancer.com",
-			"message": "Feature request: can you add Zapier integration?",
-		},
-		{
-			"name":    "Hannah Lee",
-			"email":   "hannah@nonprofit.org",
-			"company": "Green Earth Foundation",
-			"message": "Do you offer discounts for non-profits?",
-		},
-		{
-			"name":    "Ivan Petrov",
-			"email":   "ivan@enterprise.ru",
-			"company": "Enterprise Solutions",
-			"message": "Need GDPR compliance documentation for our legal team.",
-		},
-		{
-			"name":    "Julia Santos",
-			"email":   "julia@marketing.com",
-			"message": "Great product! Already recommended to 3 colleagues.",
-		},
-	}
-
-	for i, data := range sampleSubmissions {
-		jsonData, err := json.Marshal(data)
-		if err != nil {
-			return fmt.Errorf("marshal submission %d: %w", i, err)
-		}
-
-		submission := &forms.Submission{
-			FormID:    contactForm.ID,
-			DataJSON:  string(jsonData),
-			IPHash:    fmt.Sprintf("hash_%d", i),
-			UserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-			IsSpam:    false,
-			CreatedAt: seededAt.Add(-time.Duration(i*24) * time.Hour),
-		}
-
-		if err := createSeedRecord(db, submission); err != nil {
-			return fmt.Errorf("create submission %d: %w", i, err)
-		}
-	}
-	fmt.Printf("✓ Created %d sample submissions\n", len(sampleSubmissions))
-
-	// Create sample submissions for newsletter
-	newsletterSubmissions := []map[string]interface{}{
-		{"email": "subscriber1@example.com"},
-		{"email": "subscriber2@example.com"},
-	}
-
-	for i, data := range newsletterSubmissions {
-		jsonData, err := json.Marshal(data)
-		if err != nil {
-			return fmt.Errorf("marshal newsletter submission %d: %w", i, err)
-		}
-
-		submission := &forms.Submission{
-			FormID:    newsletterForm.ID,
-			DataJSON:  string(jsonData),
-			IPHash:    fmt.Sprintf("hash_news_%d", i),
-			UserAgent: "Mozilla/5.0",
-			IsSpam:    false,
-			CreatedAt: seededAt.Add(-time.Duration(i*12) * time.Hour),
-		}
-
-		if err := createSeedRecord(db, submission); err != nil {
-			return fmt.Errorf("create newsletter submission %d: %w", i, err)
-		}
-	}
-	fmt.Printf("✓ Created %d newsletter submissions\n", len(newsletterSubmissions))
-
-	fmt.Println("\n✅ Database seeded successfully!")
+	fmt.Printf("✓ Development data ready (%d forms, %d submissions created)\n", createdForms, createdEntries)
 	return nil
 }
 
-func createSeedRecord(db *gorm.DB, value any) error {
-	return dbtxn.WithRetry(slog.Default(), db, func(tx *gorm.DB) error {
-		return tx.Create(value).Error
-	})
+func ensureSeedProfiles(tx *gorm.DB) error {
+	mailer := &integrations.MailerProfile{
+		Name: "default", Provider: "mailgun", DefaultFromName: "Miniform", DefaultFromEmail: "no-reply@example.com",
+	}
+	if err := tx.Where("name = ?", mailer.Name).FirstOrCreate(mailer).Error; err != nil {
+		return fmt.Errorf("seed mailer profile: %w", err)
+	}
+	captcha := &integrations.CaptchaProfile{
+		Name: "default", Provider: "turnstile",
+		SiteKeysJSON: `[{"host_pattern":"*","site_key":""}]`,
+		PolicyJSON:   `{"required":false,"action":"submit","widget":"managed"}`,
+	}
+	if err := tx.Where("name = ?", captcha.Name).FirstOrCreate(captcha).Error; err != nil {
+		return fmt.Errorf("seed captcha profile: %w", err)
+	}
+	return nil
+}
+
+func createDemoInbox(tx *gorm.DB, now time.Time) (int, int, error) {
+	demoForms := []*forms.Form{
+		{Name: "Contact Form", Slug: "contact", AllowedOrigins: "*"},
+		{Name: "Newsletter Signup", Slug: "newsletter", AllowedOrigins: "*"},
+		{Name: "Feedback Form", Slug: "feedback", AllowedOrigins: "*"},
+	}
+	for _, form := range demoForms {
+		if err := tx.Create(form).Error; err != nil {
+			return 0, 0, fmt.Errorf("seed form %q: %w", form.Slug, err)
+		}
+	}
+
+	entries := []struct {
+		form   *forms.Form
+		age    time.Duration
+		fields map[string]any
+	}{
+		{demoForms[0], 2 * time.Hour, map[string]any{"name": "Ada", "email": "ada@example.com", "message": "Could you share deployment guidance?"}},
+		{demoForms[0], 26 * time.Hour, map[string]any{"name": "Linus", "email": "linus@example.com", "company": "Kernel Works", "message": "Webhook delivery looks great."}},
+		{demoForms[0], 50 * time.Hour, map[string]any{"name": "Grace", "email": "grace@example.com", "message": "Can uploads be retained for 30 days?"}},
+		{demoForms[1], 30 * time.Minute, map[string]any{"email": "reader@example.com"}},
+		{demoForms[2], 4 * time.Hour, map[string]any{"rating": 5, "comment": "Simple and fast."}},
+	}
+	for index, entry := range entries {
+		payload, err := json.Marshal(entry.fields)
+		if err != nil {
+			return 0, 0, fmt.Errorf("encode demo submission: %w", err)
+		}
+		submission := &forms.Submission{
+			FormID: entry.form.ID, DataJSON: string(payload), IPHash: fmt.Sprintf("demo-%d", index),
+			UserAgent: "Miniform demo seed", CreatedAt: now.Add(-entry.age),
+		}
+		if err := tx.Create(submission).Error; err != nil {
+			return 0, 0, fmt.Errorf("seed submission: %w", err)
+		}
+	}
+	return len(demoForms), len(entries), nil
 }

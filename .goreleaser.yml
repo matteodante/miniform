@@ -53,6 +53,7 @@ archives:
       - README.md
       - LICENSE
       - THIRD_PARTY_NOTICES.md
+      - third_party_licenses/**/*
 
 checksum:
   name_template: checksums.txt

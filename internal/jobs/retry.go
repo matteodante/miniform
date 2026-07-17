@@ -1,11 +1,11 @@
 package jobs
 
 import (
+	"log/slog"
 	"strings"
 	"time"
 
-	"log/slog"
-
+	"github.com/karloscodes/cartridge"
 	"gorm.io/gorm"
 
 	"github.com/matteodante/miniform/internal/config"
@@ -13,186 +13,123 @@ import (
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 )
 
-// RetryStrategy handles retry logic for background jobs.
-type RetryStrategy struct {
-	cfg *config.Config
+const storedErrorLimit = 500
+
+type retryPlan struct {
+	delays []time.Duration
+	limit  int
 }
 
-// NewRetryStrategy creates a retry strategy.
-func NewRetryStrategy(cfg *config.Config) *RetryStrategy {
-	return &RetryStrategy{cfg: cfg}
+func newRetryPlan(cfg *config.Config) retryPlan {
+	seconds := cfg.WebhookBackoff()
+	plan := retryPlan{delays: make([]time.Duration, len(seconds)), limit: cfg.Webhook.RetryLimit}
+	if plan.limit < 1 {
+		plan.limit = forms.DefaultRetryLimit
+	}
+	for i, delay := range seconds {
+		plan.delays[i] = time.Duration(delay) * time.Second
+	}
+	return plan
 }
 
-// NextRetry calculates the next retry time based on attempt count.
-func (r *RetryStrategy) NextRetry(attempt int) *time.Time {
-	schedule := r.cfg.WebhookBackoff()
-	if len(schedule) == 0 {
+func (plan retryPlan) next(attempt int, now time.Time) *time.Time {
+	if len(plan.delays) == 0 {
 		return nil
 	}
-	idx := attempt - 1
-	if idx >= len(schedule) {
-		idx = len(schedule) - 1
-	}
-	next := time.Now().UTC().Add(time.Duration(schedule[idx]) * time.Second)
+	index := max(attempt-1, 0)
+	index = min(index, len(plan.delays)-1)
+	next := now.UTC().Add(plan.delays[index])
 	return &next
 }
 
-// ShouldRetry returns true if the event should be retried.
-func (r *RetryStrategy) ShouldRetry(attemptCount int) bool {
-	return attemptCount < forms.DefaultRetryLimit
+func dueEvents(db *gorm.DB, now time.Time) *gorm.DB {
+	return db.Where("next_attempt_at <= ?", now.UTC()).Order("next_attempt_at, created_at, id")
 }
 
-// TruncateError truncates error messages to a reasonable length.
-func TruncateError(err error) string {
+type deliveryState struct {
+	status        string
+	attemptedAt   time.Time
+	message       string
+	nextAttemptAt *time.Time
+	attemptCount  *int
+}
+
+func deliveredState(previousAttempts int) deliveryState {
+	attempts := previousAttempts + 1
+	return deliveryState{status: forms.WebhookStatusDelivered, attemptedAt: time.Now().UTC(), attemptCount: &attempts}
+}
+
+func finalState(status, message string) deliveryState {
+	return deliveryState{status: status, attemptedAt: time.Now().UTC(), message: message}
+}
+
+func retryState(previousAttempts int, plan retryPlan, cause error) deliveryState {
+	attempts := previousAttempts + 1
+	now := time.Now().UTC()
+	state := deliveryState{
+		status:       forms.WebhookStatusRetrying,
+		attemptedAt:  now,
+		message:      compactError(cause),
+		attemptCount: &attempts,
+	}
+	if attempts >= plan.limit {
+		state.status = forms.WebhookStatusFailed
+		return state
+	}
+	state.nextAttemptAt = plan.next(attempts, now)
+	return state
+}
+
+func compactError(err error) string {
 	if err == nil {
 		return ""
 	}
-	msg := err.Error()
-	msg = strings.TrimSpace(msg)
-	if len(msg) <= 500 {
-		return msg
+	message := strings.TrimSpace(err.Error())
+	if len(message) > storedErrorLimit {
+		return message[:storedErrorLimit]
 	}
-	return msg[:500]
+	return message
 }
 
-// UpdateOption is a functional option for updating event fields.
-type UpdateOption func(map[string]any)
-
-// WithAttemptCount sets the attempt count.
-func WithAttemptCount(count int) UpdateOption {
-	return func(values map[string]any) { values["attempt_count"] = count }
-}
-
-// WithNextAttempt sets the next attempt time.
-func WithNextAttempt(next *time.Time) UpdateOption {
-	return func(values map[string]any) {
-		if next == nil {
-			values["next_attempt_at"] = (*time.Time)(nil)
-			return
-		}
-		utc := next.UTC()
-		values["next_attempt_at"] = &utc
-	}
-}
-
-// EventUpdater provides a generic way to update webhook/email events.
-type EventUpdater struct {
-	model interface{}
-}
-
-// NewEventUpdater creates an event updater for the given model type.
-func NewEventUpdater(model interface{}) *EventUpdater {
-	return &EventUpdater{model: model}
-}
-
-// Update performs a transactional update of the event.
-func (u *EventUpdater) Update(ctx *JobContext, db *gorm.DB, id uint, status string, attemptTime time.Time, message string, opts ...UpdateOption) error {
+func saveState(ctx *cartridge.JobContext, db *gorm.DB, model any, id uint, state deliveryState) error {
 	values := map[string]any{
-		"status":           status,
-		"last_attempt_at":  attemptTime.UTC(),
-		"last_attempt_err": message,
+		"status":           state.status,
+		"last_attempt_at":  state.attemptedAt.UTC(),
+		"last_attempt_err": state.message,
+		"next_attempt_at":  state.nextAttemptAt,
 	}
-	for _, opt := range opts {
-		opt(values)
+	if state.attemptCount != nil {
+		values["attempt_count"] = *state.attemptCount
 	}
-
 	return dbtxn.WithRetry(ctx.Logger, db, func(tx *gorm.DB) error {
-		return tx.Model(u.model).
-			Where("id = ?", id).
-			Updates(values).Error
+		return tx.Model(model).Where("id = ?", id).Updates(values).Error
 	})
 }
 
-func dueEventQuery(db *gorm.DB, now time.Time) *gorm.DB {
-	return db.
-		Where("next_attempt_at <= ?", now.UTC()).
-		Order("next_attempt_at ASC, created_at ASC, id ASC")
-}
-
-// MarkAsRetry marks an event for retry with backoff.
-func MarkWebhookAsRetry(ctx *JobContext, db *gorm.DB, event *forms.WebhookEvent, strategy *RetryStrategy, err error) {
-	attemptCount := event.AttemptCount + 1
-	status := forms.WebhookStatusRetrying
-	var nextAttempt *time.Time
-	message := TruncateError(err)
-
-	if !strategy.ShouldRetry(attemptCount) {
-		status = forms.WebhookStatusFailed
-	} else {
-		nextAttempt = strategy.NextRetry(attemptCount)
-	}
-
-	attemptTime := time.Now().UTC()
-	updater := NewEventUpdater(&forms.WebhookEvent{})
-	if err := updater.Update(ctx, db, event.ID, status, attemptTime, message, WithAttemptCount(attemptCount), WithNextAttempt(nextAttempt)); err != nil {
-		ctx.Logger.Error("update retry webhook", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
+func applyWebhookState(ctx *cartridge.JobContext, db *gorm.DB, event *forms.WebhookEvent, state deliveryState) {
+	if err := saveState(ctx, db, &forms.WebhookEvent{}, event.ID, state); err != nil {
+		ctx.Logger.Error("update webhook event", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
 		return
 	}
-
-	// Update in-memory event
-	event.Status = status
-	event.AttemptCount = attemptCount
-	event.LastAttemptAt = &attemptTime
-	event.LastAttemptErr = message
-	event.NextAttemptAt = nextAttempt
+	event.Status = state.status
+	event.LastAttemptAt = &state.attemptedAt
+	event.LastAttemptErr = state.message
+	event.NextAttemptAt = state.nextAttemptAt
+	if state.attemptCount != nil {
+		event.AttemptCount = *state.attemptCount
+	}
 }
 
-// MarkWebhookAsFinal marks an event as final (delivered or failed).
-func MarkWebhookAsFinal(ctx *JobContext, db *gorm.DB, event *forms.WebhookEvent, status, message string) {
-	attemptTime := time.Now().UTC()
-	updater := NewEventUpdater(&forms.WebhookEvent{})
-	if err := updater.Update(ctx, db, event.ID, status, attemptTime, message, WithNextAttempt(nil)); err != nil {
-		ctx.Logger.Error("finalize webhook", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
+func applyEmailState(ctx *cartridge.JobContext, db *gorm.DB, event *forms.EmailEvent, state deliveryState) {
+	if err := saveState(ctx, db, &forms.EmailEvent{}, event.ID, state); err != nil {
+		ctx.Logger.Error("update email event", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
 		return
 	}
-
-	// Update in-memory event
-	event.Status = status
-	event.LastAttemptAt = &attemptTime
-	event.LastAttemptErr = message
-	event.NextAttemptAt = nil
-}
-
-// MarkEmailAsRetry marks an email event for retry with backoff.
-func MarkEmailAsRetry(ctx *JobContext, db *gorm.DB, event *forms.EmailEvent, strategy *RetryStrategy, err error) {
-	attemptCount := event.AttemptCount + 1
-	status := forms.WebhookStatusRetrying
-	var nextAttempt *time.Time
-	message := TruncateError(err)
-
-	if !strategy.ShouldRetry(attemptCount) {
-		status = forms.WebhookStatusFailed
-	} else {
-		nextAttempt = strategy.NextRetry(attemptCount)
+	event.Status = state.status
+	event.LastAttemptAt = &state.attemptedAt
+	event.LastAttemptErr = state.message
+	event.NextAttemptAt = state.nextAttemptAt
+	if state.attemptCount != nil {
+		event.AttemptCount = *state.attemptCount
 	}
-
-	attemptTime := time.Now().UTC()
-	updater := NewEventUpdater(&forms.EmailEvent{})
-	if err := updater.Update(ctx, db, event.ID, status, attemptTime, message, WithAttemptCount(attemptCount), WithNextAttempt(nextAttempt)); err != nil {
-		ctx.Logger.Error("update email retry", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
-		return
-	}
-
-	// Update in-memory event
-	event.Status = status
-	event.AttemptCount = attemptCount
-	event.LastAttemptAt = &attemptTime
-	event.LastAttemptErr = message
-	event.NextAttemptAt = nextAttempt
-}
-
-// MarkEmailAsFinal marks an email event as final (delivered or failed).
-func MarkEmailAsFinal(ctx *JobContext, db *gorm.DB, event *forms.EmailEvent, status, message string) {
-	attemptTime := time.Now().UTC()
-	updater := NewEventUpdater(&forms.EmailEvent{})
-	if err := updater.Update(ctx, db, event.ID, status, attemptTime, message, WithNextAttempt(nil)); err != nil {
-		ctx.Logger.Error("finalize email event", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
-		return
-	}
-
-	// Update in-memory event
-	event.Status = status
-	event.LastAttemptAt = &attemptTime
-	event.LastAttemptErr = message
-	event.NextAttemptAt = nil
 }

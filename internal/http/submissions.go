@@ -1,203 +1,192 @@
 package http
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"log/slog"
+	"mime"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/karloscodes/cartridge"
+	"github.com/valyala/fasthttp"
 	"gorm.io/gorm"
 
+	"github.com/matteodante/miniform/internal/config"
 	"github.com/matteodante/miniform/internal/forms"
 )
 
-type submissionWithPreview struct {
+type submissionPreview struct {
 	forms.Submission
 	DataJSONPreview string
 }
 
-// SubmissionList shows all submissions with pagination and filters.
 func SubmissionList(ctx *cartridge.Context) error {
-	db := ctx.DB()
-
-	// Parse pagination
 	page, _ := strconv.Atoi(ctx.Query("page", "1"))
-	if page < 1 {
-		page = 1
-	}
-	perPage := 20
-	offset := (page - 1) * perPage
-
-	// Parse filters
-	formID := ctx.Query("form_id")
-	rangeFilter := ctx.Query("range")
+	formID, _ := strconv.ParseUint(ctx.Query("form_id"), 10, 32)
+	rangeFilter := strings.TrimSpace(ctx.Query("range"))
 	search := strings.TrimSpace(ctx.Query("q"))
-
-	// Build query
-	query := db.Model(&forms.Submission{}).Preload("Form")
-
-	if formID != "" {
-		query = query.Where("form_id = ?", formID)
-	}
-
-	// Search in data_json
-	if search != "" {
-		query = query.Where("data_json LIKE ?", "%"+search+"%")
-	}
-
-	// Handle date range filter
-	if rangeFilter != "" && rangeFilter != "all" {
-		var startTime time.Time
-		now := time.Now().UTC()
-		switch rangeFilter {
-		case "7d":
-			startTime = now.AddDate(0, 0, -7)
-		case "30d":
-			startTime = now.AddDate(0, 0, -30)
-		case "90d":
-			startTime = now.AddDate(0, 0, -90)
+	result, err := forms.ListSubmissions(ctx.DB(), forms.SubmissionFilter{
+		FormID: uint(formID), Range: rangeFilter, Query: search, Page: page, PerPage: 20,
+	})
+	if err != nil {
+		var validation *forms.ValidationError
+		if errors.As(err, &validation) {
+			return ctx.Status(fiber.StatusBadRequest).SendString(validation.Message)
 		}
-		if !startTime.IsZero() {
-			query = query.Where("created_at >= ?", startTime)
-		}
+		return fiber.ErrInternalServerError
 	}
-
-	// Get total count for pagination
-	var totalCount int64
-	if err := query.Count(&totalCount).Error; err != nil {
+	summary, err := forms.GetInboxSummary(ctx.DB(), time.Now())
+	if err != nil {
 		return fiber.ErrInternalServerError
 	}
 
-	// Get submissions for current page
-	var submissions []forms.Submission
-	if err := query.Order("created_at DESC, id DESC").
-		Limit(perPage).
-		Offset(offset).
-		Find(&submissions).Error; err != nil {
-		return fiber.ErrInternalServerError
+	previews := make([]submissionPreview, len(result.Items))
+	for i := range result.Items {
+		previews[i] = submissionPreview{Submission: result.Items[i], DataJSONPreview: previewJSON(result.Items[i].DataJSON)}
 	}
-
-	// Add previews
-	submissionsWithPreview := make([]submissionWithPreview, len(submissions))
-	for i, sub := range submissions {
-		preview := sub.DataJSON
-		if len(preview) > 100 {
-			preview = preview[:100] + "..."
-		}
-		// Clean up for display
-		preview = strings.ReplaceAll(preview, "\n", " ")
-		submissionsWithPreview[i] = submissionWithPreview{
-			Submission:      sub,
-			DataJSONPreview: preview,
-		}
-	}
-
-	// Get all endpoints for the filter and the inbox summary.
-	var endpoints []forms.Form
-	db.Select("id, name").Order("name ASC").Find(&endpoints)
-
-	var endpointCount, entriesLast24h int64
-	db.Model(&forms.Form{}).Count(&endpointCount)
-	db.Model(&forms.Submission{}).
-		Where("created_at > ?", time.Now().UTC().Add(-24*time.Hour)).
-		Count(&entriesLast24h)
-
-	// Calculate pagination info
-	totalPages := (int(totalCount) + perPage - 1) / perPage
-	hasNext := page < totalPages
-	hasPrev := page > 1
-	nextPage := page + 1
-	prevPage := page - 1
-
-	return ctx.Render("layouts/base", fiber.Map{
-		"Title":          "Inbox",
-		"Submissions":    submissionsWithPreview,
-		"Endpoints":      endpoints,
-		"EndpointCount":  endpointCount,
-		"EntriesLast24h": entriesLast24h,
-		"Page":           page,
-		"NextPage":       nextPage,
-		"PrevPage":       prevPage,
-		"TotalPages":     totalPages,
-		"TotalCount":     totalCount,
-		"HasNext":        hasNext,
-		"HasPrev":        hasPrev,
-		"FormID":         formID,
-		"Range":          rangeFilter,
-		"Search":         search,
-		"ContentView":    "admin/submissions/index/content",
-	}, "")
+	return renderPage(ctx, "Inbox", "admin/submissions/index/content", fiber.Map{
+		"Submissions": previews, "Endpoints": summary.Forms,
+		"EndpointCount": summary.FormCount, "EntriesLast24h": summary.EntriesLast24,
+		"Page": result.Page, "NextPage": result.Page + 1, "PrevPage": result.Page - 1,
+		"TotalPages": result.TotalPages, "TotalCount": result.TotalCount,
+		"HasNext": result.Page < result.TotalPages, "HasPrev": result.Page > 1,
+		"FormID": ctx.Query("form_id"), "Range": rangeFilter, "Search": search,
+	})
 }
 
-// AdminSubmissionShow renders a single submission payload.
 func AdminSubmissionShow(ctx *cartridge.Context) error {
-	db := ctx.DB()
-
-	id, err := strconv.Atoi(ctx.Params("id"))
+	id, err := requestedID(ctx)
 	if err != nil {
+		return err
+	}
+	submission, err := forms.GetSubmissionByID(ctx.DB(), id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return fiber.ErrNotFound
 	}
-
-	var submission forms.Submission
-	if err := db.Preload("Form").Preload("WebhookEvents").Preload("EmailEvents").Preload("Files").Where("id = ?", id).First(&submission).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return fiber.ErrNotFound
-		}
+	if err != nil {
 		return fiber.ErrInternalServerError
 	}
-
-	var prettyJSON string
-	if submission.DataJSON != "" {
-		var buf any
-		if err := json.Unmarshal([]byte(submission.DataJSON), &buf); err == nil {
-			formatted, _ := json.MarshalIndent(buf, "", "  ")
-			prettyJSON = string(formatted)
-		} else {
-			prettyJSON = submission.DataJSON
-		}
-	}
-
-	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Inbox entry",
-		"Submission":  submission,
-		"JSON":        prettyJSON,
-		"HasFiles":    len(submission.Files) > 0,
-		"ContentView": "admin/submissions/show/content",
-	}, "")
+	return renderPage(ctx, "Inbox entry", "admin/submissions/show/content", fiber.Map{
+		"Submission": submission, "JSON": prettyJSON(submission.DataJSON), "HasFiles": len(submission.Files) != 0,
+	})
 }
 
-// AdminSubmissionFileDownload serves a file from a submission.
-func AdminSubmissionFileDownload(ctx *cartridge.Context) error {
-	db := ctx.DB()
-	cfg := GetAppConfig(ctx)
-
-	submissionID, err := strconv.Atoi(ctx.Params("id"))
+func AdminSubmissionFileDownload(ctx *cartridge.Context, cfg *config.Config) error {
+	submissionID, err := requestedID(ctx)
 	if err != nil {
+		return err
+	}
+	fileID, err := paramID(ctx, "file_id")
+	if err != nil {
+		return err
+	}
+	file, err := forms.GetSubmissionFile(ctx.DB(), submissionID, fileID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return fiber.ErrNotFound
 	}
-
-	fileID, err := strconv.Atoi(ctx.Params("file_id"))
 	if err != nil {
+		return fiber.ErrInternalServerError
+	}
+	source, err := forms.OpenSubmissionFile(cfg.DataDirectory, file)
+	if errors.Is(err, fs.ErrNotExist) {
 		return fiber.ErrNotFound
 	}
-
-	var file forms.SubmissionFile
-	if err := db.Where("id = ? AND submission_id = ?", fileID, submissionID).First(&file).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return fiber.ErrNotFound
-		}
+	if err != nil {
+		ctx.Logger.Error("open submission file", slog.Uint64("file_id", uint64(file.ID)), slog.Any("error", err))
+		return fiber.ErrInternalServerError
+	}
+	info, err := source.Stat()
+	if err != nil {
+		_ = source.Close()
+		ctx.Logger.Error("stat submission file", slog.Uint64("file_id", uint64(file.ID)), slog.Any("error", err))
 		return fiber.ErrInternalServerError
 	}
 
-	filePath := forms.GetFilePath(cfg.DataDirectory, &file)
+	contentType := file.ContentType
+	if contentType == "" {
+		contentType = mime.TypeByExtension(filepath.Ext(file.Filename))
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	ctx.Set(fiber.HeaderContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": file.Filename}))
+	ctx.Set(fiber.HeaderContentType, contentType)
+	return sendDownload(ctx, source, info)
+}
 
-	// Set content disposition for download
-	ctx.Set("Content-Disposition", "attachment; filename=\""+file.Filename+"\"")
-	if file.ContentType != "" {
-		ctx.Set("Content-Type", file.ContentType)
+type downloadRange struct {
+	io.Reader
+	io.Closer
+}
+
+func sendDownload(ctx *cartridge.Context, source *os.File, info os.FileInfo) error {
+	size := int(info.Size())
+	if int64(size) != info.Size() {
+		_ = source.Close()
+		ctx.Logger.Error("submission file is too large to stream", slog.Int64("size", info.Size()))
+		return fiber.ErrInternalServerError
 	}
 
-	return ctx.SendFile(filePath)
+	ctx.Set(fiber.HeaderAcceptRanges, "bytes")
+	ctx.Set(fiber.HeaderLastModified, info.ModTime().UTC().Format(http.TimeFormat))
+	if !ctx.Context().IfModifiedSince(info.ModTime()) {
+		_ = source.Close()
+		ctx.Context().NotModified()
+		return nil
+	}
+	if ctx.Get(fiber.HeaderRange) == "" {
+		return ctx.SendStream(source, size)
+	}
+
+	start, end, err := fasthttp.ParseByteRange([]byte(ctx.Get(fiber.HeaderRange)), size)
+	if err != nil {
+		_ = source.Close()
+		ctx.Set(fiber.HeaderContentRange, fmt.Sprintf("bytes */%d", size))
+		return ctx.SendStatus(fiber.StatusRequestedRangeNotSatisfiable)
+	}
+	if _, err := source.Seek(int64(start), io.SeekStart); err != nil {
+		_ = source.Close()
+		ctx.Logger.Error("seek submission file", slog.Any("error", err))
+		return fiber.ErrInternalServerError
+	}
+	length := end - start + 1
+	ctx.Status(fiber.StatusPartialContent)
+	ctx.Set(fiber.HeaderContentRange, fmt.Sprintf("bytes %d-%d/%d", start, end, size))
+	return ctx.SendStream(downloadRange{Reader: io.LimitReader(source, int64(length)), Closer: source}, length)
+}
+
+func previewJSON(raw string) string {
+	text := strings.ReplaceAll(raw, "\n", " ")
+	if utf8.RuneCountInString(text) <= 100 {
+		return text
+	}
+	runes := []rune(text)
+	return string(runes[:100]) + "..."
+}
+
+func prettyJSON(raw string) string {
+	var output bytes.Buffer
+	if json.Indent(&output, []byte(raw), "", "  ") == nil {
+		return output.String()
+	}
+	return raw
+}
+
+func paramID(ctx *cartridge.Context, name string) (uint, error) {
+	id, err := strconv.ParseUint(ctx.Params(name), 10, 32)
+	if err != nil || id == 0 {
+		return 0, fiber.ErrNotFound
+	}
+	return uint(id), nil
 }

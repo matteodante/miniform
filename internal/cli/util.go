@@ -85,6 +85,7 @@ func readFileValue(path string, stdin io.Reader) (string, error) {
 	if path == "-" {
 		content, err = io.ReadAll(stdin)
 	} else {
+		// #nosec G304 -- The operator explicitly supplies this CLI input path.
 		content, err = os.ReadFile(path)
 	}
 	if err != nil {
@@ -101,6 +102,7 @@ func readContentFile(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", nil
 	}
+	// #nosec G304 -- The operator explicitly supplies this CLI input path.
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("read content file: %w", err)

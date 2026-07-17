@@ -2,12 +2,12 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log/slog"
-	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/karloscodes/cartridge"
+	"gorm.io/gorm"
 
 	"github.com/matteodante/miniform/internal/forms"
 	"github.com/matteodante/miniform/internal/integrations"
@@ -18,193 +18,150 @@ type siteKeyEntry struct {
 	SiteKey     string `json:"site_key"`
 }
 
-// CaptchaProfileList shows all captcha profiles.
+type captchaSummary struct {
+	integrations.CaptchaProfile
+	SiteKeyCount int
+}
+
 func CaptchaProfileList(ctx *cartridge.Context) error {
-	db := ctx.DB()
-
-	var profiles []integrations.CaptchaProfile
-	if err := db.Order("created_at DESC, id DESC").Find(&profiles).Error; err != nil {
+	profiles, err := integrations.ListCaptchaProfiles(ctx.DB())
+	if err != nil {
 		return fiber.ErrInternalServerError
 	}
-
-	// Add site key count to each profile
-	type profileWithCount struct {
-		integrations.CaptchaProfile
-		SiteKeyCount int
+	summaries := make([]captchaSummary, len(profiles))
+	for i := range profiles {
+		summaries[i] = captchaSummary{CaptchaProfile: profiles[i], SiteKeyCount: len(decodeSiteKeys(profiles[i].SiteKeysJSON))}
 	}
-	var profilesWithCount []profileWithCount
-	for _, p := range profiles {
-		var siteKeys []siteKeyEntry
-		count := 0
-		if p.SiteKeysJSON != "" {
-			if err := json.Unmarshal([]byte(p.SiteKeysJSON), &siteKeys); err == nil {
-				count = len(siteKeys)
-			}
-		}
-		profilesWithCount = append(profilesWithCount, profileWithCount{
-			CaptchaProfile: p,
-			SiteKeyCount:   count,
-		})
-	}
-
-	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Safeguards",
-		"Profiles":    profilesWithCount,
-		"ContentView": "admin/captcha/index/content",
-	}, "")
+	return renderPage(ctx, "Safeguards", "admin/captcha/index/content", fiber.Map{"Profiles": summaries})
 }
 
-// CaptchaProfileNew shows the create form.
 func CaptchaProfileNew(ctx *cartridge.Context) error {
-	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "New safeguard",
-		"ContentView": "admin/captcha/new/content",
-	}, "")
+	return renderPage(ctx, "New safeguard", "admin/captcha/new/content", nil)
 }
 
-// CaptchaProfileCreate handles profile creation.
 func CaptchaProfileCreate(ctx *cartridge.Context) error {
-	db := ctx.DB()
-
-	logger := ctx.Logger
-	params := integrations.CaptchaProfileParams{
-		Name:         ctx.FormValue("name"),
-		Provider:     ctx.FormValue("provider"),
-		SecretKey:    ctx.FormValue("secret_key"),
-		SiteKeysJSON: ctx.FormValue("site_keys_json"),
-		PolicyJSON:   ctx.FormValue("policy_json"),
-	}
-
-	_, err := integrations.CreateCaptchaProfile(logger, db, params)
+	params := captchaParams(ctx)
+	_, err := integrations.CreateCaptchaProfile(ctx.Logger, ctx.DB(), params)
 	if err != nil {
-		var errMsg string
-		if valErr, ok := err.(*integrations.ValidationError); ok {
-			errMsg = valErr.Message
-		} else {
-			errMsg = err.Error()
+		var validation *integrations.ValidationError
+		if errors.As(err, &validation) {
+			return renderCaptchaEditor(ctx, captchaProfileDraft(0, params), integrationMessage(err))
 		}
-		return ctx.Render("layouts/base", fiber.Map{
-			"Title":       "New safeguard",
-			"Error":       errMsg,
-			"ContentView": "admin/captcha/new/content",
-		}, "")
-	}
-
-	return ctx.Redirect("/admin/settings/captcha")
-}
-
-// CaptchaProfileShow displays a single profile.
-func CaptchaProfileShow(ctx *cartridge.Context) error {
-	db := ctx.DB()
-
-	id := ctx.Params("id")
-	var profile integrations.CaptchaProfile
-	if err := db.First(&profile, id).Error; err != nil {
-		return fiber.ErrNotFound
-	}
-
-	// Parse site keys for display
-	var siteKeys []siteKeyEntry
-	if profile.SiteKeysJSON != "" {
-		if err := json.Unmarshal([]byte(profile.SiteKeysJSON), &siteKeys); err != nil {
-			ctx.Logger.Warn("decode captcha site keys", slog.Any("error", err), slog.Uint64("profile_id", uint64(profile.ID)))
-		}
-	}
-
-	// Count forms using this profile
-	var usageCount int64
-	db.Model(&forms.Form{}).Where("captcha_profile_id = ?", profile.ID).Count(&usageCount)
-
-	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Safeguard: " + profile.Name,
-		"Profile":     profile,
-		"SiteKeys":    siteKeys,
-		"UsageCount":  usageCount,
-		"ContentView": "admin/captcha/show/content",
-	}, "")
-}
-
-// CaptchaProfileEdit shows the edit form.
-func CaptchaProfileEdit(ctx *cartridge.Context) error {
-	db := ctx.DB()
-
-	id := ctx.Params("id")
-	var profile integrations.CaptchaProfile
-	if err := db.First(&profile, id).Error; err != nil {
-		return fiber.ErrNotFound
-	}
-
-	return ctx.Render("layouts/base", fiber.Map{
-		"Title":       "Edit safeguard",
-		"Profile":     profile,
-		"IsEdit":      true,
-		"ContentView": "admin/captcha/new/content",
-	}, "")
-}
-
-// CaptchaProfileUpdate handles profile updates.
-func CaptchaProfileUpdate(ctx *cartridge.Context) error {
-	db := ctx.DB()
-
-	id := ctx.Params("id")
-	profileID, err := strconv.ParseUint(id, 10, 32)
-	if err != nil {
-		return fiber.ErrNotFound
-	}
-
-	logger := ctx.Logger
-	params := integrations.CaptchaProfileParams{
-		Name:         ctx.FormValue("name"),
-		Provider:     ctx.FormValue("provider"),
-		SecretKey:    ctx.FormValue("secret_key"),
-		SiteKeysJSON: ctx.FormValue("site_keys_json"),
-		PolicyJSON:   ctx.FormValue("policy_json"),
-	}
-
-	profile, err := integrations.UpdateCaptchaProfile(logger, db, uint(profileID), params)
-	if err != nil {
-		// Get profile for error display
-		existingProfile, _ := integrations.GetCaptchaProfileByID(db, uint(profileID))
-		var errMsg string
-		if valErr, ok := err.(*integrations.ValidationError); ok {
-			errMsg = valErr.Message
-		} else {
-			errMsg = err.Error()
-		}
-		return ctx.Render("layouts/base", fiber.Map{
-			"Title":       "Edit safeguard",
-			"Profile":     existingProfile,
-			"Error":       errMsg,
-			"IsEdit":      true,
-			"ContentView": "admin/captcha/new/content",
-		}, "")
-	}
-
-	return ctx.Redirect("/admin/settings/captcha/" + fmt.Sprint(profile.ID))
-}
-
-// CaptchaProfileDelete removes a profile.
-func CaptchaProfileDelete(ctx *cartridge.Context) error {
-	db := ctx.DB()
-
-	id := ctx.Params("id")
-	profileID, err := strconv.ParseUint(id, 10, 32)
-	if err != nil {
-		return fiber.ErrNotFound
-	}
-
-	// Check if any forms are using this profile
-	var count int64
-	db.Model(&forms.Form{}).Where("captcha_profile_id = ?", profileID).Count(&count)
-	if count > 0 {
-		return ctx.Status(400).SendString("Cannot delete profile: it is being used by forms")
-	}
-
-	logger := ctx.Logger
-	if err := integrations.DeleteCaptchaProfile(logger, db, uint(profileID)); err != nil {
-		logger.Error("failed to delete captcha profile", slog.Any("error", err), slog.Uint64("profile_id", profileID))
 		return fiber.ErrInternalServerError
 	}
-
 	return ctx.Redirect("/admin/settings/captcha")
+}
+
+func CaptchaProfileShow(ctx *cartridge.Context) error {
+	profile, err := requestedCaptcha(ctx)
+	if err != nil {
+		return err
+	}
+	usage, err := forms.CaptchaProfileUsage(ctx.DB(), profile.ID)
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
+	return renderPage(ctx, "Safeguard: "+profile.Name, "admin/captcha/show/content", fiber.Map{
+		"Profile": profile, "SiteKeys": decodeSiteKeys(profile.SiteKeysJSON), "UsageCount": usage,
+	})
+}
+
+func CaptchaProfileEdit(ctx *cartridge.Context) error {
+	profile, err := requestedCaptcha(ctx)
+	if err != nil {
+		return err
+	}
+	return renderCaptchaEditor(ctx, profile, "")
+}
+
+func CaptchaProfileUpdate(ctx *cartridge.Context) error {
+	id, err := requestedID(ctx)
+	if err != nil {
+		return err
+	}
+	params := captchaParams(ctx)
+	profile, err := integrations.UpdateCaptchaProfile(ctx.Logger, ctx.DB(), id, params)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fiber.ErrNotFound
+		}
+		var validation *integrations.ValidationError
+		if errors.As(err, &validation) {
+			if _, loadErr := integrations.GetCaptchaProfileByID(ctx.DB(), id); errors.Is(loadErr, gorm.ErrRecordNotFound) {
+				return fiber.ErrNotFound
+			} else if loadErr != nil {
+				return fiber.ErrInternalServerError
+			}
+			return renderCaptchaEditor(ctx, captchaProfileDraft(id, params), integrationMessage(err))
+		}
+		return fiber.ErrInternalServerError
+	}
+	return ctx.Redirect(fmt.Sprintf("/admin/settings/captcha/%d", profile.ID))
+}
+
+func CaptchaProfileDelete(ctx *cartridge.Context) error {
+	id, err := requestedID(ctx)
+	if err != nil {
+		return err
+	}
+	usage, err := forms.CaptchaProfileUsage(ctx.DB(), id)
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
+	if usage != 0 {
+		return ctx.Status(fiber.StatusBadRequest).SendString("Cannot delete profile: it is being used by forms")
+	}
+	if err := integrations.DeleteCaptchaProfile(ctx.Logger, ctx.DB(), id); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fiber.ErrNotFound
+		}
+		return fiber.ErrInternalServerError
+	}
+	return ctx.Redirect("/admin/settings/captcha")
+}
+
+func captchaParams(ctx *cartridge.Context) integrations.CaptchaProfileParams {
+	return integrations.CaptchaProfileParams{
+		Name: ctx.FormValue("name"), Provider: ctx.FormValue("provider"), SecretKey: ctx.FormValue("secret_key"),
+		SiteKeysJSON: ctx.FormValue("site_keys_json"), PolicyJSON: ctx.FormValue("policy_json"),
+	}
+}
+
+func requestedCaptcha(ctx *cartridge.Context) (*integrations.CaptchaProfile, error) {
+	id, err := requestedID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profile, err := integrations.GetCaptchaProfileByID(ctx.DB(), id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fiber.ErrNotFound
+	}
+	if err != nil {
+		return nil, fiber.ErrInternalServerError
+	}
+	return profile, nil
+}
+
+func renderCaptchaEditor(ctx *cartridge.Context, profile *integrations.CaptchaProfile, message string) error {
+	title := "New safeguard"
+	isEdit := profile != nil && profile.ID != 0
+	if isEdit {
+		title = "Edit safeguard"
+	}
+	return renderPage(ctx, title, "admin/captcha/new/content", fiber.Map{
+		"Profile": profile, "Error": message, "IsEdit": isEdit,
+	})
+}
+
+func captchaProfileDraft(id uint, params integrations.CaptchaProfileParams) *integrations.CaptchaProfile {
+	return &integrations.CaptchaProfile{
+		ID: id, Name: params.Name, Provider: params.Provider, SecretKey: params.SecretKey,
+		SiteKeysJSON: params.SiteKeysJSON, PolicyJSON: params.PolicyJSON,
+	}
+}
+
+func decodeSiteKeys(raw string) []siteKeyEntry {
+	var entries []siteKeyEntry
+	_ = json.Unmarshal([]byte(raw), &entries)
+	return entries
 }

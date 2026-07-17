@@ -1,182 +1,140 @@
-// e2e/005-forms.spec.js - Test endpoint CRUD operations
-const { test, expect } = require("@playwright/test");
-const { TestHelpers } = require("./test-helpers");
-const { TEST_EMAIL, TEST_PASSWORD } = require("./test-constants");
+const { test, expect } = require("./fixtures");
+const { uniqueName } = require("./test-client");
 
-test.describe("Endpoint management", () => {
-  let helpers;
+test.describe("endpoint management", () => {
+  test("creates an endpoint from a starter template", async ({ page, admin }) => {
+    await admin.open("/admin/forms");
+    await page.getByRole("link", { name: "New endpoint" }).click();
+    await expect(page.getByRole("heading", { name: "Choose a starting point" })).toBeVisible();
+    await page.getByText("Contact Form", { exact: true }).click();
+    await expect(page.getByLabel("Endpoint name")).toHaveValue("Contact Form");
+    await expect(page.getByLabel(/Slug/)).toHaveValue("contact");
 
-  test.beforeEach(async ({ page }) => {
-    helpers = new TestHelpers(page);
+    const previewTab = page.getByRole("tab", { name: "Preview" });
+    const sourceTab = page.getByRole("tab", { name: "Source" });
+    await expect(previewTab).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#formEmbedPreviewFrame")).toHaveAttribute("title", "Starter HTML preview");
+    await previewTab.press("ArrowRight");
+    await expect(sourceTab).toBeFocused();
+    await expect(sourceTab).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tabpanel", { name: "Source" })).toBeVisible();
 
-    // Login before each test
-    await page.context().clearCookies();
-    await helpers.login(TEST_EMAIL, TEST_PASSWORD);
+    const slug = uniqueName("contact");
+    await page.getByLabel(/Slug/).fill(slug);
+    await page.getByLabel("Allowed origins").fill("*");
+    await page.getByLabel("Email forwarding").uncheck();
+    await Promise.all([
+      page.waitForURL(/\/admin\/forms\/\d+$/),
+      page.getByRole("button", { name: "Create endpoint" }).click(),
+    ]);
+    await expect(page.getByRole("heading", { name: "Contact Form" })).toBeVisible();
+    await expect(page.locator("body")).toContainText(slug);
   });
 
-  test.afterEach(async ({ page }) => {
-    if (helpers) {
-      await helpers.cleanup();
-    }
+  test("shows the token and toggles the optional SDK", async ({ page, admin }) => {
+    const endpoint = await admin.createForm("SDK sample", uniqueName("sdk"));
+    await admin.open("/admin/forms");
+    await Promise.all([
+      page.waitForURL(`/admin/forms/${endpoint.id}`),
+      page.getByRole("link", { name: "SDK sample", exact: true }).click(),
+    ]);
+    await expect(page.locator("code").first()).toContainText(endpoint.token);
+    await expect(page.locator("#form-preview")).toHaveAttribute("title", "Starter HTML preview");
+
+    const source = page.locator("#form-code");
+    await expect(source).not.toContainText("miniform.js");
+    await page.locator("#include-sdk").check();
+    await expect(source).toContainText("Miniform SDK");
+    await expect(source).toContainText("miniform.js");
+    await page.locator("#include-sdk").uncheck();
+    await expect(source).not.toContainText("miniform.js");
+
+    const sourceTab = page.getByRole("tab", { name: "Source" });
+    const previewTab = page.getByRole("tab", { name: "Preview" });
+    await sourceTab.press("ArrowRight");
+    await expect(previewTab).toBeFocused();
+    await expect(previewTab).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tabpanel", { name: "Preview" })).toBeVisible();
   });
 
-  test("1. Create a new form", async ({ page }) => {
-    helpers.log("=== Creating New Endpoint ===");
-
-    await helpers.navigateTo("/admin/forms");
-
-    // Open the endpoint starting-point selector.
-    await page.click('text=New endpoint');
-
-    // Wait for template selector page to load
-    await page.waitForURL("**/admin/forms/new");
-    helpers.log(`Template selector URL: ${page.url()}`);
-
-    // Wait for template selector content
-    await page.waitForSelector('h1:has-text("Choose a starting point")');
-
-    // Click on Contact Form template
-    await page.click('text=Contact Form');
-
-    // Wait for form creation page with template parameter
-    await page.waitForURL("**/admin/forms/new?template=contact");
-    helpers.log(`Form creation URL: ${page.url()}`);
-
-    // Wait for form fields to be populated
-    await page.waitForSelector('input[name="name"]');
-    expect(await page.inputValue('input[name="name"]')).toBe("Contact Form");
-    expect(await page.inputValue('input[name="slug"]')).toBe("contact");
-
-    const endpointSlug = `contact-${Date.now()}`;
-    await page.fill('input[name="slug"]', endpointSlug);
-    await page.fill('input[name="allowed_origins"]', '*');
-    await page.uncheck('input[name="email_enabled"]');
-
-    // Submit the form
-    await page.click('main form[action="/admin/forms"] button[type="submit"]');
-    helpers.log("Clicked Create endpoint button");
-
-    await page.waitForURL(/\/admin\/forms\/\d+$/);
-
-    const endpointContent = await page.textContent("body");
-    expect(endpointContent).toContain("Contact Form");
-    expect(endpointContent).toContain(endpointSlug);
-
-    helpers.log("✅ Endpoint created successfully");
+  test("shows a local Turnstile placeholder in the sandboxed preview", async ({ page, admin }) => {
+    const captchaProfileID = await admin.createCaptcha(uniqueName("preview-captcha"));
+    const endpoint = await admin.createForm("Protected preview", uniqueName("preview"), { captchaProfileID });
+    await admin.open(`/admin/forms/${endpoint.id}`);
+    await page.getByRole("tab", { name: "Preview" }).click();
+    await expect(page.frameLocator("#form-preview").getByText("Turnstile captcha preview")).toBeVisible();
   });
 
-  test("2. View form details and get token", async ({ page }) => {
-    helpers.log("=== Creating and Viewing Form Details ===");
+  test("persists email, webhook, and safeguard settings", async ({ page, admin }) => {
+    const mailerProfileID = await admin.createMailer(uniqueName("delivery-mailer"));
+    const captchaProfileID = await admin.createCaptcha(uniqueName("delivery-captcha"));
+    const endpoint = await admin.createForm("Delivery sample", uniqueName("delivery"));
+    await admin.open(`/admin/forms/${endpoint.id}/edit`);
 
-    // Create a form using DB helper
-    const formSlug = `test-contact-${Date.now()}`;
-    const { formId, token } = await helpers.createFormData(
-      "Contact Form Details",
-      formSlug
-    );
-
-    // Navigate to form details
-    await helpers.navigateTo(`/admin/forms/${formId}`);
-    await page.waitForLoadState("networkidle");
-
-    // Should see form details
-    const pageContent = await page.textContent("body");
-    expect(pageContent).toContain("Contact Form Details");
-    expect(pageContent).toContain(formSlug);
-
-    // Should see token in the endpoint code block
-    const endpointElement = await page.waitForSelector('code:has-text("token=")');
-    const endpointText = await endpointElement.textContent();
-    const tokenMatch = endpointText.match(/token=([a-f0-9]+)/);
-    expect(tokenMatch).toBeTruthy();
-    const extractedToken = tokenMatch[1];
-    expect(extractedToken).toBe(token); // Should match the token we created
-
-    helpers.log(`✅ Form token verified: ${token}`);
+    await page.getByLabel("Safeguard").selectOption(String(captchaProfileID));
+    await page.getByLabel("Webhook").check();
+    await page.getByLabel("Destination URL").fill("https://example.com/webhook");
+    await page.getByLabel("Email forwarding").check();
+    await page.getByLabel("Email route").selectOption(String(mailerProfileID));
+    await page.getByLabel("Recipient").fill("bugs@example.com");
+    await Promise.all([
+      page.waitForURL(`/admin/forms/${endpoint.id}`),
+      page.getByRole("button", { name: "Save changes" }).click(),
+    ]);
+    await expect(page.locator("body")).toContainText("https://example.com/webhook");
+    await expect(page.locator("body")).toContainText("bugs@example.com");
+    expect(await admin.row("SELECT captcha_profile_id FROM forms WHERE id = ?", [endpoint.id]))
+      .toMatchObject({ captcha_profile_id: captchaProfileID });
   });
 
-  test("3. Edit form settings", async ({ page }) => {
-    helpers.log("=== Editing Form Settings ===");
+  test("preserves submitted values after a validation error", async ({ page, admin }) => {
+    const mailerProfileID = await admin.createMailer(uniqueName("draft-mailer"));
+    const captchaProfileID = await admin.createCaptcha(uniqueName("draft-captcha"));
+    const endpoint = await admin.createForm("Original name", uniqueName("draft"));
+    await admin.open(`/admin/forms/${endpoint.id}/edit`);
 
-    // Create a form via database to edit
-    const formData = await helpers.createFormData("Test Feedback Form", "test-feedback");
-    helpers.log(`Created form with ID: ${formData.formId}`);
+    await page.getByLabel("Endpoint name").fill("Unsaved endpoint");
+    await page.getByLabel("Allowed origins").fill("forms.example.com");
+    await page.getByLabel("Include JavaScript SDK").check();
+    await page.getByLabel("Safeguard").selectOption(String(captchaProfileID));
+    await page.getByLabel("Webhook").check();
+    await page.getByLabel("Destination URL").fill("https://hooks.example.com/submissions");
+    await page.getByLabel("HMAC secret").fill("draft-secret");
+    await page.getByLabel(/Custom headers/).fill("{");
+    await page.getByLabel("Email forwarding").check();
+    await page.getByLabel("Email route").selectOption(String(mailerProfileID));
+    await page.getByLabel("Recipient").fill("draft@example.com");
+    await page.getByRole("button", { name: "Save changes" }).click();
 
-    // Navigate to forms list and find our form
-    await helpers.navigateTo("/admin/forms");
-
-    // Verify the form appears in the list
-    const pageContent = await page.textContent("body");
-    expect(pageContent).toContain("Test Feedback Form");
-
-    helpers.log("✅ Form exists in list");
+    await expect(page.getByRole("alert")).toContainText("Webhook headers");
+    await expect(page.getByLabel("Endpoint name")).toHaveValue("Unsaved endpoint");
+    await expect(page.getByLabel("Allowed origins")).toHaveValue("forms.example.com");
+    await expect(page.getByLabel("Include JavaScript SDK")).toBeChecked();
+    await expect(page.getByLabel("Safeguard")).toHaveValue(String(captchaProfileID));
+    await expect(page.getByLabel("Destination URL")).toHaveValue("https://hooks.example.com/submissions");
+    await expect(page.getByLabel("HMAC secret")).toHaveValue("draft-secret");
+    await expect(page.getByLabel(/Custom headers/)).toHaveValue("{");
+    await expect(page.getByLabel("Email route")).toHaveValue(String(mailerProfileID));
+    await expect(page.getByLabel("Recipient")).toHaveValue("draft@example.com");
   });
 
-  test("4. Toggle SDK inclusion in form code", async ({ page }) => {
-    helpers.log("=== Testing SDK Toggle ===");
-
-    // Create a form using DB helper
-    const formSlug = `test-sdk-${Date.now()}`;
-    const { formId } = await helpers.createFormData("SDK Toggle Test", formSlug);
-
-    // Navigate to form details
-    await helpers.navigateTo(`/admin/forms/${formId}`);
-    await page.waitForLoadState("networkidle");
-
-    // Get initial form code (should not include SDK)
-    const codeElement = await page.waitForSelector("#form-code");
-    const initialCode = await codeElement.textContent();
-    expect(initialCode).not.toContain("miniform.js");
-    helpers.log("✅ Initial code does not include SDK");
-
-    // Check the SDK toggle
-    const sdkCheckbox = await page.waitForSelector("#include-sdk");
-    await sdkCheckbox.check();
-
-    // Wait for code to update
-    await page.waitForTimeout(100);
-
-    // Verify SDK script is now included
-    const codeWithSdk = await codeElement.textContent();
-    expect(codeWithSdk).toContain("miniform.js");
-    expect(codeWithSdk).toContain("Miniform SDK");
-    helpers.log("✅ Code includes SDK after toggle");
-
-    // Uncheck the SDK toggle
-    await sdkCheckbox.uncheck();
-    await page.waitForTimeout(100);
-
-    // Verify SDK script is removed
-    const codeWithoutSdk = await codeElement.textContent();
-    expect(codeWithoutSdk).not.toContain("miniform.js");
-    helpers.log("✅ Code excludes SDK after untoggle");
-  });
-
-  test("5. Configure form delivery settings", async ({ page }) => {
-    helpers.log("=== Configuring Form Delivery ===");
-
-    // Create mailer and captcha profiles first
-    const mailerProfileId = await helpers.createMailerProfile("Test Mailer Delivery", "mailgun", "test@example.com");
-    const captchaProfileId = await helpers.createCaptchaProfile("Test Captcha Delivery", "turnstile");
-
-    // Create form with email and webhook enabled
-    const formData = await helpers.createFormData("Test Bug Report", "test-bug-report", {
-      mailerProfileId,
-      captchaProfileId,
-      emailEnabled: true,
-      webhookEnabled: true,
-      emailRecipient: "bugs@example.com",
-      webhookUrl: "https://example.com/webhook"
+  test("binds the HTMX lifecycle listener only once", async ({ page, admin }) => {
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForFunction(() => Boolean(window.htmx));
+    await page.evaluate(() => {
+      window.__miniformAfterSwapBindings = 0;
+      const addEventListener = EventTarget.prototype.addEventListener;
+      EventTarget.prototype.addEventListener = function instrumented(type, ...args) {
+        if (this === document.body && type === "htmx:afterSwap") window.__miniformAfterSwapBindings += 1;
+        return addEventListener.call(this, type, ...args);
+      };
     });
 
-    helpers.log(`Created form with delivery: ${formData.formId}`);
+    const destinations = ["/admin/forms", "/admin/submissions", "/admin/settings/captcha"];
+    for (const pathname of destinations) {
+      await page.evaluate((path) => window.htmx.ajax("GET", path, { target: document.body }), pathname);
+    }
 
-    // Navigate to forms list and verify the form exists
-    await helpers.navigateTo("/admin/forms");
-
-    const pageContent = await page.textContent("body");
-    expect(pageContent).toContain("Test Bug Report");
-
-    helpers.log("✅ Form with delivery settings created");
+    expect(await page.evaluate(() => window.__miniformAfterSwapBindings)).toBe(0);
   });
 });

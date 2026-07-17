@@ -26,7 +26,7 @@ func TestErrorHandler(t *testing.T) {
 			return errors.New("database password leaked")
 		})
 
-		req := httptest.NewRequest("GET", "/failure", nil)
+		req := httptest.NewRequestWithContext(t.Context(), "GET", "/failure", nil)
 		req.Header.Set("Accept", "application/json")
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -46,7 +46,7 @@ func TestErrorHandler(t *testing.T) {
 			return fiber.ErrNotFound
 		})
 
-		req := httptest.NewRequest("GET", "/missing", nil)
+		req := httptest.NewRequestWithContext(t.Context(), "GET", "/missing", nil)
 		req.Header.Set("Accept", "application/json")
 		resp, err := app.Test(req)
 		require.NoError(t, err)

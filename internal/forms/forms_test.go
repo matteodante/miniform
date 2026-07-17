@@ -3,711 +3,356 @@ package forms_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/matteodante/miniform/internal/forms"
+	"github.com/matteodante/miniform/internal/integrations"
 	"github.com/matteodante/miniform/internal/pkg/testsupport"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
-func TestCreateSubmission(t *testing.T) {
-	db := testsupport.SetupTestDB(t)
+func TestForms(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	t.Run("creates submission successfully", func(t *testing.T) {
-		form := &forms.Form{
-			Name: "Test Form",
-			Slug: "test-form",
-		}
-		require.NoError(t, db.Create(form).Error)
+	t.Run("creates, loads, and rejects duplicate forms", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		profile := integrations.MailerProfile{Name: "Primary mailer", Provider: "smtp"}
+		require.NoError(t, db.Create(&profile).Error)
+
+		created, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "  Contact us  ", Slug: "Contact Form", AllowedOrigins: " example.com ",
+			MailerProfileID: &profile.ID, EmailRecipient: "owner@example.com", EmailEnabled: true,
+			WebhookEnabled: true, WebhookURL: "https://hooks.example.com/forms",
+			WebhookHeadersJSON: `{"X-Source":"miniform"}`,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "Contact us", created.Name)
+		assert.Equal(t, "contact-form", created.Slug)
+		assert.NotEmpty(t, created.PublicID)
+		assert.NotEmpty(t, created.Token)
+
+		loaded, err := forms.GetBySlug(db, created.Slug)
+		require.NoError(t, err)
+		require.NotNil(t, loaded.EmailDelivery)
+		require.NotNil(t, loaded.WebhookDelivery)
+		assert.True(t, loaded.EmailDelivery.Enabled)
+		assert.True(t, loaded.WebhookDelivery.Enabled)
+
+		_, err = forms.Create(logger, db, forms.CreateParams{
+			Name: "Duplicate", Slug: "contact-form", AllowedOrigins: "example.com",
+		})
+		var validation *forms.ValidationError
+		require.ErrorAs(t, err, &validation)
+		assert.Equal(t, "slug", validation.Field)
+
+		_, err = forms.GetBySlug(db, "missing")
+		assert.Error(t, err)
+	})
+
+	t.Run("stores nested submissions and schedules enabled deliveries", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form := forms.Form{Name: "Orders", Slug: "orders"}
+		require.NoError(t, db.Create(&form).Error)
+		require.NoError(t, db.Create(&forms.WebhookDelivery{
+			FormID: form.ID, Enabled: true, URL: "https://example.com/hook",
+		}).Error)
+		require.NoError(t, db.Create(&forms.EmailDelivery{
+			FormID: form.ID, Enabled: true, OverridesJSON: `{"to":"ops@example.com"}`,
+		}).Error)
+		require.NoError(t, db.Preload("WebhookDelivery").Preload("EmailDelivery").First(&form, form.ID).Error)
 
 		payload := map[string]any{
-			"name":  "John Doe",
-			"email": "john@example.com",
+			"customer": map[string]any{"name": "Ada", "city": "Rome"},
+			"items":    []string{"notebook", "pen"},
 		}
-
-		submission, err := forms.CreateSubmission(logger, db, form, payload, "TestAgent/1.0")
+		submission, err := forms.CreateSubmission(logger, db, &form, payload, "Browser/1.0")
 		require.NoError(t, err)
-		assert.NotNil(t, submission)
-		assert.Equal(t, form.ID, submission.FormID)
-		assert.Equal(t, "TestAgent/1.0", submission.UserAgent)
 		assert.False(t, submission.IsSpam)
+		assert.Equal(t, "Browser/1.0", submission.UserAgent)
 		assert.Equal(t, time.UTC, submission.CreatedAt.Location())
 
-		var storedCreatedAt string
-		require.NoError(t, db.Raw(
-			"SELECT CAST(created_at AS TEXT) FROM submissions WHERE id = ?",
-			submission.ID,
-		).Scan(&storedCreatedAt).Error)
-		assert.True(t, strings.HasSuffix(storedCreatedAt, "+00:00"), storedCreatedAt)
-
-		// Verify JSON encoding
 		var decoded map[string]any
-		err = json.Unmarshal([]byte(submission.DataJSON), &decoded)
-		require.NoError(t, err)
-		assert.Equal(t, "John Doe", decoded["name"])
-		assert.Equal(t, "john@example.com", decoded["email"])
+		require.NoError(t, json.Unmarshal([]byte(submission.DataJSON), &decoded))
+		assert.Equal(t, "Rome", decoded["customer"].(map[string]any)["city"])
+		assert.Len(t, decoded["items"], 2)
+
+		var webhookCount, emailCount int64
+		require.NoError(t, db.Model(&forms.WebhookEvent{}).Where("submission_id = ?", submission.ID).Count(&webhookCount).Error)
+		require.NoError(t, db.Model(&forms.EmailEvent{}).Where("submission_id = ?", submission.ID).Count(&emailCount).Error)
+		assert.Equal(t, int64(1), webhookCount)
+		assert.Equal(t, int64(1), emailCount)
+
+		var storedTimestamp string
+		require.NoError(t, db.Raw("SELECT CAST(created_at AS TEXT) FROM submissions WHERE id = ?", submission.ID).Scan(&storedTimestamp).Error)
+		assert.True(t, strings.HasSuffix(storedTimestamp, "+00:00"), storedTimestamp)
 	})
 
-	t.Run("creates webhook event when enabled", func(t *testing.T) {
-		db2 := testsupport.SetupTestDB(t)
-
-		form := &forms.Form{
-			Name: "Form with Webhook",
-			Slug: "webhook-form",
+	t.Run("schedules deliveries only after uploads are stored", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		root := t.TempDir()
+		form := forms.Form{
+			Name: "Uploads", Slug: "uploads",
+			WebhookDelivery: &forms.WebhookDelivery{Enabled: true, URL: "https://example.com/hook"},
 		}
-		require.NoError(t, db2.Create(form).Error)
+		require.NoError(t, db.Create(&form).Error)
 
-		webhook := &forms.WebhookDelivery{
-			FormID:  form.ID,
-			URL:     "https://example.com/webhook",
-			Enabled: true,
+		started := make(chan struct{})
+		release := make(chan struct{})
+		result := make(chan submissionResult, 1)
+		go func() {
+			submission, err := forms.CreateSubmissionWithFiles(
+				logger,
+				db,
+				&form,
+				map[string]any{"message": "hello"},
+				"Browser",
+				root,
+				[]*forms.UploadedFile{{
+					FieldName: "attachment",
+					Filename:  "brief.txt",
+					Data: &gatedReader{
+						started: started,
+						release: release,
+						reader:  bytes.NewBufferString("brief"),
+					},
+				}},
+			)
+			result <- submissionResult{submission: submission, err: err}
+		}()
+
+		select {
+		case <-started:
+		case early := <-result:
+			require.NoError(t, early.err)
+			t.Fatal("upload completed before the reader was released")
+		case <-time.After(2 * time.Second):
+			t.Fatal("upload did not reach the reader")
 		}
-		require.NoError(t, db2.Create(webhook).Error)
 
-		// Reload form with associations
-		require.NoError(t, db2.Preload("WebhookDelivery").First(form, form.ID).Error)
+		var submissionCount, fileCount, eventCount int64
+		require.NoError(t, db.Model(&forms.Submission{}).Count(&submissionCount).Error)
+		require.NoError(t, db.Model(&forms.SubmissionFile{}).Count(&fileCount).Error)
+		require.NoError(t, db.Model(&forms.WebhookEvent{}).Count(&eventCount).Error)
+		assert.Equal(t, int64(1), submissionCount)
+		assert.Zero(t, fileCount)
+		assert.Zero(t, eventCount)
 
-		payload := map[string]any{"test": "data"}
-		submission, err := forms.CreateSubmission(logger, db2, form, payload, "TestAgent")
-		require.NoError(t, err)
-
-		// Verify webhook event was created
-		var events []forms.WebhookEvent
-		require.NoError(t, db2.Where("submission_id = ?", submission.ID).Find(&events).Error)
-		assert.Len(t, events, 1)
-		assert.Equal(t, "pending", events[0].Status)
+		close(release)
+		created := <-result
+		require.NoError(t, created.err)
+		require.NotNil(t, created.submission)
+		require.NoError(t, db.Model(&forms.SubmissionFile{}).Count(&fileCount).Error)
+		require.NoError(t, db.Model(&forms.WebhookEvent{}).Count(&eventCount).Error)
+		assert.Equal(t, int64(1), fileCount)
+		assert.Equal(t, int64(1), eventCount)
 	})
 
-	t.Run("does not create webhook event when disabled", func(t *testing.T) {
-		db3 := testsupport.SetupTestDB(t)
-
-		form := &forms.Form{
-			Name: "Form without Webhook",
-			Slug: "no-webhook",
+	t.Run("rolls back a submission when storing an upload fails", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		root := t.TempDir()
+		form := forms.Form{
+			Name: "Broken upload", Slug: "broken-upload",
+			WebhookDelivery: &forms.WebhookDelivery{Enabled: true, URL: "https://example.com/hook"},
 		}
-		require.NoError(t, db3.Create(form).Error)
+		require.NoError(t, db.Create(&form).Error)
 
-		webhook := &forms.WebhookDelivery{
-			FormID:  form.ID,
-			URL:     "https://example.com/webhook",
-			Enabled: false, // Disabled
+		submission, err := forms.CreateSubmissionWithFiles(
+			logger,
+			db,
+			&form,
+			map[string]any{"message": "hello"},
+			"Browser",
+			root,
+			[]*forms.UploadedFile{{Filename: "broken.txt", Data: iotest.ErrReader(errors.New("read failed"))}},
+		)
+
+		assert.Error(t, err)
+		assert.Nil(t, submission)
+		for name, model := range map[string]any{
+			"submissions": &forms.Submission{},
+			"files":       &forms.SubmissionFile{},
+			"events":      &forms.WebhookEvent{},
+		} {
+			var count int64
+			require.NoError(t, db.Model(model).Count(&count).Error, name)
+			assert.Zero(t, count, name)
 		}
-		require.NoError(t, db3.Create(webhook).Error)
-
-		require.NoError(t, db3.Preload("WebhookDelivery").First(form, form.ID).Error)
-
-		payload := map[string]any{"test": "data"}
-		submission, err := forms.CreateSubmission(logger, db3, form, payload, "TestAgent")
-		require.NoError(t, err)
-
-		// Verify no webhook event was created
-		var events []forms.WebhookEvent
-		require.NoError(t, db3.Where("submission_id = ?", submission.ID).Find(&events).Error)
-		assert.Len(t, events, 0)
-	})
-
-	t.Run("creates email event when enabled", func(t *testing.T) {
-		db4 := testsupport.SetupTestDB(t)
-
-		form := &forms.Form{
-			Name: "Form with Email",
-			Slug: "email-form",
-		}
-		require.NoError(t, db4.Create(form).Error)
-
-		email := &forms.EmailDelivery{
-			FormID:        form.ID,
-			Enabled:       true,
-			OverridesJSON: `{"to": "admin@example.com"}`,
-		}
-		require.NoError(t, db4.Create(email).Error)
-
-		require.NoError(t, db4.Preload("EmailDelivery").First(form, form.ID).Error)
-
-		payload := map[string]any{"message": "Hello"}
-		submission, err := forms.CreateSubmission(logger, db4, form, payload, "TestAgent")
-		require.NoError(t, err)
-
-		// Verify email event was created
-		var events []forms.EmailEvent
-		require.NoError(t, db4.Where("submission_id = ?", submission.ID).Find(&events).Error)
-		assert.Len(t, events, 1)
-		assert.Equal(t, "pending", events[0].Status)
-	})
-
-	t.Run("does not create email event when no recipient", func(t *testing.T) {
-		db5 := testsupport.SetupTestDB(t)
-
-		form := &forms.Form{
-			Name: "Form without recipient",
-			Slug: "no-recipient",
-		}
-		require.NoError(t, db5.Create(form).Error)
-
-		email := &forms.EmailDelivery{
-			FormID:        form.ID,
-			Enabled:       true,
-			OverridesJSON: `{}`, // No "to" field
-		}
-		require.NoError(t, db5.Create(email).Error)
-
-		require.NoError(t, db5.Preload("EmailDelivery").First(form, form.ID).Error)
-
-		payload := map[string]any{"test": "data"}
-		submission, err := forms.CreateSubmission(logger, db5, form, payload, "TestAgent")
-		require.NoError(t, err)
-
-		// Verify no email event was created
-		var events []forms.EmailEvent
-		require.NoError(t, db5.Where("submission_id = ?", submission.ID).Find(&events).Error)
-		assert.Len(t, events, 0)
-	})
-
-	t.Run("creates both webhook and email events", func(t *testing.T) {
-		db6 := testsupport.SetupTestDB(t)
-
-		form := &forms.Form{
-			Name: "Form with both",
-			Slug: "both-form",
-		}
-		require.NoError(t, db6.Create(form).Error)
-
-		webhook := &forms.WebhookDelivery{
-			FormID:  form.ID,
-			URL:     "https://example.com/webhook",
-			Enabled: true,
-		}
-		require.NoError(t, db6.Create(webhook).Error)
-
-		email := &forms.EmailDelivery{
-			FormID:        form.ID,
-			Enabled:       true,
-			OverridesJSON: `{"to": "admin@example.com"}`,
-		}
-		require.NoError(t, db6.Create(email).Error)
-
-		require.NoError(t, db6.Preload("WebhookDelivery").Preload("EmailDelivery").First(form, form.ID).Error)
-
-		payload := map[string]any{"data": "test"}
-		submission, err := forms.CreateSubmission(logger, db6, form, payload, "TestAgent")
-		require.NoError(t, err)
-
-		// Verify both events were created
-		var webhookEvents []forms.WebhookEvent
-		require.NoError(t, db6.Where("submission_id = ?", submission.ID).Find(&webhookEvents).Error)
-		assert.Len(t, webhookEvents, 1)
-
-		var emailEvents []forms.EmailEvent
-		require.NoError(t, db6.Where("submission_id = ?", submission.ID).Find(&emailEvents).Error)
-		assert.Len(t, emailEvents, 1)
-	})
-
-	t.Run("handles complex nested payload", func(t *testing.T) {
-		db7 := testsupport.SetupTestDB(t)
-
-		form := &forms.Form{
-			Name: "Complex Form",
-			Slug: "complex",
-		}
-		require.NoError(t, db7.Create(form).Error)
-
-		payload := map[string]any{
-			"name": "John",
-			"address": map[string]any{
-				"street": "123 Main St",
-				"city":   "NYC",
-			},
-			"tags": []string{"customer", "premium"},
-		}
-
-		submission, err := forms.CreateSubmission(logger, db7, form, payload, "TestAgent")
-		require.NoError(t, err)
-
-		// Verify complex data is properly encoded
-		var decoded map[string]any
-		err = json.Unmarshal([]byte(submission.DataJSON), &decoded)
-		require.NoError(t, err)
-
-		address := decoded["address"].(map[string]any)
-		assert.Equal(t, "123 Main St", address["street"])
-
-		tags := decoded["tags"].([]any)
-		assert.Len(t, tags, 2)
-	})
-
-	t.Run("handles empty payload", func(t *testing.T) {
-		db8 := testsupport.SetupTestDB(t)
-
-		form := &forms.Form{
-			Name: "Empty Form",
-			Slug: "empty",
-		}
-		require.NoError(t, db8.Create(form).Error)
-
-		payload := map[string]any{}
-		submission, err := forms.CreateSubmission(logger, db8, form, payload, "TestAgent")
-		require.NoError(t, err)
-		assert.Equal(t, "{}", submission.DataJSON)
-	})
-
-	t.Run("honeypot field marks submission as spam and skips deliveries", func(t *testing.T) {
-		db9 := testsupport.SetupTestDB(t)
-
-		form := &forms.Form{Name: "Honeypot Form", Slug: "honeypot"}
-		require.NoError(t, db9.Create(form).Error)
-		require.NoError(t, db9.Create(&forms.WebhookDelivery{
-			FormID:  form.ID,
-			Enabled: true,
-			URL:     "https://example.com/hook",
-		}).Error)
-		require.NoError(t, db9.Create(&forms.EmailDelivery{
-			FormID:        form.ID,
-			Enabled:       true,
-			OverridesJSON: `{"to": "owner@example.com"}`,
-		}).Error)
-		require.NoError(t, db9.
-			Preload("WebhookDelivery").Preload("EmailDelivery").
-			First(form, form.ID).Error)
-
-		payload := map[string]any{
-			"name":    "Botty",
-			"email":   "bot@spam.example",
-			"__fl_hp": "i-am-a-bot",
-		}
-
-		submission, err := forms.CreateSubmission(logger, db9, form, payload, "BotAgent")
-		require.NoError(t, err)
-		assert.True(t, submission.IsSpam, "filled honeypot should mark IsSpam=true")
-
-		// Stored payload should not include the honeypot field.
-		var stored map[string]any
-		require.NoError(t, json.Unmarshal([]byte(submission.DataJSON), &stored))
-		assert.NotContains(t, stored, "__fl_hp", "honeypot field must be scrubbed from stored data")
-
-		// No delivery events should be enqueued for spam.
-		var webhookEvents []forms.WebhookEvent
-		require.NoError(t, db9.Where("submission_id = ?", submission.ID).Find(&webhookEvents).Error)
-		assert.Len(t, webhookEvents, 0, "no webhook event for spam")
-
-		var emailEvents []forms.EmailEvent
-		require.NoError(t, db9.Where("submission_id = ?", submission.ID).Find(&emailEvents).Error)
-		assert.Len(t, emailEvents, 0, "no email event for spam")
-	})
-
-	t.Run("honeypot-trapped submission does not save uploaded files", func(t *testing.T) {
-		db11 := testsupport.SetupTestDB(t)
-		dataDir := t.TempDir()
-
-		form := &forms.Form{Name: "File Form", Slug: "file-form"}
-		require.NoError(t, db11.Create(form).Error)
-
-		payload := map[string]any{
-			"name":    "Botty",
-			"__fl_hp": "i-am-a-bot",
-		}
-		files := []*forms.UploadedFile{{
-			FieldName:   "attachment",
-			Filename:    "payload.bin",
-			ContentType: "application/octet-stream",
-			Size:        4,
-			Data:        bytes.NewReader([]byte("junk")),
-		}}
-
-		submission, err := forms.CreateSubmissionWithFiles(logger, db11, form, payload, "BotAgent", dataDir, files)
-		require.NoError(t, err)
-		assert.True(t, submission.IsSpam, "filled honeypot must mark spam")
-		assert.Empty(t, submission.Files, "spam submission must not attach files")
-
-		// No file rows persisted.
-		var fileRows []forms.SubmissionFile
-		require.NoError(t, db11.Where("submission_id = ?", submission.ID).Find(&fileRows).Error)
-		assert.Len(t, fileRows, 0, "no SubmissionFile rows for spam")
-
-		// And no bytes were written to disk for this form/submission.
-		formDir := filepath.Join(dataDir, "forms")
-		if entries, err := os.ReadDir(formDir); err == nil {
-			assert.Len(t, entries, 0, "spam must not write to dataDir")
+		entries, err := os.ReadDir(filepath.Join(root, "uploads", "1"))
+		if !os.IsNotExist(err) {
+			require.NoError(t, err)
+			assert.Empty(t, entries)
 		}
 	})
 
-	t.Run("empty honeypot field does not mark spam", func(t *testing.T) {
-		db10 := testsupport.SetupTestDB(t)
+	t.Run("scrubs both honeypots and skips files and deliveries", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		root := t.TempDir()
+		form := forms.Form{
+			Name: "Protected", Slug: "protected",
+			WebhookDelivery: &forms.WebhookDelivery{Enabled: true, URL: "https://example.com/hook"},
+			EmailDelivery:   &forms.EmailDelivery{Enabled: true, OverridesJSON: `{"to":"owner@example.com"}`},
+		}
+		require.NoError(t, db.Create(&form).Error)
 
-		form := &forms.Form{Name: "Real User Form", Slug: "real-user"}
-		require.NoError(t, db10.Create(form).Error)
-
-		// Real users leave the honeypot blank — must not trigger spam.
-		payload := map[string]any{
-			"name":    "Alice",
-			"__fl_hp": "",
+		for _, field := range []string{forms.HoneypotField, "__fl_hp"} {
+			payload := map[string]any{"name": "Robot", field: "filled"}
+			submission, err := forms.CreateSubmissionWithFiles(logger, db, &form, payload, "Bot", root, []*forms.UploadedFile{{
+				FieldName: "attachment", Filename: "payload.pdf", Data: bytes.NewBufferString("junk"),
+			}})
+			require.NoError(t, err)
+			assert.True(t, submission.IsSpam)
+			assert.Empty(t, submission.Files)
+			assert.NotContains(t, submission.DataJSON, field)
 		}
 
-		submission, err := forms.CreateSubmission(logger, db10, form, payload, "RealUser")
+		var fileCount, webhookCount, emailCount int64
+		require.NoError(t, db.Model(&forms.SubmissionFile{}).Count(&fileCount).Error)
+		require.NoError(t, db.Model(&forms.WebhookEvent{}).Count(&webhookCount).Error)
+		require.NoError(t, db.Model(&forms.EmailEvent{}).Count(&emailCount).Error)
+		assert.Zero(t, fileCount)
+		assert.Zero(t, webhookCount)
+		assert.Zero(t, emailCount)
+		entries, err := os.ReadDir(root)
 		require.NoError(t, err)
-		assert.False(t, submission.IsSpam, "empty honeypot must not flag spam")
+		assert.Empty(t, entries)
 	})
 
-}
-
-func TestSlugify(t *testing.T) {
-	tests := []struct {
-		name          string
-		input         string
-		expected      string
-		randomIfEmpty bool
-	}{
-		{"simple text", "Hello World", "hello-world", false},
-		{"with numbers", "Form 123", "form-123", false},
-		{"with special chars", "Contact Form!", "contact-form", false},
-		{"multiple spaces", "My   Form", "my-form", false},
-		{"leading/trailing spaces", "  Form  ", "form-", false}, // Trailing dash from space
-		{"uppercase", "CONTACT FORM", "contact-form", false},
-		{"with dashes", "Pre-Existing-Dashes", "pre-existing-dashes", false},
-		{"with underscores", "Form_Name_Here", "form-name-here", false},
-		{"mixed case special", "Hello!!! World???", "hello-world", false},
-		{"only special chars", "!!!", "", true}, // Empty result triggers random ID
-		{"empty string", "", "", true},          // Empty triggers random ID
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := forms.Slugify(tt.input)
-			if tt.randomIfEmpty {
-				// Should generate a random ID (20 chars)
-				assert.NotEmpty(t, result)
-				assert.Len(t, result, 20, "Random ID should be 20 characters")
-			} else {
-				assert.Equal(t, tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestEnsureDeliveryRecords(t *testing.T) {
-	db := testsupport.SetupTestDB(t)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	t.Run("creates email delivery when missing", func(t *testing.T) {
-		form := &forms.Form{
-			Name: "Test Form",
-			Slug: "test",
+	t.Run("produces stable readable slugs", func(t *testing.T) {
+		for input, want := range map[string]string{
+			"Hello World":         "hello-world",
+			" Form_Name 123! ":    "form-name-123",
+			"Pre-Existing-Dashes": "pre-existing-dashes",
+		} {
+			slug, err := forms.Slugify(input)
+			require.NoError(t, err)
+			assert.Equal(t, want, slug)
 		}
-		require.NoError(t, db.Create(form).Error)
+		for _, input := range []string{"!!!", ""} {
+			slug, err := forms.Slugify(input)
+			require.NoError(t, err)
+			assert.Len(t, slug, 20)
+		}
+	})
 
-		err := forms.EnsureDeliveryRecords(logger, db, form)
-		require.NoError(t, err)
+	t.Run("adds missing delivery records once", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form := forms.Form{Name: "Bare form", Slug: "bare"}
+		require.NoError(t, db.Create(&form).Error)
 
-		// Reload and verify
-		require.NoError(t, db.Preload("EmailDelivery").Preload("WebhookDelivery").First(form, form.ID).Error)
-		assert.NotNil(t, form.EmailDelivery)
-		assert.NotNil(t, form.WebhookDelivery)
+		require.NoError(t, forms.EnsureDeliveryRecords(logger, db, &form))
+		require.NoError(t, forms.EnsureDeliveryRecords(logger, db, &form))
+		require.NotNil(t, form.EmailDelivery)
+		require.NotNil(t, form.WebhookDelivery)
 		assert.False(t, form.EmailDelivery.Enabled)
 		assert.False(t, form.WebhookDelivery.Enabled)
-	})
 
-	t.Run("does not duplicate existing records", func(t *testing.T) {
-		db2 := testsupport.SetupTestDB(t)
-
-		form := &forms.Form{
-			Name: "Test Form",
-			Slug: "test",
-		}
-		require.NoError(t, db2.Create(form).Error)
-
-		email := &forms.EmailDelivery{
-			FormID:  form.ID,
-			Enabled: true,
-		}
-		require.NoError(t, db2.Create(email).Error)
-
-		webhook := &forms.WebhookDelivery{
-			FormID:  form.ID,
-			Enabled: true,
-			URL:     "https://example.com",
-		}
-		require.NoError(t, db2.Create(webhook).Error)
-
-		// Preload the associations so form knows they exist
-		require.NoError(t, db2.Preload("EmailDelivery").Preload("WebhookDelivery").First(form, form.ID).Error)
-
-		// Call ensure - should not create duplicates
-		err := forms.EnsureDeliveryRecords(logger, db2, form)
-		require.NoError(t, err)
-
-		// Verify no duplicates
 		var emailCount, webhookCount int64
-		db2.Model(&forms.EmailDelivery{}).Where("form_id = ?", form.ID).Count(&emailCount)
-		db2.Model(&forms.WebhookDelivery{}).Where("form_id = ?", form.ID).Count(&webhookCount)
-
+		require.NoError(t, db.Model(&forms.EmailDelivery{}).Where("form_id = ?", form.ID).Count(&emailCount).Error)
+		require.NoError(t, db.Model(&forms.WebhookDelivery{}).Where("form_id = ?", form.ID).Count(&webhookCount).Error)
 		assert.Equal(t, int64(1), emailCount)
 		assert.Equal(t, int64(1), webhookCount)
 	})
-}
 
-func TestGetBySlug(t *testing.T) {
-	db := testsupport.SetupTestDB(t)
-
-	t.Run("retrieves form by slug", func(t *testing.T) {
-		created := &forms.Form{
-			Name: "Test Form",
-			Slug: "my-test-form",
-		}
-		require.NoError(t, db.Create(created).Error)
-
-		found, err := forms.GetBySlug(db, "my-test-form")
-		require.NoError(t, err)
-		assert.Equal(t, created.ID, found.ID)
-		assert.Equal(t, "my-test-form", found.Slug)
-	})
-
-	t.Run("returns error for non-existent slug", func(t *testing.T) {
-		db2 := testsupport.SetupTestDB(t)
-
-		_, err := forms.GetBySlug(db2, "non-existent")
-		assert.Error(t, err)
-	})
-}
-
-func TestUpdate(t *testing.T) {
-	db := testsupport.SetupTestDB(t)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	t.Run("updates form successfully", func(t *testing.T) {
-		// Create initial form
-		initialForm := &forms.Form{
-			Name:           "Original Name",
-			Slug:           "original",
-			AllowedOrigins: "https://example.com",
-		}
-		require.NoError(t, db.Create(initialForm).Error)
-
-		// Create delivery records
-		email := &forms.EmailDelivery{FormID: initialForm.ID, Enabled: false}
-		webhook := &forms.WebhookDelivery{FormID: initialForm.ID, Enabled: false}
-		require.NoError(t, db.Create(email).Error)
-		require.NoError(t, db.Create(webhook).Error)
-
-		// Update form
-		mailerID := uint(123)
-		params := forms.UpdateParams{
-			ID:              initialForm.ID,
-			Name:            "Updated Name",
-			AllowedOrigins:  "https://newdomain.com",
-			EmailEnabled:    true,
-			MailerProfileID: &mailerID,
-			EmailRecipient:  "test@example.com",
-			WebhookEnabled:  true,
-			WebhookURL:      "https://webhook.example.com",
-			WebhookSecret:   "secret123",
-		}
-
-		updated, err := forms.Update(logger, db, params)
-		require.NoError(t, err)
-		assert.Equal(t, "Updated Name", updated.Name)
-		assert.Equal(t, "original", updated.Slug) // Slug doesn't change
-		assert.Equal(t, "https://newdomain.com", updated.AllowedOrigins)
-	})
-
-	t.Run("validates name is required", func(t *testing.T) {
-		form := &forms.Form{Name: "Test", Slug: "test"}
-		require.NoError(t, db.Create(form).Error)
-
-		params := forms.UpdateParams{
-			ID:   form.ID,
-			Name: "   ", // Empty name
-		}
-
-		_, err := forms.Update(logger, db, params)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "required")
-	})
-
-	t.Run("validates email settings", func(t *testing.T) {
-		form := &forms.Form{Name: "Test", Slug: "test-email"}
-		require.NoError(t, db.Create(form).Error)
-
-		email := &forms.EmailDelivery{FormID: form.ID}
-		require.NoError(t, db.Create(email).Error)
-
-		// Enable email without mailer profile
-		params := forms.UpdateParams{
-			ID:           form.ID,
-			Name:         "Test",
-			EmailEnabled: true,
-			// Missing MailerProfileID and EmailRecipient
-		}
-
-		_, err := forms.Update(logger, db, params)
-		require.Error(t, err)
-		valErr, ok := err.(*forms.ValidationError)
-		require.True(t, ok)
-		assert.Equal(t, "email", valErr.Field)
-	})
-
-	t.Run("validates webhook settings", func(t *testing.T) {
-		form := &forms.Form{Name: "Test", Slug: "test-webhook"}
-		require.NoError(t, db.Create(form).Error)
-
-		webhook := &forms.WebhookDelivery{FormID: form.ID}
-		require.NoError(t, db.Create(webhook).Error)
-
-		// Enable webhook without URL
-		params := forms.UpdateParams{
-			ID:             form.ID,
-			Name:           "Test",
-			WebhookEnabled: true,
-			// Missing WebhookURL
-		}
-
-		_, err := forms.Update(logger, db, params)
-		require.Error(t, err)
-		valErr, ok := err.(*forms.ValidationError)
-		require.True(t, ok)
-		assert.Equal(t, "webhook", valErr.Field)
-	})
-
-	t.Run("validates webhook headers JSON", func(t *testing.T) {
-		form := &forms.Form{Name: "Test", Slug: "test-json"}
-		require.NoError(t, db.Create(form).Error)
-
-		webhook := &forms.WebhookDelivery{FormID: form.ID}
-		require.NoError(t, db.Create(webhook).Error)
-
-		params := forms.UpdateParams{
-			ID:                 form.ID,
-			Name:               "Test",
-			WebhookEnabled:     true,
-			WebhookURL:         "https://example.com",
-			WebhookHeadersJSON: `{invalid json}`,
-		}
-
-		_, err := forms.Update(logger, db, params)
-		require.Error(t, err)
-		valErr, ok := err.(*forms.ValidationError)
-		require.True(t, ok)
-		assert.Contains(t, valErr.Message, "JSON")
-	})
-
-	t.Run("updates email delivery settings", func(t *testing.T) {
-		form := &forms.Form{Name: "Test", Slug: "test-email-update"}
-		require.NoError(t, db.Create(form).Error)
-
-		email := &forms.EmailDelivery{FormID: form.ID, Enabled: false}
-		require.NoError(t, db.Create(email).Error)
-
-		mailerID := uint(456)
-		params := forms.UpdateParams{
-			ID:              form.ID,
-			Name:            "Test",
-			EmailEnabled:    true,
-			MailerProfileID: &mailerID,
-			EmailRecipient:  "updated@example.com",
-		}
-
-		updated, err := forms.Update(logger, db, params)
+	t.Run("updates form and delivery settings atomically", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		profile := integrations.MailerProfile{Name: "Transactional mailer", Provider: "smtp"}
+		require.NoError(t, db.Create(&profile).Error)
+		form, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "Before", Slug: "stable-slug", AllowedOrigins: "old.example.com",
+		})
 		require.NoError(t, err)
 
-		// Reload email delivery
-		var emailDelivery forms.EmailDelivery
-		require.NoError(t, db.Where("form_id = ?", updated.ID).First(&emailDelivery).Error)
-		assert.True(t, emailDelivery.Enabled)
-		assert.NotNil(t, emailDelivery.MailerProfileID)
-		assert.Equal(t, uint(456), *emailDelivery.MailerProfileID)
-		assert.Contains(t, emailDelivery.OverridesJSON, "updated@example.com")
-	})
-
-	t.Run("updates webhook delivery settings", func(t *testing.T) {
-		form := &forms.Form{Name: "Test", Slug: "test-webhook-update"}
-		require.NoError(t, db.Create(form).Error)
-
-		webhook := &forms.WebhookDelivery{FormID: form.ID, Enabled: false}
-		require.NoError(t, db.Create(webhook).Error)
-
-		params := forms.UpdateParams{
-			ID:                 form.ID,
-			Name:               "Test",
-			WebhookEnabled:     true,
-			WebhookURL:         "https://new.example.com/webhook",
-			WebhookSecret:      "newsecret",
-			WebhookHeadersJSON: `{"Authorization": "Bearer token"}`,
-		}
-
-		updated, err := forms.Update(logger, db, params)
+		updated, err := forms.Update(logger, db, forms.UpdateParams{
+			ID: form.ID, Name: "After", AllowedOrigins: "new.example.com",
+			EmailEnabled: true, MailerProfileID: &profile.ID, EmailRecipient: "team@example.com",
+			WebhookEnabled: true, WebhookURL: "https://new.example.com/hook",
+			WebhookSecret: "secret", WebhookHeadersJSON: `{"Authorization":"Bearer token"}`,
+		})
 		require.NoError(t, err)
+		assert.Equal(t, "After", updated.Name)
+		assert.Equal(t, "stable-slug", updated.Slug)
+		assert.Equal(t, "new.example.com", updated.AllowedOrigins)
+		require.NotNil(t, updated.EmailDelivery)
+		require.NotNil(t, updated.WebhookDelivery)
+		assert.True(t, updated.EmailDelivery.Enabled)
+		assert.Contains(t, updated.EmailDelivery.OverridesJSON, "team@example.com")
+		assert.Equal(t, "secret", updated.WebhookDelivery.Secret)
+		assert.JSONEq(t, `{"Authorization":"Bearer token"}`, updated.WebhookDelivery.HeadersJSON)
 
-		// Reload webhook delivery
-		var webhookDelivery forms.WebhookDelivery
-		require.NoError(t, db.Where("form_id = ?", updated.ID).First(&webhookDelivery).Error)
-		assert.True(t, webhookDelivery.Enabled)
-		assert.Equal(t, "https://new.example.com/webhook", webhookDelivery.URL)
-		assert.Equal(t, "newsecret", webhookDelivery.Secret)
-		assert.Contains(t, webhookDelivery.HeadersJSON, "Bearer token")
+		checks := []struct {
+			name, field string
+			params      forms.UpdateParams
+		}{
+			{"blank name", "name", forms.UpdateParams{ID: form.ID, Name: "  "}},
+			{"incomplete email", "email", forms.UpdateParams{ID: form.ID, Name: "After", EmailEnabled: true}},
+			{"missing webhook URL", "webhook", forms.UpdateParams{ID: form.ID, Name: "After", WebhookEnabled: true}},
+			{"invalid headers", "webhook_headers", forms.UpdateParams{ID: form.ID, Name: "After", WebhookEnabled: true, WebhookURL: "https://example.com", WebhookHeadersJSON: "{"}},
+			{"invalid captcha overrides", "captcha_overrides", forms.UpdateParams{ID: form.ID, Name: "After", UpdateCaptchaOverrides: true, CaptchaOverridesJSON: `{"theme":42}`}},
+		}
+		for _, check := range checks {
+			t.Run(check.name, func(t *testing.T) {
+				_, err := forms.Update(logger, db, check.params)
+				var validation *forms.ValidationError
+				require.ErrorAs(t, err, &validation)
+				assert.Equal(t, check.field, validation.Field)
+			})
+		}
 	})
 
-	t.Run("returns error for non-existent form", func(t *testing.T) {
-		params := forms.UpdateParams{
-			ID:   99999,
-			Name: "Test",
+	t.Run("deletes a form-owned record graph", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form := forms.Form{
+			Name: "Disposable", Slug: "disposable",
+			WebhookDelivery: &forms.WebhookDelivery{Enabled: true, URL: "https://example.com/hook"},
+			EmailDelivery:   &forms.EmailDelivery{Enabled: true, OverridesJSON: `{"to":"owner@example.com"}`},
 		}
+		require.NoError(t, db.Create(&form).Error)
+		submission, err := forms.CreateSubmission(logger, db, &form, map[string]any{"message": "hello"}, "Browser")
+		require.NoError(t, err)
+		require.NoError(t, db.Create(&forms.SubmissionFile{
+			SubmissionID: submission.ID, FieldName: "file", Filename: "note.txt", StoragePath: "uploads/note.txt",
+		}).Error)
 
-		_, err := forms.Update(logger, db, params)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not found")
+		require.NoError(t, forms.Delete(logger, db, form.ID))
+		for name, model := range map[string]any{
+			"forms": &forms.Form{}, "submissions": &forms.Submission{}, "files": &forms.SubmissionFile{},
+			"email deliveries": &forms.EmailDelivery{}, "webhook deliveries": &forms.WebhookDelivery{},
+			"email events": &forms.EmailEvent{}, "webhook events": &forms.WebhookEvent{},
+		} {
+			var count int64
+			require.NoError(t, db.Model(model).Count(&count).Error, name)
+			assert.Zero(t, count, name)
+		}
+		assert.ErrorIs(t, forms.Delete(logger, db, form.ID), gorm.ErrRecordNotFound)
 	})
 }
 
-func TestDelete(t *testing.T) {
-	db := testsupport.SetupTestDB(t)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+type submissionResult struct {
+	submission *forms.Submission
+	err        error
+}
 
-	t.Run("deletes form successfully", func(t *testing.T) {
-		form := &forms.Form{
-			Name: "Delete Me",
-			Slug: "delete-me",
-		}
-		require.NoError(t, db.Create(form).Error)
+type gatedReader struct {
+	started chan<- struct{}
+	release <-chan struct{}
+	reader  io.Reader
+	once    sync.Once
+}
 
-		err := forms.Delete(logger, db, form.ID)
-		require.NoError(t, err)
-
-		// Verify deleted
-		var count int64
-		db.Model(&forms.Form{}).Where("id = ?", form.ID).Count(&count)
-		assert.Equal(t, int64(0), count)
-	})
-
-	t.Run("cascades to delivery records", func(t *testing.T) {
-		db2 := testsupport.SetupTestDB(t)
-
-		form := &forms.Form{
-			Name: "Cascade Test",
-			Slug: "cascade",
-		}
-		require.NoError(t, db2.Create(form).Error)
-
-		email := &forms.EmailDelivery{FormID: form.ID}
-		webhook := &forms.WebhookDelivery{FormID: form.ID}
-		require.NoError(t, db2.Create(email).Error)
-		require.NoError(t, db2.Create(webhook).Error)
-
-		err := forms.Delete(logger, db2, form.ID)
-		require.NoError(t, err)
-
-		// Verify cascaded deletes (depends on DB constraints)
-		var emailCount, webhookCount int64
-		db2.Model(&forms.EmailDelivery{}).Where("form_id = ?", form.ID).Count(&emailCount)
-		db2.Model(&forms.WebhookDelivery{}).Where("form_id = ?", form.ID).Count(&webhookCount)
-
-		// Note: SQLite may not enforce cascade, so this is best-effort
-		t.Logf("After delete - emails: %d, webhooks: %d", emailCount, webhookCount)
-	})
+func (reader *gatedReader) Read(buffer []byte) (int, error) {
+	reader.once.Do(func() { close(reader.started) })
+	<-reader.release
+	return reader.reader.Read(buffer)
 }

@@ -1,570 +1,182 @@
 {{ define "admin/forms/show/content" }}
-{{ $webhookDelivery := .Form.WebhookDelivery }}
-{{ $emailDelivery := .Form.EmailDelivery }}
-<div class="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-    <!-- Header -->
-    <div class="flex items-center justify-between">
+{{ $webhook := .Form.WebhookDelivery }}
+{{ $email := .Form.EmailDelivery }}
+<div class="mx-auto max-w-7xl space-y-6">
+    <header class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-            <h1 class="text-3xl font-bold tracking-tight text-gray-900">{{ .Form.Name }}</h1>
-            <p class="mt-2 text-sm text-gray-600">Endpoint rules, routes and recent activity</p>
+            <p class="mf-kicker">Endpoint</p>
+            <h1 class="mt-2 text-3xl font-bold text-ink">{{ .Form.Name }}</h1>
+            <p class="mt-2 font-mono text-sm text-ink-muted">POST {{ .Endpoint }}</p>
         </div>
         <div class="flex gap-2">
-            <a href="/admin/forms/{{ .Form.ID }}/edit"
-                class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-                <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                Edit Form
-            </a>
-            <a href="/admin/forms"
-                class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-                <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-                Back to Forms
-            </a>
+            <a class="mf-button-secondary" href="/admin/forms">All endpoints</a>
+            <a class="mf-button" href="/admin/forms/{{ .Form.ID }}/edit">Edit endpoint</a>
         </div>
+    </header>
+
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
+        <section class="mf-panel p-6">
+            <h2 class="text-lg font-semibold text-ink">Request contract</h2>
+            <dl class="mt-5 grid gap-5 sm:grid-cols-2">
+                <div><dt class="text-xs font-bold uppercase tracking-wider text-ink-muted">Slug</dt><dd class="mt-2 font-mono text-sm text-ink">{{ .Form.Slug }}</dd></div>
+                <div><dt class="text-xs font-bold uppercase tracking-wider text-ink-muted">Endpoint ID</dt><dd class="mt-2 font-mono text-sm text-ink">{{ .Form.PublicID }} <span class="text-ink-muted">#{{ .Form.ID }}</span></dd></div>
+                <div class="sm:col-span-2"><dt class="text-xs font-bold uppercase tracking-wider text-ink-muted">Allowed origins</dt><dd class="mt-2 break-all font-mono text-sm text-ink">{{ if .Form.AllowedOrigins }}{{ .Form.AllowedOrigins }}{{ else }}None configured{{ end }}</dd></div>
+                <div class="sm:col-span-2"><dt class="text-xs font-bold uppercase tracking-wider text-ink-muted">Authenticated URL</dt><dd class="mt-2 overflow-x-auto rounded-xl bg-gray-900 p-3"><code class="whitespace-nowrap font-mono text-xs text-gray-100">POST {{ .Endpoint }}?token={{ .Token }}</code></dd></div>
+            </dl>
+        </section>
+
+        <section class="mf-panel p-6">
+            <h2 class="text-lg font-semibold text-ink">Routes</h2>
+            <dl class="mt-5 space-y-5 text-sm">
+                <div><dt class="font-semibold text-ink">Safeguard</dt><dd class="mt-1 text-ink-muted">{{ if .Form.CaptchaProfileID }}Enabled{{ else }}Disabled{{ end }}</dd></div>
+                <div><dt class="font-semibold text-ink">Webhook</dt><dd class="mt-1 break-all text-ink-muted">{{ if and $webhook $webhook.Enabled }}{{ $webhook.URL }}{{ else }}Disabled{{ end }}</dd></div>
+                <div><dt class="font-semibold text-ink">Email</dt><dd class="mt-1 break-all text-ink-muted">{{ if and $email $email.Enabled }}{{ .EmailRecipient }}{{ else }}Disabled{{ end }}</dd></div>
+            </dl>
+        </section>
     </div>
 
-    <!-- Form Info -->
-    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-lg font-semibold text-gray-900">Endpoint information</h2>
-        </div>
-        <div class="grid gap-6 p-6 sm:grid-cols-2">
+    <section class="mf-panel overflow-hidden">
+        <div class="flex flex-col gap-4 border-b border-rule p-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
-                <dt class="text-sm font-medium text-gray-500">Slug</dt>
-                <dd class="mt-1 text-base font-mono text-gray-900">{{ .Form.Slug }}</dd>
-            </div>
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Endpoint ID</dt>
-                <dd class="mt-1 flex items-center gap-2">
-                    <code class="text-sm font-mono text-gray-900">{{ .Form.PublicID }}</code>
-                    <span class="text-xs text-gray-500">#{{ .Form.ID }}</span>
-                </dd>
-            </div>
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Token</dt>
-                <dd class="mt-1">
-                    <code class="text-sm font-mono text-gray-900">{{ .Token }}</code>
-                </dd>
-            </div>
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Captcha Protection</dt>
-                <dd class="mt-1">
-                    {{ if .Form.CaptchaProfileID }}
-                    <span
-                        class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
-                        <svg class="mr-1 h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd"
-                                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                                clip-rule="evenodd" />
-                        </svg>
-                        Enabled
-                    </span>
-                    {{ else }}
-                    <span
-                        class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
-                        Disabled
-                    </span>
-                    {{ end }}
-                </dd>
-            </div>
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Allowed Origins</dt>
-                <dd class="mt-1">
-                    {{ if .Form.AllowedOrigins }}
-                    <code class="text-sm font-mono text-gray-900">{{ .Form.AllowedOrigins }}</code>
-                    {{ else }}
-                    <span
-                        class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
-                        <svg class="mr-1 h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd"
-                                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                                clip-rule="evenodd" />
-                        </svg>
-                        All Origins (Not Recommended)
-                    </span>
-                    {{ end }}
-                </dd>
-            </div>
-            <div class="sm:col-span-2">
-                <dt class="text-sm font-medium text-gray-500">Endpoint</dt>
-                <dd class="mt-1 flex items-center gap-2">
-                    <code
-                        class="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm text-gray-900">POST {{ .Endpoint }}?token={{ .Token }}</code>
-                </dd>
-            </div>
-        </div>
-    </div>
-
-    <!-- Delivery Configuration -->
-    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-lg font-semibold text-gray-900">Delivery Configuration</h2>
-        </div>
-        <div class="grid gap-6 p-6 sm:grid-cols-2">
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Webhook Delivery</dt>
-                <dd class="mt-2">
-                    {{ if and $webhookDelivery $webhookDelivery.Enabled }}
-                    <div class="space-y-2">
-                        <span
-                            class="inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-800">
-                            <svg class="mr-1 h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd"
-                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                                    clip-rule="evenodd" />
-                            </svg>
-                            Enabled
-                        </span>
-                        <p class="text-sm font-mono text-gray-900 break-all">{{ $webhookDelivery.URL }}</p>
-                    </div>
-                    {{ else }}
-                    <span
-                        class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
-                        Disabled
-                    </span>
-                    {{ end }}
-                </dd>
-            </div>
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Email Forwarding</dt>
-                <dd class="mt-2">
-                    {{ if and $emailDelivery $emailDelivery.Enabled }}
-                    <div class="space-y-2">
-                        <span
-                            class="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-medium text-purple-800">
-                            <svg class="mr-1 h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd"
-                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                                    clip-rule="evenodd" />
-                            </svg>
-                            Enabled
-                        </span>
-                        <p class="text-sm text-gray-900">{{ $.EmailRecipient }}</p>
-                    </div>
-                    {{ else }}
-                    <span
-                        class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
-                        Disabled
-                    </span>
-                    {{ end }}
-                </dd>
-            </div>
-        </div>
-    </div>
-
-    <!-- Form Code & Preview -->
-    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-lg font-semibold text-gray-900">Starter Template</h2>
-            <p class="mt-1 text-sm text-gray-600">
-                A starting point to save you time. Use it as-is, tweak it, or replace it entirely—your call.
-                <a href="https://github.com/matteodante/miniform#javascript-sdk-optional" target="_blank" rel="noopener" class="text-blue-600 hover:text-blue-700 font-medium">Learn more →</a>
-            </p>
-            <!-- SDK Toggle -->
-            <div class="mt-4 flex items-center gap-2">
-                <input type="checkbox" id="include-sdk" onchange="toggleSDK()"
-                    class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    {{ if .Form.UseSDK }}checked{{ end }}>
-                <label for="include-sdk" class="text-sm font-medium text-gray-700">
+                <h2 class="text-lg font-semibold text-ink">Starter HTML</h2>
+                <p class="text-sm text-ink-muted">Copy a working form or inspect it in an isolated preview.</p>
+                <label class="mt-3 flex items-center gap-2 text-sm font-medium text-ink" for="include-sdk">
+                    <input class="h-4 w-4 rounded border-gray-300" id="include-sdk" type="checkbox" {{ if .Form.UseSDK }}checked{{ end }}>
                     Include JavaScript SDK
                 </label>
-                <span class="text-xs text-gray-500">(adds automatic retry & loading states)</span>
+            </div>
+            <div class="flex rounded-xl bg-gray-100 p-1" role="tablist" aria-label="Starter HTML view">
+                <button class="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-ink shadow-sm" id="tab-source" type="button" role="tab" aria-selected="true" aria-controls="panel-source" tabindex="0" data-code-tab="source">Source</button>
+                <button class="rounded-lg px-3 py-2 text-xs font-semibold text-ink-muted" id="tab-preview" type="button" role="tab" aria-selected="false" aria-controls="panel-preview" tabindex="-1" data-code-tab="preview">Preview</button>
             </div>
         </div>
-
-        <!-- Tabs -->
-        <div class="border-b border-gray-200">
-            <nav class="flex -mb-px px-6" aria-label="Tabs">
-                <button type="button" onclick="switchTab('source')" id="tab-source"
-                    class="tab-button border-b-2 border-blue-500 py-4 px-4 text-center text-sm font-medium text-blue-600">
-                    <svg class="inline-block mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                    </svg>
-                    Source Code
-                </button>
-                <button type="button" onclick="switchTab('preview')" id="tab-preview"
-                    class="tab-button border-b-2 border-transparent py-4 px-4 text-center text-sm font-medium text-gray-500 hover:border-gray-300 hover:text-gray-700">
-                    <svg class="inline-block mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                    Example Preview
-                </button>
-            </nav>
-        </div>
-
-        <!-- Source Code Panel -->
-        <div id="panel-source" class="tab-panel p-6">
-            <div class="relative">
-                <button onclick="copyCode()"
-                    class="absolute top-2 right-2 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition-all hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <svg class="inline-block mr-1 h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Copy
-                </button>
-                <pre class="overflow-x-auto rounded-lg border border-gray-200 bg-gray-900 p-4 font-mono text-xs"
-                    style="max-height: 600px;"><code id="form-code" class="language-html text-gray-100">{{ .FormCode }}</code></pre>
+        <div class="p-6">
+            <div id="panel-source" role="tabpanel" aria-labelledby="tab-source">
+                <div class="mb-3 flex justify-end"><button class="mf-button-secondary !px-3 !py-1.5 text-xs" id="copyFormCode" type="button">Copy source</button></div>
+                <pre class="max-h-[38rem] overflow-auto rounded-xl bg-gray-900 p-4 font-mono text-xs"><code id="form-code" class="language-html text-gray-100">{{ .FormCode }}</code></pre>
+            </div>
+            <div id="panel-preview" role="tabpanel" aria-labelledby="tab-preview" hidden>
+                <iframe id="form-preview" title="Starter HTML preview" class="min-h-[26rem] w-full rounded-xl border border-rule bg-white" sandbox></iframe>
             </div>
         </div>
+    </section>
 
-        <!-- Preview Panel -->
-        <div id="panel-preview" class="tab-panel hidden p-6">
-            <div class="rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-6">
-                <div class="mb-4 flex items-center justify-between">
-                    <span class="text-sm font-medium text-gray-700">Example Preview</span>
-                    <span class="text-xs text-gray-500">Yours will look different—and that's the point</span>
-                </div>
-                <div class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                    <iframe id="form-preview" sandbox="allow-scripts allow-same-origin" class="w-full border-0"
-                        style="min-height: 400px;" onload="resizePreview()"></iframe>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script src="/assets/vendor/highlight.min.js"></script>
-    <link rel="stylesheet" href="/assets/vendor/highlight-github-dark.min.css">
-    <script>
-        // Store original code without SDK (captured on load)
-        let originalFormCode = '';
-        const sdkScriptTag = '\n\n<!-- Miniform SDK: adds automatic retry & loading states -->\n<script src="/assets/miniform.js"><\/script>';
-
-        // Initialize syntax highlighting
-        document.addEventListener('DOMContentLoaded', function () {
-            // Capture original code before any modifications
-            originalFormCode = document.getElementById('form-code').textContent;
-            hljs.highlightAll();
-
-            // Apply SDK if checkbox is checked (persisted setting)
-            const checkbox = document.getElementById('include-sdk');
-            if (checkbox && checkbox.checked) {
-                toggleSDK();
-            }
-
-            loadPreview();
-        });
-
-        // Toggle SDK inclusion
-        function toggleSDK() {
-            const checkbox = document.getElementById('include-sdk');
-            const codeElement = document.getElementById('form-code');
-
-            if (checkbox.checked) {
-                codeElement.textContent = originalFormCode + sdkScriptTag;
-            } else {
-                codeElement.textContent = originalFormCode;
-            }
-
-            // Re-apply syntax highlighting
-            codeElement.removeAttribute('data-highlighted');
-            hljs.highlightElement(codeElement);
-
-            // Reload preview
-            loadPreview();
-        }
-
-        // Tab switching
-        function switchTab(tab) {
-            const tabs = ['source', 'preview'];
-            tabs.forEach(t => {
-                const button = document.getElementById('tab-' + t);
-                const panel = document.getElementById('panel-' + t);
-
-                if (t === tab) {
-                    button.classList.remove('border-transparent', 'text-gray-500', 'hover:border-gray-300', 'hover:text-gray-700');
-                    button.classList.add('border-blue-500', 'text-blue-600');
-                    panel.classList.remove('hidden');
-
-                    if (t === 'preview') {
-                        loadPreview();
-                    }
-                } else {
-                    button.classList.add('border-transparent', 'text-gray-500', 'hover:border-gray-300', 'hover:text-gray-700');
-                    button.classList.remove('border-blue-500', 'text-blue-600');
-                    panel.classList.add('hidden');
-                }
-            });
-        }
-
-        // Load preview in iframe
-        function loadPreview() {
-            const codeElement = document.getElementById('form-code');
-            if (!codeElement) return;
-
-            const rawCode = codeElement.textContent;
-            const turnstileScriptPattern = /<script[^>]*https:\/\/challenges\.cloudflare\.com\/turnstile\/v0\/api\.js[^>]*><\/script>/gi;
-            const sanitizedCode = rawCode.replaceAll(turnstileScriptPattern, '');
-            const hasTurnstile = /cf-turnstile/.test(rawCode);
-
-            const iframe = document.getElementById('form-preview');
-            if (!iframe) return;
-
-            // Use DOMParser for safe HTML parsing
-            // Admin-only feature: parsing form HTML for preview in sandboxed iframe
-            // codeql[js/xss-through-dom]
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(sanitizedCode, 'text/html');
-            const extractedStyles = [];
-            doc.querySelectorAll('style').forEach(style => {
-                extractedStyles.push(style.textContent);
-                style.remove();
-            });
-            const inlineStyleBlock = extractedStyles.length ? `<style>${extractedStyles.join('\n')}</style>` : '';
-
-            const captchaStyles = hasTurnstile ? `
-        .cf-turnstile {
-            min-height: 92px;
-            border: 1px dashed #d4d8e2;
-            border-radius: 12px;
-            background: repeating-linear-gradient(135deg, rgba(226, 232, 240, 0.6), rgba(226, 232, 240, 0.6) 12px, rgba(241, 245, 249, 0.6) 12px, rgba(241, 245, 249, 0.6) 24px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #475569;
-            font-size: 13px;
-            font-family: system-ui, -apple-system, sans-serif;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-        }
-        .cf-turnstile::before {
-            content: 'Captcha placeholder';
-        }
-        .miniform-captcha-block {
-            width: 100%;
-        }` : '';
-
-            const previewHTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body { margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; background: #f8fafc; }
-        ${captchaStyles}
-    </style>
-${inlineStyleBlock}
-</head>
-<body>
-${doc.body.innerHTML}
-</body>
-</html>`;
-
-            iframe.srcdoc = previewHTML;
-        }
-
-        // Auto-resize iframe to content
-        function resizePreview() {
-            const iframe = document.getElementById('form-preview');
-            try {
-                const height = iframe.contentWindow.document.body.scrollHeight;
-                iframe.style.height = Math.max(height + 40, 400) + 'px';
-            } catch (e) {
-                console.log('Cannot resize iframe:', e);
-            }
-        }
-
-        // Copy code to clipboard
-        function copyCode() {
-            const code = document.getElementById('form-code').textContent;
-            navigator.clipboard.writeText(code).then(() => {
-                alert('Code copied to clipboard!');
-            }).catch(err => {
-                console.error('Failed to copy:', err);
-            });
-        }
-    </script>
-
-    <!-- Recent Submissions -->
-    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-lg font-semibold text-gray-900">Recent inbox entries</h2>
-            <p class="mt-1 text-sm text-gray-600">Last 25 responses received here</p>
-        </div>
-        {{ if not .Submissions }}
-        <div class="px-6 py-12">
-            <div class="text-center">
-                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <p class="mt-4 text-sm text-gray-500">No submissions yet.</p>
-            </div>
-        </div>
-        {{ else }}
+    <section class="mf-panel overflow-hidden">
+        <div class="border-b border-rule p-6"><h2 class="text-lg font-semibold text-ink">Recent inbox entries</h2><p class="text-sm text-ink-muted">The latest 25 accepted or spam-trapped requests.</p></div>
+        {{ if .Submissions }}
         <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">When
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                            Summary</th>
-                        <th class="relative px-6 py-3"><span class="sr-only">Actions</span></th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200 bg-white">
+            <table class="min-w-full divide-y divide-rule text-sm">
+                <thead class="bg-gray-50 text-left text-xs uppercase tracking-wider text-ink-muted"><tr><th class="px-6 py-3">Received</th><th class="px-6 py-3">Payload</th><th class="px-6 py-3"></th></tr></thead>
+                <tbody class="divide-y divide-rule">
                     {{ range .Submissions }}
-                    <tr class="transition-colors hover:bg-gray-50">
-                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500"><time datetime="{{ timeRFC3339 .CreatedAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .CreatedAt "Jan 2 15:04 UTC" }}</time></td>
-                        <td class="px-6 py-4 font-mono text-xs text-gray-900">{{ truncateJSON .DataJSON }}</td>
-                        <td class="whitespace-nowrap px-6 py-4 text-right text-sm">
-                            <a href="/admin/submissions/{{ .ID }}"
-                                class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-all hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                View
-                            </a>
-                        </td>
-                    </tr>
+                    <tr><td class="whitespace-nowrap px-6 py-4 text-ink-muted"><time datetime="{{ timeRFC3339 .CreatedAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .CreatedAt "Jan 2 15:04 UTC" }}</time></td><td class="max-w-xl truncate px-6 py-4 font-mono text-xs text-ink">{{ truncateJSON .DataJSON }}</td><td class="px-6 py-4 text-right"><a class="font-semibold text-moss" href="/admin/submissions/{{ .ID }}">Open</a></td></tr>
                     {{ end }}
                 </tbody>
             </table>
         </div>
-        {{ end }}
-    </div>
+        {{ else }}<p class="p-8 text-sm text-ink-muted">No inbox entries yet.</p>{{ end }}
+    </section>
 
-    <!-- Webhook Deliveries -->
-    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-lg font-semibold text-gray-900">Webhook Deliveries</h2>
-            <p class="mt-1 text-sm text-gray-600">Recent webhook delivery attempts</p>
-        </div>
-        {{ if not .WebhookEvents }}
-        <div class="px-6 py-12">
-            <div class="text-center">
-                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                <p class="mt-4 text-sm text-gray-500">No webhook activity yet.</p>
+    <div class="grid gap-6 xl:grid-cols-2">
+        <section class="mf-panel overflow-hidden">
+            <div class="border-b border-rule p-6"><h2 class="text-lg font-semibold text-ink">Webhook activity</h2><p class="text-sm text-ink-muted">Latest outbound delivery attempts.</p></div>
+            {{ if .WebhookEvents }}
+            <div class="divide-y divide-rule">
+                {{ range .WebhookEvents }}
+                <article class="p-5 text-sm">
+                    <div class="flex flex-wrap items-center justify-between gap-2"><a class="font-semibold text-moss" href="/admin/submissions/{{ .SubmissionID }}">Entry #{{ .SubmissionID }}</a><span class="rounded-full px-2.5 py-1 text-xs font-semibold {{ if eq .Status "failed" }}bg-rose-50 text-rose-700{{ else if eq .Status "delivered" }}bg-green-50 text-green-700{{ else }}bg-blue-50 text-blue-700{{ end }}">{{ .Status }}</span></div>
+                    <p class="mt-2 text-xs text-ink-muted">{{ .AttemptCount }} attempt{{ if ne .AttemptCount 1 }}s{{ end }}{{ if .LastAttemptAt }} · <time datetime="{{ timeRFC3339 .LastAttemptAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .LastAttemptAt "Jan 2 15:04 UTC" }}</time>{{ end }}</p>
+                    {{ if .LastAttemptErr }}<pre class="mt-3 overflow-x-auto rounded-lg bg-rose-50 p-3 text-xs text-rose-800">{{ .LastAttemptErr }}</pre>{{ end }}
+                </article>
+                {{ end }}
             </div>
-        </div>
-        {{ else }}
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                            Submission</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                            Status</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                            Attempts</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Last
-                            Attempt</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200 bg-white">
-                    {{ range .WebhookEvents }}
-                    <tr class="align-top transition-colors hover:bg-gray-50">
-                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">#{{ .SubmissionID }}</td>
-                        <td class="whitespace-nowrap px-6 py-4">
-                            {{ if eq .Status "success" }}
-                            <span
-                                class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
-                                {{ .Status }}
-                            </span>
-                            {{ else if eq .Status "failed" }}
-                            <span
-                                class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
-                                {{ .Status }}
-                            </span>
-                            {{ else }}
-                            <span
-                                class="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-800">
-                                {{ .Status }}
-                            </span>
-                            {{ end }}
-                        </td>
-                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ .AttemptCount }}</td>
-                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{{ if .LastAttemptAt }}<time datetime="{{ timeRFC3339 .LastAttemptAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .LastAttemptAt "Jan 2 15:04 UTC" }}</time>{{ else }}—{{ end }}</td>
-                    </tr>
-                    {{ if .LastAttemptErr }}
-                    <tr>
-                        <td colspan="4" class="px-6 py-2 text-xs text-red-600">{{ .LastAttemptErr }}</td>
-                    </tr>
-                    {{ end }}
-                    {{ end }}
-                </tbody>
-            </table>
-        </div>
-        {{ end }}
-    </div>
+            {{ else }}<p class="p-8 text-sm text-ink-muted">No webhook activity yet.</p>{{ end }}
+        </section>
 
-    <!-- Email Forwarding -->
-    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-lg font-semibold text-gray-900">Email Forwarding</h2>
-            <p class="mt-1 text-sm text-gray-600">Recent email delivery attempts</p>
-        </div>
-        {{ if not .EmailEvents }}
-        <div class="px-6 py-12">
-            <div class="text-center">
-                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                <p class="mt-4 text-sm text-gray-500">No email forwarding attempts yet.</p>
+        <section class="mf-panel overflow-hidden">
+            <div class="border-b border-rule p-6"><h2 class="text-lg font-semibold text-ink">Email activity</h2><p class="text-sm text-ink-muted">Latest forwarded notifications.</p></div>
+            {{ if .EmailEvents }}
+            <div class="divide-y divide-rule">
+                {{ range .EmailEvents }}
+                <article class="p-5 text-sm">
+                    <div class="flex flex-wrap items-center justify-between gap-2"><a class="font-semibold text-moss" href="/admin/submissions/{{ .SubmissionID }}">Entry #{{ .SubmissionID }}</a><span class="rounded-full px-2.5 py-1 text-xs font-semibold {{ if eq .Status "failed" }}bg-rose-50 text-rose-700{{ else if eq .Status "delivered" }}bg-green-50 text-green-700{{ else }}bg-blue-50 text-blue-700{{ end }}">{{ .Status }}</span></div>
+                    <p class="mt-2 text-xs text-ink-muted">{{ .AttemptCount }} attempt{{ if ne .AttemptCount 1 }}s{{ end }}{{ if .LastAttemptAt }} · <time datetime="{{ timeRFC3339 .LastAttemptAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .LastAttemptAt "Jan 2 15:04 UTC" }}</time>{{ end }}</p>
+                    {{ if .LastAttemptErr }}<pre class="mt-3 overflow-x-auto rounded-lg bg-rose-50 p-3 text-xs text-rose-800">{{ .LastAttemptErr }}</pre>{{ end }}
+                </article>
+                {{ end }}
             </div>
-        </div>
-        {{ else }}
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                            Submission</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                            Status</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                            Attempts</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Last
-                            Attempt</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200 bg-white">
-                    {{ range .EmailEvents }}
-                    <tr class="align-top transition-colors hover:bg-gray-50">
-                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">#{{ .SubmissionID }}</td>
-                        <td class="whitespace-nowrap px-6 py-4">
-                            {{ if eq .Status "success" }}
-                            <span
-                                class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
-                                {{ .Status }}
-                            </span>
-                            {{ else if eq .Status "failed" }}
-                            <span
-                                class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
-                                {{ .Status }}
-                            </span>
-                            {{ else }}
-                            <span
-                                class="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-800">
-                                {{ .Status }}
-                            </span>
-                            {{ end }}
-                        </td>
-                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ .AttemptCount }}</td>
-                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{{ if .LastAttemptAt }}<time datetime="{{ timeRFC3339 .LastAttemptAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .LastAttemptAt "Jan 2 15:04 UTC" }}</time>{{ else }}—{{ end }}</td>
-                    </tr>
-                    {{ if .LastAttemptErr }}
-                    <tr>
-                        <td colspan="4" class="px-6 py-2 text-xs text-red-600">{{ .LastAttemptErr }}</td>
-                    </tr>
-                    {{ end }}
-                    {{ end }}
-                </tbody>
-            </table>
-        </div>
-        {{ end }}
+            {{ else }}<p class="p-8 text-sm text-ink-muted">No email activity yet.</p>{{ end }}
+        </section>
     </div>
 </div>
+
+<script src="/assets/vendor/highlight.min.js"></script>
+<link rel="stylesheet" href="/assets/vendor/highlight-github-dark.min.css">
+<script>
+(() => {
+    const initialize = () => {
+        const code = document.getElementById("form-code");
+        if (!code) return;
+
+        const baseFormCode = code.textContent;
+        const sdkScript = '\n\n<!-- Miniform SDK: adds automatic retry & loading states -->\n<script src="/assets/miniform.js"><\/script>';
+        const refreshFormCode = () => {
+            code.textContent = baseFormCode + (document.getElementById("include-sdk").checked ? sdkScript : "");
+            code.removeAttribute("data-highlighted");
+            if (window.hljs) window.hljs.highlightElement(code);
+
+            const parsed = new DOMParser().parseFromString(code.textContent, "text/html");
+            parsed.querySelectorAll("script").forEach(node => node.remove());
+            const turnstileWidgets = parsed.querySelectorAll(".cf-turnstile");
+            if (turnstileWidgets.length > 0) {
+                const style = parsed.createElement("style");
+                style.textContent = ".cf-turnstile{min-height:92px;border:1px dashed #94a3b8;border-radius:12px;display:flex;align-items:center;justify-content:center;background:#f8fafc;color:#475569;font:600 13px system-ui}";
+                parsed.head.appendChild(style);
+                turnstileWidgets.forEach(widget => {
+                    widget.replaceChildren("Turnstile captcha preview");
+                    widget.setAttribute("role", "img");
+                    widget.setAttribute("aria-label", "Turnstile captcha preview");
+                });
+            }
+            document.getElementById("form-preview").srcdoc = `<!doctype html>${parsed.documentElement.outerHTML}`;
+        };
+
+        refreshFormCode();
+        document.getElementById("include-sdk").addEventListener("change", refreshFormCode);
+        const tabs = Array.from(document.querySelectorAll("[data-code-tab]"));
+        const activateTab = (button) => {
+            const target = button.dataset.codeTab;
+            document.getElementById("panel-source").hidden = target !== "source";
+            document.getElementById("panel-preview").hidden = target !== "preview";
+            tabs.forEach(item => {
+                const active = item === button;
+                item.setAttribute("aria-selected", String(active));
+                item.tabIndex = active ? 0 : -1;
+                item.classList.toggle("bg-white", active);
+                item.classList.toggle("text-ink", active);
+                item.classList.toggle("shadow-sm", active);
+                item.classList.toggle("text-ink-muted", !active);
+            });
+        };
+        tabs.forEach((button, index) => {
+            button.addEventListener("click", () => activateTab(button));
+            button.addEventListener("keydown", (event) => {
+                let nextIndex;
+                if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+                else if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+                else if (event.key === "Home") nextIndex = 0;
+                else if (event.key === "End") nextIndex = tabs.length - 1;
+                else return;
+                event.preventDefault();
+                activateTab(tabs[nextIndex]);
+                tabs[nextIndex].focus();
+            });
+        });
+        document.getElementById("copyFormCode").addEventListener("click", () => navigator.clipboard.writeText(code.textContent));
+    };
+
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initialize, { once: true });
+    else initialize();
+})();
+</script>
 {{ end }}

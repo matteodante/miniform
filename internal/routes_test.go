@@ -18,280 +18,150 @@ import (
 	"github.com/matteodante/miniform/internal"
 	"github.com/matteodante/miniform/internal/accounts"
 	"github.com/matteodante/miniform/internal/config"
+	"github.com/matteodante/miniform/internal/database"
 	"github.com/matteodante/miniform/internal/forms"
-	"github.com/matteodante/miniform/internal/integrations"
 )
 
-// Smoke tests for the Sec-Fetch-Site boundary on /admin routes.
-//
-// Cartridge's SecFetchSiteMiddleware rejects POSTs missing the
-// Sec-Fetch-Site header (issue #35). Login is opted out so older
-// browsers and reverse-proxied deploys can authenticate; every other
-// state-changing admin route must remain protected.
+const fetchMetadataRejection = "browser requests only"
 
-func mountTestServer(t *testing.T) *cartridgetestsupport.TestServer {
-	return mountTestServerForEnvironment(t, cartridgeconfig.Test)
-}
-
-func mountTestServerForEnvironment(t *testing.T, environment string) *cartridgetestsupport.TestServer {
+func testServer(t *testing.T, environment string) *cartridgetestsupport.TestServer {
 	t.Helper()
-
-	models := []any{
-		&accounts.User{},
-		&forms.Form{},
-		&forms.Submission{},
-		&forms.EmailDelivery{},
-		&forms.WebhookDelivery{},
-		&forms.WebhookEvent{},
-		&forms.EmailEvent{},
-		&integrations.MailerProfile{},
-		&integrations.CaptchaProfile{},
-	}
-
-	flCfg := &config.Config{
+	appConfig := &config.Config{
 		Config: &cartridgeconfig.Config{
-			AppName:        "miniform",
-			Environment:    environment,
-			SessionSecret:  "test-secret",
-			SessionTimeout: 3600,
+			AppName: "miniform", Environment: environment,
+			SessionSecret: "test-secret", SessionTimeout: 3600,
 		},
 		MaxInputFields: 200,
 	}
-
-	ts := cartridgetestsupport.NewTestServer(t, cartridgetestsupport.TestServerOptions{
-		Models: models,
-		RouteMountFunc: func(s *cartridge.Server) {
-			s.SetSession(cartridge.NewSessionManager(cartridge.SessionConfig{
-				CookieName: "miniform_session",
-				Secret:     "test-secret",
-				TTL:        time.Hour,
-				LoginPath:  "/admin/login",
+	server := cartridgetestsupport.NewTestServer(t, cartridgetestsupport.TestServerOptions{
+		Models: database.Models(),
+		RouteMountFunc: func(server *cartridge.Server) {
+			server.SetSession(cartridge.NewSessionManager(cartridge.SessionConfig{
+				CookieName: "miniform_session", Secret: "test-secret",
+				TTL: time.Hour, LoginPath: "/admin/login",
 			}))
-			internal.MountRoutes(s, flCfg)
+			internal.MountRoutes(server, appConfig)
 		},
 	})
-	ts.DB.GetConnection().Config.NowFunc = func() time.Time { return time.Now().UTC() }
-
-	return ts
+	server.DB.GetConnection().Config.NowFunc = func() time.Time { return time.Now().UTC() }
+	return server
 }
 
-func getBody(t *testing.T, ts *cartridgetestsupport.TestServer, path string) (status int, body string) {
+func postForm(t *testing.T, server *cartridgetestsupport.TestServer, path, body string, headers map[string]string) (int, string) {
 	t.Helper()
-	resp := ts.Get(path)
-	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	return resp.StatusCode, string(b)
-}
-
-func formPost(t *testing.T, ts *cartridgetestsupport.TestServer, path, body string, headers map[string]string) (status int, respBody string) {
-	t.Helper()
-	req := httptest.NewRequest("POST", path, strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for k, v := range headers {
-		req.Header.Set(k, v)
+	request := httptest.NewRequestWithContext(t.Context(), "POST", path, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for name, value := range headers {
+		request.Header.Set(name, value)
 	}
-	resp, err := ts.App.Test(req, -1)
+	response, err := server.App.Test(request, -1)
 	require.NoError(t, err)
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	return resp.StatusCode, string(b)
+	defer func() { _ = response.Body.Close() }()
+	content, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	return response.StatusCode, string(content)
 }
 
-func seedAdmin(t *testing.T, ts *cartridgetestsupport.TestServer, email, password string) {
+func getPage(t *testing.T, server *cartridgetestsupport.TestServer, path string) (int, string) {
 	t.Helper()
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	response := server.Get(path)
+	defer func() { _ = response.Body.Close() }()
+	content, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	return response.StatusCode, string(content)
+}
+
+func createAdmin(t *testing.T, server *cartridgetestsupport.TestServer) {
+	t.Helper()
+	hash, err := bcrypt.GenerateFromPassword([]byte("miniform"), bcrypt.DefaultCost)
 	require.NoError(t, err)
 	now := time.Now().UTC()
-	user := &accounts.User{
-		Email:        email,
-		PasswordHash: string(hash),
-		LastLoginAt:  &now,
-	}
-	require.NoError(t, ts.DB.GetConnection().Create(user).Error)
+	require.NoError(t, server.DB.GetConnection().Create(&accounts.User{
+		Email: "admin@miniform.local", PasswordHash: string(hash), LastLoginAt: &now,
+	}).Error)
 }
 
-// secFetchBlockedBody is cartridge's strict-middleware rejection body —
-// any route returning this without a Sec-Fetch-Site header was blocked
-// by CSRF protection.
-const secFetchBlockedBody = "browser requests only"
-
-// TestRoutesSecFetchSiteBoundary asserts which routes accept POSTs from
-// clients that don't send the Sec-Fetch-Site header (older browsers,
-// proxies that strip fetch-metadata, server-to-server) and which are
-// still protected by cartridge's strict CSRF middleware.
-//
-// The two groups together describe the intended security boundary:
-//
-//	OPEN (no Sec-Fetch-Site required)
-//	  - POST /admin/login              ← unauthenticated entry point
-//	  - POST /forms/:slug/submit       ← public form ingestion (token + origin allowlist)
-//
-//	PROTECTED (Sec-Fetch-Site required for state-changing requests)
-//	  - POST /admin/logout
-//	  - POST /admin/forms
-//	  - POST /admin/settings/password
-//
-// If a new state-changing admin route is added, add it to the protected
-// group below to prevent it from being accidentally exposed.
-func TestRoutesSecFetchSiteBoundary(t *testing.T) {
-	// Silence cartridge's default slog during tests.
-	prev := slog.Default()
+func TestRoutes(t *testing.T) {
+	previousLogger := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
 
-	openRoutes := []struct {
-		name string
-		path string
-		body string
-	}{
-		{"POST /admin/login (issue #35)", "/admin/login", "email=admin@miniform.local&password=miniform"},
-		{"POST /forms/:slug/submit (public form)", "/forms/does-not-exist/submit?token=x", "field=value"},
-	}
-
-	protectedRoutes := []struct {
-		name string
-		path string
-		body string
-	}{
-		{"POST /admin/logout", "/admin/logout", ""},
-		{"POST /admin/forms", "/admin/forms", "name=test"},
-		{"POST /admin/settings/password", "/admin/settings/password", ""},
-	}
-
-	t.Run("OPEN: accept POST without Sec-Fetch-Site", func(t *testing.T) {
-		for _, r := range openRoutes {
-			t.Run(r.name, func(t *testing.T) {
-				ts := mountTestServer(t)
-				seedAdmin(t, ts, "admin@miniform.local", "miniform")
-
-				status, body := formPost(t, ts, r.path, r.body, nil)
-
-				assert.NotEqual(t, 403, status,
-					"route is opted out of Sec-Fetch-Site but returned 403")
-				assert.NotContains(t, body, secFetchBlockedBody,
-					"route was rejected by cartridge's strict SecFetchSite middleware")
+	t.Run("allows public POST entry points without fetch metadata", func(t *testing.T) {
+		cases := []struct{ name, path, body string }{
+			{"login", "/admin/login", "email=admin@miniform.local&password=miniform"},
+			{"form ingestion", "/forms/missing/submit?token=x", "field=value"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				server := testServer(t, cartridgeconfig.Test)
+				createAdmin(t, server)
+				status, body := postForm(t, server, tc.path, tc.body, nil)
+				assert.NotEqual(t, 403, status)
+				assert.NotContains(t, body, fetchMetadataRejection)
 			})
 		}
 	})
 
-	t.Run("PROTECTED: reject POST without Sec-Fetch-Site", func(t *testing.T) {
-		for _, r := range protectedRoutes {
-			t.Run(r.name, func(t *testing.T) {
-				ts := mountTestServer(t)
-
-				status, body := formPost(t, ts, r.path, r.body, nil)
-
-				assert.Equal(t, 403, status,
-					"protected route must reject requests missing Sec-Fetch-Site")
-				assert.Contains(t, body, secFetchBlockedBody,
-					"rejection must come from SecFetchSite middleware, not the handler")
+	t.Run("protects state-changing admin routes", func(t *testing.T) {
+		for _, path := range []string{"/admin/logout", "/admin/forms", "/admin/settings/password"} {
+			t.Run(path, func(t *testing.T) {
+				status, body := postForm(t, testServer(t, cartridgeconfig.Test), path, "", nil)
+				assert.Equal(t, 403, status)
+				assert.Contains(t, body, fetchMetadataRejection)
 			})
 		}
 	})
 
-	t.Run("login accepts POST with Sec-Fetch-Site: same-origin", func(t *testing.T) {
-		ts := mountTestServer(t)
-		seedAdmin(t, ts, "admin@miniform.local", "miniform")
-
-		status, _ := formPost(t, ts, "/admin/login",
+	t.Run("accepts same-origin login", func(t *testing.T) {
+		server := testServer(t, cartridgeconfig.Test)
+		createAdmin(t, server)
+		status, _ := postForm(t, server, "/admin/login",
 			"email=admin@miniform.local&password=miniform",
 			map[string]string{"Sec-Fetch-Site": "same-origin"})
-
 		assert.Equal(t, 302, status)
 	})
-}
 
-// TestPublicFormSubmissionGuards covers the protections the public ingestion
-// endpoint relies on instead of Sec-Fetch-Site: per-form token and the
-// per-form Origin/Referer allowlist. If either guard regresses, an attacker
-// could either replay submissions cross-site or post without knowing the
-// form's secret.
-func TestPublicFormSubmissionGuards(t *testing.T) {
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
-	seedForm := func(t *testing.T, ts *cartridgetestsupport.TestServer) *forms.Form {
-		t.Helper()
-		f := &forms.Form{
-			Name:           "Contact",
-			Slug:           "contact",
-			Token:          "secret-token",
-			AllowedOrigins: "example.com",
+	t.Run("requires both form token and allowed origin", func(t *testing.T) {
+		cases := []struct {
+			name, path string
+			headers    map[string]string
+			status     int
+			message    string
+		}{
+			{"missing token", "/forms/contact/submit", map[string]string{"Origin": "https://example.com"}, 401, ""},
+			{"wrong token", "/forms/contact/submit?token=wrong", map[string]string{"Origin": "https://example.com"}, 401, ""},
+			{"foreign origin", "/forms/contact/submit?token=secret-token", map[string]string{"Origin": "https://attacker.test"}, 403, "origin not allowed"},
+			{"missing origin", "/forms/contact/submit?token=secret-token", nil, 403, "origin not allowed"},
+			{"valid request", "/forms/contact/submit?token=secret-token", map[string]string{"Origin": "https://example.com"}, 200, ""},
 		}
-		require.NoError(t, ts.DB.GetConnection().Create(f).Error)
-		return f
-	}
-
-	t.Run("rejects request with missing token", func(t *testing.T) {
-		ts := mountTestServer(t)
-		seedForm(t, ts)
-
-		status, _ := formPost(t, ts, "/forms/contact/submit", "field=value",
-			map[string]string{"Origin": "https://example.com"})
-
-		assert.Equal(t, 401, status)
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				server := testServer(t, cartridgeconfig.Test)
+				require.NoError(t, server.DB.GetConnection().Create(&forms.Form{
+					Name: "Contact", Slug: "contact", Token: "secret-token", AllowedOrigins: "example.com",
+				}).Error)
+				status, body := postForm(t, server, tc.path, "field=value", tc.headers)
+				assert.Equal(t, tc.status, status)
+				if tc.message != "" {
+					assert.Contains(t, body, tc.message)
+				}
+			})
+		}
 	})
 
-	t.Run("rejects request with wrong token", func(t *testing.T) {
-		ts := mountTestServer(t)
-		seedForm(t, ts)
-
-		status, _ := formPost(t, ts, "/forms/contact/submit?token=wrong", "field=value",
-			map[string]string{"Origin": "https://example.com"})
-
-		assert.Equal(t, 401, status)
-	})
-
-	t.Run("rejects request from origin not in allowlist", func(t *testing.T) {
-		ts := mountTestServer(t)
-		seedForm(t, ts)
-
-		status, body := formPost(t, ts, "/forms/contact/submit?token=secret-token", "field=value",
-			map[string]string{"Origin": "https://attacker.com"})
-
-		assert.Equal(t, 403, status)
-		assert.Contains(t, body, "origin not allowed")
-	})
-
-	t.Run("rejects request with no Origin or Referer when allowlist is set", func(t *testing.T) {
-		ts := mountTestServer(t)
-		seedForm(t, ts)
-
-		status, body := formPost(t, ts, "/forms/contact/submit?token=secret-token", "field=value", nil)
-
-		assert.Equal(t, 403, status)
-		assert.Contains(t, body, "origin not allowed")
-	})
-
-	t.Run("accepts request with valid token and allowed origin", func(t *testing.T) {
-		ts := mountTestServer(t)
-		seedForm(t, ts)
-
-		status, _ := formPost(t, ts, "/forms/contact/submit?token=secret-token", "field=value",
-			map[string]string{"Origin": "https://example.com"})
-
-		assert.Equal(t, 200, status)
-	})
-}
-
-func TestDemoRoute(t *testing.T) {
-	t.Run("is mounted in test mode", func(t *testing.T) {
-		ts := mountTestServerForEnvironment(t, cartridgeconfig.Test)
-
-		status, body := getBody(t, ts, "/_demo")
-
-		assert.Equal(t, 404, status)
-		assert.Contains(t, body, "Run 'make demo'")
-	})
-
-	t.Run("is not mounted in production", func(t *testing.T) {
-		ts := mountTestServerForEnvironment(t, cartridgeconfig.Production)
-
-		status, body := getBody(t, ts, "/_demo")
-
-		assert.Equal(t, 404, status)
-		assert.NotContains(t, body, "Run 'make demo'")
+	t.Run("exposes demo guidance only outside production", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, environment string
+			contains          bool
+		}{
+			{"test", cartridgeconfig.Test, true},
+			{"production", cartridgeconfig.Production, false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				status, body := getPage(t, testServer(t, tc.environment), "/_demo")
+				assert.Equal(t, 404, status)
+				assert.Equal(t, tc.contains, strings.Contains(body, "Run 'make demo'"))
+			})
+		}
 	})
 }

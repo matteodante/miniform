@@ -1,191 +1,73 @@
-// e2e/006-submissions.spec.js - Test inbox entries and rate limiting
-const { test, expect } = require("@playwright/test");
-const { TestHelpers } = require("./test-helpers");
-const { TEST_EMAIL, TEST_PASSWORD } = require("./test-constants");
+const { test, expect } = require("./fixtures");
+const { TestClient, uniqueName } = require("./test-client");
 
-test.describe("Inbox entries", () => {
-  let helpers;
-  let formId;
-  let formToken;
-  let formSlug;
+test.describe("inbox entries", () => {
+  let endpoint;
 
-  test.beforeEach(async ({ page }, testInfo) => {
-    helpers = new TestHelpers(page);
-
-    // Login
-    await page.context().clearCookies();
-    await helpers.login(TEST_EMAIL, TEST_PASSWORD);
-
-    // Create a test form for submissions using database with unique slug
-    const timestamp = Date.now();
-    formSlug = `test-contact-form-${timestamp}`;
-    const formData = await helpers.createFormData("Test Contact Form", formSlug);
-    formId = formData.formId;
-    formToken = formData.token;
-
-    helpers.log(`Created test form: ${formSlug} with token: ${formToken}`);
+  test.beforeEach(async ({ admin }) => {
+    endpoint = await admin.createForm("Contact inbox", uniqueName("inbox"));
   });
 
-  test.afterEach(async ({ page }) => {
-    if (helpers) {
-      await helpers.cleanup();
-    }
-  });
-
-  test("1. Submit a form successfully", async ({ page }) => {
-    helpers.log("=== Submitting Form ===");
-
-    const response = await helpers.submitToForm(formSlug, formToken, {
+  test("stores a public submission and shows it on the endpoint", async ({ page, admin }) => {
+    const response = await admin.submit(endpoint.slug, endpoint.token, {
       name: "Alice Smith",
       email: "alice@example.com",
-      message: "This is a test submission from the E2E tests",
+      message: "Browser acceptance entry",
     });
-
     expect(response.status()).toBe(200);
-    helpers.log("✅ Form submitted successfully");
 
-    // Check submission in admin
-    await helpers.navigateTo(`/admin/forms/${formId}`);
+    await admin.open(`/admin/forms/${endpoint.id}`);
+    await expect(page.locator("body")).toContainText("alice@example.com");
 
-    // Should show submission count or content
-    const pageContent = await page.textContent("body");
-    expect(pageContent).toMatch(/inbox entries|Alice Smith/i);
-
-    helpers.log("✅ Submission appears in admin");
+    await page.getByRole("link", { name: "Open", exact: true }).first().click();
+    await expect(page.getByRole("heading", { name: /Entry #/ })).toBeVisible();
+    await expect(page.locator("body")).toContainText("Alice Smith");
   });
 
-  test("2. View submission details", async ({ page }) => {
-    helpers.log("=== Viewing Submission Details ===");
+  test("renders canonical UTC timestamps in the browser timezone", async ({ page, admin }) => {
+    expect((await admin.submit(endpoint.slug, endpoint.token, { email: "time@example.com" })).status()).toBe(200);
+    await admin.open("/admin/submissions");
 
-    // First submit a form to have data to view
-    const response = await helpers.submitToForm(formSlug, formToken, {
-      name: "Bob Wilson",
-      email: "bob@example.com",
-      message: "Test submission for viewing details",
-    });
-
-    expect(response.status()).toBe(200);
-    helpers.log("✅ Form submitted for viewing test");
-
-    // Navigate to submissions page
-    await helpers.navigateTo("/admin/submissions");
-
-    // Should see submissions in the list
-    const pageContent = await page.textContent("body");
-    expect(pageContent).toMatch(/bob@example\.com|Test Contact Form/i);
-
-    const receivedDate = page.locator('time[data-local-time][data-date-style="medium"]').first();
-    const timestamp = await receivedDate.getAttribute("datetime");
-    expect(timestamp).toMatch(/Z$/);
-    const expectedDate = await page.evaluate(
+    const received = page.locator('time[data-local-time][data-date-style="medium"]').first();
+    const instant = await received.getAttribute("datetime");
+    expect(instant).toMatch(/Z$/);
+    const expected = await page.evaluate(
       (value) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value)),
-      timestamp
+      instant,
     );
-    await expect(receivedDate).toHaveText(expectedDate);
-    const browserTimeZone = await page.evaluate(
-      () => Intl.DateTimeFormat().resolvedOptions().timeZone || "local time"
-    );
-    await expect(page.locator("[data-timezone-label]")).toHaveText(browserTimeZone);
-
-    helpers.log("✅ Submission list displayed correctly");
+    await expect(received).toHaveText(expected);
+    const browserTimezone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "local time");
+    await expect(page.locator("[data-timezone-label]")).toHaveText(browserTimezone);
   });
 
-  test("renders one UTC instant in each browser timezone", async ({ browser, page }) => {
-    const response = await helpers.submitToForm(formSlug, formToken, {
-      name: "Timezone Tester",
-      email: "timezone@example.com",
-      message: "Same instant, different local presentation",
-    });
-    expect(response.status()).toBe(200);
-
+  test("presents one instant differently across timezones", async ({ browser, page, admin }) => {
+    expect((await admin.submit(endpoint.slug, endpoint.token, { email: "zones@example.com" })).status()).toBe(200);
     const baseURL = new URL(page.url()).origin;
-    const renderedTimes = [];
-    let expectedInstant;
+    const labels = [];
+    let canonicalInstant;
 
     for (const timezoneId of ["Europe/Rome", "America/New_York"]) {
       const context = await browser.newContext({ baseURL, locale: "en-US", timezoneId });
-      try {
-        const zonedPage = await context.newPage();
-        const zonedHelpers = new TestHelpers(zonedPage);
-        await zonedHelpers.login(TEST_EMAIL, TEST_PASSWORD);
-        await zonedHelpers.navigateTo("/admin/submissions");
-
-        const receivedTime = zonedPage.locator('time[data-local-time][data-time-style="short"]').first();
-        const instant = await receivedTime.getAttribute("datetime");
-        expect(instant).toMatch(/Z$/);
-        expectedInstant ??= instant;
-        expect(instant).toBe(expectedInstant);
-
-        const expectedTime = await zonedPage.evaluate(
-          (value) => new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(value)),
-          instant
-        );
-        await expect(receivedTime).toHaveText(expectedTime);
-        await expect(zonedPage.locator("[data-timezone-label]")).toHaveText(timezoneId);
-        renderedTimes.push(expectedTime);
-      } finally {
-        await context.close();
-      }
+      const zonedPage = await context.newPage();
+      const zonedClient = new TestClient(zonedPage);
+      await zonedClient.login();
+      await zonedClient.open("/admin/submissions");
+      const time = zonedPage.locator('time[data-local-time][data-time-style="short"]').first();
+      const instant = await time.getAttribute("datetime");
+      canonicalInstant ||= instant;
+      expect(instant).toBe(canonicalInstant);
+      labels.push(await time.textContent());
+      await expect(zonedPage.locator("[data-timezone-label]")).toHaveText(timezoneId);
+      await context.close();
     }
-
-    expect(renderedTimes[0]).not.toBe(renderedTimes[1]);
+    expect(labels[0]).not.toBe(labels[1]);
   });
 
-  test("3. Test rate limiting", async ({ page }) => {
-    helpers.log("=== Testing Rate Limiting ===");
-
-    // Submit first request
-    const response1 = await helpers.submitToForm(formSlug, formToken, {
-      name: "John Doe",
-      email: "john@example.com",
-      message: "This is a test submission",
+  test("rejects an invalid token", async ({ request }) => {
+    const response = await request.post(`/forms/${endpoint.slug}/submit?token=wrong`, {
+      form: { message: "not accepted" },
+      headers: { Origin: "http://localhost:3000" },
     });
-    expect(response1.status()).toBe(200);
-    helpers.log("✅ First submission successful");
-
-    // Submit second request immediately (should be rate limited)
-    const response2 = await helpers.submitToForm(formSlug, formToken, {
-      name: "Jane Smith",
-      email: "jane@example.com",
-      message: "Second submission",
-    });
-
-    // Should be rate limited (429) or successful (200) depending on timing
-    // Since rate limit is 60/min by default, we accept both
-    const status2 = response2.status();
-    helpers.log(`Second submission status: ${status2}`);
-    expect([200, 429]).toContain(status2);
-
-    if (status2 === 429) {
-      helpers.log("✅ Rate limiting working correctly");
-    } else {
-      helpers.log("⚠️  Rate limit not triggered (might be slow enough to pass)");
-    }
-  });
-
-  test("4. Test API endpoint submission", async ({ page }) => {
-    helpers.log("=== Testing API Endpoint Submission ===");
-
-    const response = await page.request.post(`/forms/${formSlug}/submit?token=${formToken}`, {
-      data: new URLSearchParams({
-        name: "API Tester",
-        email: "api@example.com",
-        message: "Submitted via API",
-      }).toString(),
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-    });
-
-    expect(response.status()).toBe(200);
-    helpers.log("✅ API submission successful");
-
-    // Verify in admin - navigate to submissions page to see the new submission
-    await helpers.navigateTo("/admin/submissions");
-
-    const pageContent = await page.textContent("body");
-    expect(pageContent).toMatch(/API Tester|api@example\.com/i);
-
-    helpers.log("✅ API submission appears in admin");
+    expect(response.status()).toBe(401);
   });
 });

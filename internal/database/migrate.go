@@ -1,6 +1,8 @@
 package database
 
 import (
+	"fmt"
+
 	"gorm.io/gorm"
 
 	"github.com/matteodante/miniform/internal/accounts"
@@ -8,19 +10,19 @@ import (
 	"github.com/matteodante/miniform/internal/integrations"
 )
 
-// Migrate performs the schema migration for all application models.
 func Migrate(db *gorm.DB) error {
-	return db.AutoMigrate(
-		&accounts.User{},
-		&accounts.Settings{},
-		&integrations.MailerProfile{},
-		&integrations.CaptchaProfile{},
-		&forms.Form{},
-		&forms.WebhookDelivery{},
-		&forms.EmailDelivery{},
-		&forms.Submission{},
-		&forms.WebhookEvent{},
-		&forms.EmailEvent{},
-		&forms.SubmissionFile{},
-	)
+	if err := db.AutoMigrate(Models()...); err != nil {
+		return fmt.Errorf("migrate application schema: %w", err)
+	}
+	return nil
+}
+
+func Models() []any {
+	return []any{
+		&accounts.User{}, &accounts.Settings{},
+		&integrations.MailerProfile{}, &integrations.CaptchaProfile{},
+		&forms.Form{}, &forms.EmailDelivery{}, &forms.WebhookDelivery{},
+		&forms.Submission{}, &forms.SubmissionFile{},
+		&forms.EmailEvent{}, &forms.WebhookEvent{},
+	}
 }

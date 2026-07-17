@@ -1,14 +1,14 @@
 {
   "name": "miniform-e2e",
   "version": "1.0.0",
-  "description": "E2E tests for miniform",
+  "description": "Miniform browser acceptance tests",
   "scripts": {
-    "setup": "node setup-test-env.js",
-    "test": "npx playwright test",
-    "test:all": "npm run test"
+    "test": "playwright test",
+    "test:unit": "node --test global-teardown.test.js",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui"
   },
   "dependencies": {
-    "bcrypt": "^6.0.0",
     "sqlite3": "^6.0.1"
   },
   "devDependencies": {

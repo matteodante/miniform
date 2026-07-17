@@ -7,16 +7,28 @@ run:
 linters:
   default: none
   enable:
+    - bidichk
     - bodyclose
+    - durationcheck
     - errcheck
+    - errchkjson
+    - errorlint
+    - gocheckcompilerdirectives
     - gocyclo
     - govet
     - ineffassign
+    - loggercheck
     - misspell
     - nilerr
-    - prealloc
+    - nilnesserr
+    - noctx
+    - nolintlint
     - revive
+    - rowserrcheck
+    - sqlclosecheck
     - staticcheck
+    - testifylint
+    - thelper
     - unconvert
     - unused
   settings:
@@ -26,6 +38,10 @@ linters:
       checks:
         - all
         - -QF1008
+    testifylint:
+      disable-all: true
+      enable:
+        - go-require
   exclusions:
     warn-unused: true
     presets:

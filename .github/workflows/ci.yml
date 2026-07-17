@@ -17,7 +17,8 @@ concurrency:
 
 env:
   GO_VERSION: 1.26.5
-  NODE_VERSION: 20
+  GORELEASER_VERSION: v2.17.0
+  NODE_VERSION: 24
 
 jobs:
   quality:
@@ -38,6 +39,25 @@ jobs:
 
       - name: Run repository checks
         run: make check
+
+  race:
+    name: Race detector
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run Go race detector
+        run: make test-race
 
   security:
     name: Security and licenses
@@ -130,6 +150,74 @@ jobs:
 
       - name: Build and test image
         run: make container-test
+
+  installer:
+    name: Installer integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build current installer and test image
+        run: |
+          CGO_ENABLED=1 go build -trimpath -o "$RUNNER_TEMP/miniform" ./cmd/miniform
+          go test -c -o "$RUNNER_TEMP/installation.test" ./tests/integration
+          docker run --detach --name miniform-test-registry --publish 127.0.0.1:5000:5000 registry:2
+          docker build --tag "localhost:5000/miniform:${GITHUB_SHA}" .
+          docker push "localhost:5000/miniform:${GITHUB_SHA}"
+
+      - name: Run installer as root
+        run: |
+          sudo env \
+            BINARY_PATH="$RUNNER_TEMP/miniform" \
+            ENV=test \
+            GITHUB_ACTIONS=true \
+            MINIFORM_INSTALLER_TEST_IMAGE="localhost:5000/miniform:${GITHUB_SHA}" \
+            MINIFORM_RUN_INSTALLATION_TEST=1 \
+            "$RUNNER_TEMP/installation.test" -test.v -test.timeout=15m
+
+  release-build:
+    name: Release binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install CGO cross compiler
+        run: sudo apt-get update && sudo apt-get install --yes gcc-aarch64-linux-gnu
+
+      - name: Validate release configuration
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: ${{ env.GORELEASER_VERSION }}
+          args: check
+
+      - name: Build release binaries
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: ${{ env.GORELEASER_VERSION }}
+          args: build --snapshot --clean
 
   dependency-review:
     name: Dependency review

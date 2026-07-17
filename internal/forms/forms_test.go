@@ -71,7 +71,7 @@ func TestForms(t *testing.T) {
 			FormID: form.ID, Enabled: true, URL: "https://example.com/hook",
 		}).Error)
 		require.NoError(t, db.Create(&forms.EmailDelivery{
-			FormID: form.ID, Enabled: true, OverridesJSON: `{"to":"ops@example.com"}`,
+			FormID: form.ID, Enabled: true, Recipient: "ops@example.com",
 		}).Error)
 		require.NoError(t, db.Preload("WebhookDelivery").Preload("EmailDelivery").First(&form, form.ID).Error)
 
@@ -198,26 +198,24 @@ func TestForms(t *testing.T) {
 		}
 	})
 
-	t.Run("scrubs both honeypots and skips files and deliveries", func(t *testing.T) {
+	t.Run("scrubs the honeypot and skips files and deliveries", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		root := t.TempDir()
 		form := forms.Form{
 			Name: "Protected", Slug: "protected",
 			WebhookDelivery: &forms.WebhookDelivery{Enabled: true, URL: "https://example.com/hook"},
-			EmailDelivery:   &forms.EmailDelivery{Enabled: true, OverridesJSON: `{"to":"owner@example.com"}`},
+			EmailDelivery:   &forms.EmailDelivery{Enabled: true, Recipient: "owner@example.com"},
 		}
 		require.NoError(t, db.Create(&form).Error)
 
-		for _, field := range []string{forms.HoneypotField, "__fl_hp"} {
-			payload := map[string]any{"name": "Robot", field: "filled"}
-			submission, err := forms.CreateSubmissionWithFiles(logger, db, &form, payload, "Bot", root, []*forms.UploadedFile{{
-				FieldName: "attachment", Filename: "payload.pdf", Data: bytes.NewBufferString("junk"),
-			}})
-			require.NoError(t, err)
-			assert.True(t, submission.IsSpam)
-			assert.Empty(t, submission.Files)
-			assert.NotContains(t, submission.DataJSON, field)
-		}
+		payload := map[string]any{"name": "Robot", forms.HoneypotField: "filled"}
+		submission, err := forms.CreateSubmissionWithFiles(logger, db, &form, payload, "Bot", root, []*forms.UploadedFile{{
+			FieldName: "attachment", Filename: "payload.pdf", Data: bytes.NewBufferString("junk"),
+		}})
+		require.NoError(t, err)
+		assert.True(t, submission.IsSpam)
+		assert.Empty(t, submission.Files)
+		assert.NotContains(t, submission.DataJSON, forms.HoneypotField)
 
 		var fileCount, webhookCount, emailCount int64
 		require.NoError(t, db.Model(&forms.SubmissionFile{}).Count(&fileCount).Error)
@@ -248,25 +246,6 @@ func TestForms(t *testing.T) {
 		}
 	})
 
-	t.Run("adds missing delivery records once", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-		form := forms.Form{Name: "Bare form", Slug: "bare"}
-		require.NoError(t, db.Create(&form).Error)
-
-		require.NoError(t, forms.EnsureDeliveryRecords(logger, db, &form))
-		require.NoError(t, forms.EnsureDeliveryRecords(logger, db, &form))
-		require.NotNil(t, form.EmailDelivery)
-		require.NotNil(t, form.WebhookDelivery)
-		assert.False(t, form.EmailDelivery.Enabled)
-		assert.False(t, form.WebhookDelivery.Enabled)
-
-		var emailCount, webhookCount int64
-		require.NoError(t, db.Model(&forms.EmailDelivery{}).Where("form_id = ?", form.ID).Count(&emailCount).Error)
-		require.NoError(t, db.Model(&forms.WebhookDelivery{}).Where("form_id = ?", form.ID).Count(&webhookCount).Error)
-		assert.Equal(t, int64(1), emailCount)
-		assert.Equal(t, int64(1), webhookCount)
-	})
-
 	t.Run("updates form and delivery settings atomically", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		profile, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
@@ -291,7 +270,7 @@ func TestForms(t *testing.T) {
 		require.NotNil(t, updated.EmailDelivery)
 		require.NotNil(t, updated.WebhookDelivery)
 		assert.True(t, updated.EmailDelivery.Enabled)
-		assert.Contains(t, updated.EmailDelivery.OverridesJSON, "team@example.com")
+		assert.Equal(t, "team@example.com", updated.EmailDelivery.Recipient)
 		assert.Equal(t, "secret", updated.WebhookDelivery.Secret)
 		assert.JSONEq(t, `{"Authorization":"Bearer token"}`, updated.WebhookDelivery.HeadersJSON)
 
@@ -303,7 +282,6 @@ func TestForms(t *testing.T) {
 			{"incomplete email", "email", forms.UpdateParams{ID: form.ID, Name: "After", EmailEnabled: true}},
 			{"missing webhook URL", "webhook", forms.UpdateParams{ID: form.ID, Name: "After", WebhookEnabled: true}},
 			{"invalid headers", "webhook_headers", forms.UpdateParams{ID: form.ID, Name: "After", WebhookEnabled: true, WebhookURL: "https://example.com", WebhookHeadersJSON: "{"}},
-			{"invalid captcha overrides", "captcha_overrides", forms.UpdateParams{ID: form.ID, Name: "After", UpdateCaptchaOverrides: true, CaptchaOverridesJSON: `{"theme":42}`}},
 		}
 		for _, check := range checks {
 			t.Run(check.name, func(t *testing.T) {
@@ -315,12 +293,21 @@ func TestForms(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects an incomplete delivery configuration", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form := forms.Form{Name: "Incomplete", Slug: "incomplete", AllowedOrigins: "*"}
+		require.NoError(t, db.Create(&form).Error)
+
+		_, err := forms.Update(logger, db, forms.UpdateParams{ID: form.ID, Name: "Updated"})
+		assert.ErrorContains(t, err, "incomplete delivery configuration")
+	})
+
 	t.Run("deletes a form-owned record graph", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		form := forms.Form{
 			Name: "Disposable", Slug: "disposable",
 			WebhookDelivery: &forms.WebhookDelivery{Enabled: true, URL: "https://example.com/hook"},
-			EmailDelivery:   &forms.EmailDelivery{Enabled: true, OverridesJSON: `{"to":"owner@example.com"}`},
+			EmailDelivery:   &forms.EmailDelivery{Enabled: true, Recipient: "owner@example.com"},
 		}
 		require.NoError(t, db.Create(&form).Error)
 		submission, err := forms.CreateSubmission(logger, db, &form, map[string]any{"message": "hello"}, "Browser")

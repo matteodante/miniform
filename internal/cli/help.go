@@ -29,23 +29,16 @@ func commandManifest() []CommandSpec {
 		{Name: "restore-db", Summary: "Restore the installed deployment database from backup.", Mutates: true},
 		{Name: "check", Summary: "Run deployment security checks."},
 		{Name: "version", Summary: "Print build version, commit, and timestamp."},
-		{Name: "change-admin-password", Summary: "Run the legacy interactive container password recovery flow.", Mutates: true, Notes: []string{"Agents should prefer account reset-password with secret input from a file or stdin."}},
 		{Name: "account show", Summary: "Show the operator account without its password hash.", RequiresDatabase: true},
 		{Name: "account set-email", Summary: "Change the operator email after password verification.", Mutates: true, RequiresDatabase: true, Flags: []string{"--email STRING", "--current-password-file PATH|-"}, Examples: []string{"miniform account set-email --email admin@example.com --current-password-file -"}},
 		{Name: "account change-password", Summary: "Change the operator password after verifying the current password.", Mutates: true, RequiresDatabase: true, Flags: []string{"--current-password-file PATH|-", "--new-password-file PATH|-"}},
 		{Name: "account reset-password", Summary: "Administratively replace the password without the old password.", Mutates: true, RequiresDatabase: true, Flags: []string{"--email STRING", "--new-password-file PATH|-"}, Notes: []string{"Use only from a trusted local administrative shell."}},
 		{Name: "config show", Summary: "Show effective runtime configuration with secrets redacted.", Flags: []string{"--show-secrets"}},
-		{Name: "config set", Summary: "Persist one supported MINIFORM_* key in an env file.", Mutates: true, Flags: []string{"--key KEY", "--value STRING", "--value-file PATH|-", "--env-file PATH"}, Notes: []string{"Secret keys require --value-file.", "Changes apply after process restart."}},
-		{Name: "config unset", Summary: "Remove one supported MINIFORM_* key from an env file.", Mutates: true, Flags: []string{"--key KEY", "--env-file PATH"}},
-		{Name: "setting list", Summary: "List database-backed key/value settings.", RequiresDatabase: true},
-		{Name: "setting get", Summary: "Get a database-backed setting.", RequiresDatabase: true, Flags: []string{"--key KEY"}},
-		{Name: "setting set", Summary: "Create or update a database-backed setting.", Mutates: true, RequiresDatabase: true, Flags: []string{"--key KEY", "--value STRING", "--value-file PATH|-"}},
-		{Name: "setting delete", Summary: "Delete a database-backed setting.", Mutates: true, RequiresDatabase: true, Flags: []string{"--key KEY", "--yes"}},
 		{Name: "form list", Summary: "List configured form endpoints.", RequiresDatabase: true},
 		{Name: "form get", Summary: "Get one form by id or slug.", RequiresDatabase: true, Flags: []string{"--id UINT", "--slug STRING", "--show-secrets"}},
 		{Name: "form code", Summary: "Build copyable form HTML with captcha and optional SDK.", RequiresDatabase: true, Flags: []string{"--id UINT", "--slug STRING", "--include-sdk=BOOL", "--show-secrets"}, Notes: []string{"Omitting --include-sdk uses the form setting.", "The token is replaced with YOUR_FORM_TOKEN unless --show-secrets is set."}},
-		{Name: "form create", Summary: "Create a form endpoint and its delivery policies.", Mutates: true, RequiresDatabase: true, Flags: []string{"--template STRING", "--name STRING", "--slug STRING", "--allowed-origins STRING", "--use-sdk", "--generated-html-file PATH", "--mailer-profile-id UINT", "--captcha-profile-id UINT", "--captcha-overrides-file PATH", "--email-enabled", "--email-recipient STRING", "--webhook-enabled", "--webhook-url URL", "--webhook-secret-file PATH|-", "--webhook-headers-file PATH"}},
-		{Name: "form update", Summary: "Update form and delivery settings; omitted flags preserve current values.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--name STRING", "--slug STRING", "--allowed-origins STRING", "--use-sdk=BOOL", "--generated-html-file PATH", "--clear-generated-html", "--mailer-profile-id UINT", "--clear-mailer-profile", "--captcha-profile-id UINT", "--clear-captcha-profile", "--captcha-overrides-file PATH", "--clear-captcha-overrides", "--email-enabled=BOOL", "--email-recipient STRING", "--webhook-enabled=BOOL", "--webhook-url URL", "--webhook-secret-file PATH|-", "--clear-webhook-secret", "--webhook-headers-file PATH", "--clear-webhook-headers"}},
+		{Name: "form create", Summary: "Create a form endpoint and its delivery policies.", Mutates: true, RequiresDatabase: true, Flags: []string{"--template STRING", "--name STRING", "--slug STRING", "--allowed-origins STRING", "--use-sdk", "--generated-html-file PATH", "--mailer-profile-id UINT", "--captcha-profile-id UINT", "--email-enabled", "--email-recipient STRING", "--webhook-enabled", "--webhook-url URL", "--webhook-secret-file PATH|-", "--webhook-headers-file PATH"}},
+		{Name: "form update", Summary: "Update form and delivery settings; omitted flags preserve current values.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--name STRING", "--slug STRING", "--allowed-origins STRING", "--use-sdk=BOOL", "--generated-html-file PATH", "--clear-generated-html", "--mailer-profile-id UINT", "--clear-mailer-profile", "--captcha-profile-id UINT", "--clear-captcha-profile", "--email-enabled=BOOL", "--email-recipient STRING", "--webhook-enabled=BOOL", "--webhook-url URL", "--webhook-secret-file PATH|-", "--clear-webhook-secret", "--webhook-headers-file PATH", "--clear-webhook-headers"}},
 		{Name: "form rotate-token", Summary: "Replace a form submission token and invalidate the old token.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--yes", "--show-secrets"}},
 		{Name: "form template-list", Summary: "List built-in form templates."},
 		{Name: "form template-get", Summary: "Get or render one built-in form template.", Flags: []string{"--template STRING", "--action URL"}},
@@ -57,8 +50,8 @@ func commandManifest() []CommandSpec {
 		{Name: "mailer delete", Summary: "Delete an unused mailer profile.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--yes"}},
 		{Name: "captcha list", Summary: "List captcha profiles with secrets redacted.", RequiresDatabase: true, Flags: []string{"--show-secrets"}},
 		{Name: "captcha get", Summary: "Get a captcha profile and usage count.", RequiresDatabase: true, Flags: []string{"--id UINT", "--show-secrets"}},
-		{Name: "captcha create", Summary: "Create a captcha profile.", Mutates: true, RequiresDatabase: true, Flags: []string{"--name STRING", "--provider turnstile", "--secret-key-file PATH|-", "--site-keys-file PATH", "--policy-file PATH"}},
-		{Name: "captcha update", Summary: "Update a captcha profile; omitted flags preserve current values.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--name STRING", "--provider turnstile", "--secret-key-file PATH|-", "--site-keys-file PATH", "--policy-file PATH", "--clear-secret-key", "--clear-site-keys", "--clear-policy"}},
+		{Name: "captcha create", Summary: "Create a Turnstile profile.", Mutates: true, RequiresDatabase: true, Flags: []string{"--name STRING", "--site-key STRING", "--secret-key-file PATH|-"}},
+		{Name: "captcha update", Summary: "Update a Turnstile profile; omitted flags preserve current values.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--name STRING", "--site-key STRING", "--secret-key-file PATH|-"}},
 		{Name: "captcha delete", Summary: "Delete an unused captcha profile.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--yes"}},
 		{Name: "submission list", Summary: "List and filter inbox submissions.", RequiresDatabase: true, Flags: []string{"--form-id UINT", "--range all|7d|30d|90d", "--query STRING", "--spam true|false", "--page INT", "--per-page INT"}},
 		{Name: "submission get", Summary: "Get a submission with payload, events, and files.", RequiresDatabase: true, Flags: []string{"--id UINT"}},
@@ -79,7 +72,7 @@ func commandManifest() []CommandSpec {
 func supportsJSON(command string) bool {
 	resource, _, _ := strings.Cut(command, " ")
 	switch resource {
-	case "account", "captcha", "commands", "config", "event", "form", "help", "mailer", "setting", "submission":
+	case "account", "captcha", "commands", "config", "event", "form", "help", "mailer", "submission":
 		return true
 	default:
 		return false
@@ -126,8 +119,7 @@ func (r *Runner) writeRootHelp() {
 	fmt.Fprintln(r.Stdout)
 	fmt.Fprintln(r.Stdout, "Resources:")
 	fmt.Fprintln(r.Stdout, "  account     Operator email and password")
-	fmt.Fprintln(r.Stdout, "  config      Runtime configuration and .env persistence")
-	fmt.Fprintln(r.Stdout, "  setting     Database-backed key/value settings")
+	fmt.Fprintln(r.Stdout, "  config      Effective runtime configuration")
 	fmt.Fprintln(r.Stdout, "  form        Form endpoints and delivery policies")
 	fmt.Fprintln(r.Stdout, "  mailer      SMTP profiles")
 	fmt.Fprintln(r.Stdout, "  captcha     Captcha profiles")

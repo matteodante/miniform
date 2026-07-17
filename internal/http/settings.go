@@ -68,10 +68,6 @@ func AdminSettingsUpdateEmail(ctx *cartridge.Context) error {
 	return renderSettings(ctx, "", "Email updated successfully")
 }
 
-func AdminSettingsUpdateTurnstile(ctx *cartridge.Context) error {
-	return ctx.Redirect("/admin/settings/captcha")
-}
-
 func currentUser(ctx *cartridge.Context) (*accounts.User, error) {
 	if ctx.Session == nil {
 		return nil, fiber.ErrUnauthorized

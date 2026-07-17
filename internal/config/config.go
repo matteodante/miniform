@@ -1,63 +1,81 @@
 package config
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 
+	"github.com/joho/godotenv"
 	cartridgeconfig "github.com/karloscodes/cartridge/config"
-	"github.com/spf13/viper"
 )
 
 const appName = "miniform"
 
 type Config struct {
 	*cartridgeconfig.Config
-	AnonSalt       string        `mapstructure:"anonsalt"`
-	MaxInputFields int           `mapstructure:"maxinputfields"`
-	Webhook        WebhookConfig `mapstructure:"webhook"`
+	MaxInputFields int
+	Webhook        WebhookConfig
 }
 
 type WebhookConfig struct {
-	SignatureHeader string `mapstructure:"signatureheader"`
-	RetryLimit      int    `mapstructure:"retrylimit"`
-	BackoffSchedule string `mapstructure:"backoffschedule"`
-}
-
-var (
-	configOnce sync.Once
-	instance   *Config
-	loadError  error
-)
-
-func Get() (*Config, error) {
-	configOnce.Do(func() { instance, loadError = Load() })
-	return instance, loadError
+	SignatureHeader string
+	RetryLimit      int
+	BackoffSchedule string
 }
 
 func Load() (*Config, error) {
-	restore, err := importDotEnv()
-	if err != nil {
-		return nil, err
-	}
-	defer restore()
-	if os.Getenv("MINIFORM_ENV") == "" {
-		_ = os.Setenv("MINIFORM_ENV", cartridgeconfig.Development)
-		defer func() { _ = os.Unsetenv("MINIFORM_ENV") }()
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("load .env: %w", err)
 	}
 
-	base, err := cartridgeconfig.Load(appName)
-	if err != nil {
-		return nil, err
+	environment := envOr("MINIFORM_ENV", cartridgeconfig.Development)
+	if environment != cartridgeconfig.Development && environment != cartridgeconfig.Production && environment != cartridgeconfig.Test {
+		return nil, fmt.Errorf("invalid MINIFORM_ENV value %q", environment)
 	}
-	applyBaseEnvironment(base)
+
+	dataDirectory := envOr("MINIFORM_DATA_DIR", "storage")
+	databaseFilename := envOr("MINIFORM_DATABASE_FILENAME", appName+".db")
+	databasePath := strings.TrimSpace(os.Getenv("MINIFORM_DATABASE_PATH"))
+	if databasePath == "" {
+		databasePath = environmentDatabasePath(dataDirectory, databaseFilename, environment)
+	}
+
+	sessionSecret := strings.TrimSpace(os.Getenv("MINIFORM_SESSION_SECRET"))
+	if sessionSecret == "" {
+		// Matcha's current install contract injects PRIVATE_KEY.
+		sessionSecret = strings.TrimSpace(os.Getenv("PRIVATE_KEY"))
+	}
+	if sessionSecret == "" && environment == cartridgeconfig.Production {
+		return nil, fmt.Errorf("MINIFORM_SESSION_SECRET is required in production")
+	}
+	if sessionSecret == "" {
+		sessionSecret = rand.Text()
+	}
+
+	logLevel := "info"
+	if environment == cartridgeconfig.Production {
+		logLevel = "error"
+	}
 	cfg := &Config{
-		Config:         base,
-		AnonSalt:       strings.TrimSpace(os.Getenv("MINIFORM_ANON_SALT")),
+		Config: &cartridgeconfig.Config{
+			AppName:          appName,
+			Environment:      environment,
+			Port:             envOr("MINIFORM_PORT", "8080"),
+			LogLevel:         envOr("MINIFORM_LOG_LEVEL", logLevel),
+			DataDirectory:    dataDirectory,
+			DatabaseFilename: databaseFilename,
+			DatabasePath:     databasePath,
+			LogsDirectory:    envOr("MINIFORM_LOGS_DIR", filepath.Join(dataDirectory, "logs")),
+			LogsMaxSizeMB:    20,
+			LogsMaxBackups:   10,
+			LogsMaxAgeDays:   30,
+			SessionSecret:    sessionSecret,
+			SessionTimeout:   positiveEnvInt("MINIFORM_SESSION_TIMEOUT_SECONDS", 604800),
+		},
 		MaxInputFields: positiveEnvInt("MINIFORM_MAX_INPUT_FIELDS", 200),
 		Webhook: WebhookConfig{
 			SignatureHeader: envOr("MINIFORM_WEBHOOK_SIGNATURE_HEADER", "X-Miniform-Signature"),
@@ -68,67 +86,16 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-func importDotEnv() (func(), error) {
-	reader := viper.New()
-	reader.SetConfigName(".env")
-	reader.SetConfigType("env")
-	reader.AddConfigPath(".")
-	if err := reader.ReadInConfig(); err != nil {
-		var missing viper.ConfigFileNotFoundError
-		if errors.As(err, &missing) {
-			return func() {}, nil
+func (cfg *Config) EnsureDirectories() error {
+	for _, directory := range []string{cfg.DataDirectory, cfg.LogsDirectory} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return fmt.Errorf("create directory %q: %w", directory, err)
 		}
-		return nil, fmt.Errorf("read .env: %w", err)
 	}
-
-	var imported []string
-	for _, key := range reader.AllKeys() {
-		environmentKey := strings.ToUpper(key)
-		if !strings.HasPrefix(environmentKey, "MINIFORM_") {
-			continue
-		}
-		if _, exists := os.LookupEnv(environmentKey); exists {
-			continue
-		}
-		if err := os.Setenv(environmentKey, fmt.Sprint(reader.Get(key))); err != nil {
-			for _, added := range imported {
-				_ = os.Unsetenv(added)
-			}
-			return nil, fmt.Errorf("load %s from .env: %w", environmentKey, err)
-		}
-		imported = append(imported, environmentKey)
-	}
-	return func() {
-		for _, key := range imported {
-			_ = os.Unsetenv(key)
-		}
-	}, nil
+	return nil
 }
 
-func applyBaseEnvironment(base *cartridgeconfig.Config) {
-	if value := strings.TrimSpace(os.Getenv("MINIFORM_LOG_LEVEL")); value != "" {
-		base.LogLevel = value
-	}
-	if value := strings.TrimSpace(os.Getenv("MINIFORM_DATABASE_FILENAME")); value != "" {
-		base.DatabaseFilename = value
-	}
-	if value := strings.TrimSpace(os.Getenv("MINIFORM_LOGS_DIR")); value != "" {
-		base.LogsDirectory = value
-	}
-	base.SessionTimeout = positiveEnvInt("MINIFORM_SESSION_TIMEOUT_SECONDS", base.SessionTimeout)
-	if path := strings.TrimSpace(os.Getenv("MINIFORM_DATABASE_PATH")); path != "" {
-		base.DatabasePath = path
-	} else {
-		base.DatabasePath = databasePath(base.DataDirectory, base.DatabaseFilename, base.Environment)
-	}
-	for _, directory := range []string{base.DataDirectory, base.LogsDirectory} {
-		if directory != "" {
-			_ = os.MkdirAll(directory, 0o700)
-		}
-	}
-}
-
-func databasePath(directory, filename, environment string) string {
+func environmentDatabasePath(directory, filename, environment string) string {
 	extension := filepath.Ext(filename)
 	base := strings.TrimSuffix(filename, extension)
 	if extension == "" {
@@ -168,10 +135,4 @@ func (cfg *Config) WebhookBackoff() []int {
 		return []int{1, 5, 15, 60}
 	}
 	return schedule
-}
-
-func Reset() {
-	configOnce = sync.Once{}
-	instance = nil
-	loadError = nil
 }

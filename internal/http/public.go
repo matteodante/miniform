@@ -204,17 +204,13 @@ func verifyCaptcha(ctx *cartridge.Context, form *forms.Form, payload map[string]
 		return nil
 	}
 	profile := form.CaptchaProfile
-	if profile == nil || !strings.EqualFold(strings.TrimSpace(profile.Provider), "turnstile") {
+	if profile == nil {
 		ctx.Logger.Warn("captcha profile unavailable", slog.Uint64("form_id", uint64(form.ID)))
 		return errCaptchaFailed
 	}
-	settings := integrations.ResolveCaptchaSettings(profile.PolicyJSON, form.CaptchaOverridesJSON)
 	token, ok := extractCaptchaToken(payload)
 	if !ok {
-		if settings.Required {
-			return errCaptchaFailed
-		}
-		return nil
+		return errCaptchaFailed
 	}
 	if strings.TrimSpace(profile.SecretKey) == "" {
 		ctx.Logger.Warn("captcha secret unavailable", slog.Uint64("form_id", uint64(form.ID)))
@@ -225,24 +221,25 @@ func verifyCaptcha(ctx *cartridge.Context, form *forms.Form, payload map[string]
 		ctx.Logger.Warn("turnstile rejected submission", slog.Uint64("form_id", uint64(form.ID)), slog.Any("error", err))
 		return errCaptchaFailed
 	}
-	if reason := turnstileResultFailure(form, settings, result); reason != "" {
+	if reason := turnstileResultFailure(form, result); reason != "" {
 		ctx.Logger.Warn("turnstile result rejected", slog.Uint64("form_id", uint64(form.ID)), slog.String("reason", reason))
 		return errCaptchaFailed
 	}
 	return nil
 }
 
-func turnstileResultFailure(form *forms.Form, settings integrations.CaptchaSettings, result *integrations.TurnstileResult) string {
+func turnstileResultFailure(form *forms.Form, result *integrations.TurnstileResult) string {
 	if result == nil || !result.Success {
 		return "unsuccessful verification"
 	}
-	if strings.TrimSpace(result.Action) != settings.Action {
+	if strings.TrimSpace(result.Action) != integrations.TurnstileAction {
 		return "action mismatch"
 	}
-	if strings.TrimSpace(form.AllowedOrigins) == "*" {
-		return ""
+	hostname := strings.TrimSpace(result.Hostname)
+	if hostname == "" {
+		return "hostname mismatch"
 	}
-	if hostname := strings.TrimSpace(result.Hostname); hostname == "" || !form.IsOriginAllowed(hostname) {
+	if strings.TrimSpace(form.AllowedOrigins) != "*" && !form.IsOriginAllowed(hostname) {
 		return "hostname mismatch"
 	}
 	return ""

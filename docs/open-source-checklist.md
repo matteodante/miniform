@@ -7,7 +7,7 @@ Complete this checklist immediately before making the repository public.
 - [ ] Confirm the repository URL and add `origin`
 - [ ] Confirm `main` is the default branch and remove obsolete branches and tags
 - [ ] Verify the full reachable Git history contains no secrets, private data, local paths, or obsolete product names
-- [ ] Confirm `.env`, databases, logs, browser output, caches, and binaries are untracked
+- [ ] Confirm databases, logs, browser output, caches, binaries, and local secret files are untracked
 - [ ] Set repository description, website, topics, and social preview
 - [ ] Enable Issues and Discussions with Q&A, Ideas, and Show and tell categories
 

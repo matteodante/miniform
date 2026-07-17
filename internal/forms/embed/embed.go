@@ -2,7 +2,6 @@
 package embed
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -138,31 +137,16 @@ type captchaMarkup struct {
 }
 
 func turnstileFor(form *forms.Form) *captchaMarkup {
-	if form.CaptchaProfileID == nil || form.CaptchaProfile == nil ||
-		!strings.EqualFold(strings.TrimSpace(form.CaptchaProfile.Provider), "turnstile") {
+	if form.CaptchaProfileID == nil || form.CaptchaProfile == nil {
 		return nil
 	}
-
-	settings := integrations.ResolveCaptchaSettings(form.CaptchaProfile.PolicyJSON, form.CaptchaOverridesJSON)
-	if settings.SiteKey == "" {
-		settings.SiteKey = chooseSiteKey(form.AllowedOrigins, decodeSiteKeys(form.CaptchaProfile.SiteKeysJSON))
-	}
-	if settings.SiteKey == "" {
-		settings.SiteKey = "YOUR_TURNSTILE_SITE_KEY"
-	}
+	siteKey := strings.TrimSpace(form.CaptchaProfile.SiteKey)
 
 	widget := htmlnode.Token{Type: htmlnode.StartTagToken, Data: "div", Attr: []htmlnode.Attribute{
 		{Key: "class", Val: "cf-turnstile"},
-		{Key: "data-sitekey", Val: settings.SiteKey},
+		{Key: "data-sitekey", Val: siteKey},
+		{Key: "data-action", Val: integrations.TurnstileAction},
 	}}
-	for _, attribute := range []struct{ name, value string }{
-		{"data-action", settings.Action}, {"data-theme", settings.Theme},
-		{"data-language", settings.Language}, {"data-size", settings.Size},
-	} {
-		if attribute.value != "" {
-			setAttribute(&widget, attribute.name, attribute.value)
-		}
-	}
 	return &captchaMarkup{
 		widget: `  <div class="miniform-captcha-block">` + widget.String() + `</div>`,
 		script: `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>`,
@@ -206,110 +190,6 @@ func appendBlock(source, block string) string {
 		return source
 	}
 	return strings.TrimRight(source, "\n") + "\n" + strings.TrimSpace(block)
-}
-
-type siteKey struct {
-	HostPattern string `json:"host_pattern"`
-	SiteKey     string `json:"site_key"`
-}
-
-func decodeSiteKeys(raw string) []siteKey {
-	var keys []siteKey
-	if json.Unmarshal([]byte(raw), &keys) != nil {
-		return nil
-	}
-	return keys
-}
-
-func chooseSiteKey(origins string, keys []siteKey) string {
-	if origins = strings.TrimSpace(origins); origins != "" && origins != "*" {
-		for _, origin := range strings.Split(origins, ",") {
-			pattern := normalizedHostPattern(origin)
-			if strings.HasPrefix(pattern, "*.") {
-				if key := keyForWildcard(strings.TrimPrefix(pattern, "*."), keys); key != "" {
-					return key
-				}
-				continue
-			}
-			if key := keyForHost(originHost(origin), keys); key != "" {
-				return key
-			}
-		}
-	}
-	for _, pattern := range []string{"*", ""} {
-		for _, key := range keys {
-			if strings.TrimSpace(key.SiteKey) != "" && (pattern == "" || strings.TrimSpace(key.HostPattern) == pattern) {
-				return strings.TrimSpace(key.SiteKey)
-			}
-		}
-	}
-	return ""
-}
-
-func keyForWildcard(base string, keys []siteKey) string {
-	for _, entry := range keys {
-		pattern := normalizedHostPattern(entry.HostPattern)
-		key := strings.TrimSpace(entry.SiteKey)
-		if key == "" || !strings.HasPrefix(pattern, "*.") {
-			continue
-		}
-		keyBase := strings.TrimPrefix(pattern, "*.")
-		if base == keyBase || strings.HasSuffix(base, "."+keyBase) {
-			return key
-		}
-	}
-	return ""
-}
-
-func keyForHost(host string, keys []siteKey) string {
-	for _, entry := range keys {
-		pattern := strings.ToLower(strings.TrimSpace(entry.HostPattern))
-		key := strings.TrimSpace(entry.SiteKey)
-		if host == "" || pattern == "" || key == "" {
-			continue
-		}
-		if pattern == "*" || pattern == host {
-			return key
-		}
-		if strings.HasPrefix(pattern, "*.") || strings.HasPrefix(pattern, ".") {
-			base := strings.TrimPrefix(strings.TrimPrefix(pattern, "*."), ".")
-			if host == base || strings.HasSuffix(host, "."+base) {
-				return key
-			}
-		}
-	}
-	return ""
-}
-
-func originHost(origin string) string {
-	origin = strings.TrimSpace(origin)
-	if origin == "" {
-		return ""
-	}
-	if !strings.Contains(origin, "://") {
-		origin = "//" + origin
-	}
-	parsed, err := url.Parse(origin)
-	if err != nil {
-		return ""
-	}
-	return strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
-}
-
-func normalizedHostPattern(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	wildcard := strings.HasPrefix(value, "*.")
-	if wildcard {
-		value = strings.TrimPrefix(value, "*.")
-	}
-	host := originHost(value)
-	if host == "" {
-		return ""
-	}
-	if wildcard {
-		return "*." + host
-	}
-	return host
 }
 
 func formAction(slug, token string) string {

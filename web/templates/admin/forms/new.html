@@ -52,6 +52,7 @@
                         <option value="">No captcha</option>
                         {{ range .CaptchaProfiles }}<option value="{{ .ID }}" {{ if eq $.SelectedCaptchaProfileID .ID }}selected{{ end }}>{{ .Name }}</option>{{ end }}
                     </select>
+                    <span class="text-xs font-normal text-ink-muted">Selecting a safeguard requires Turnstile on every submission.</span>
                     <a class="text-xs font-semibold text-moss" href="/admin/settings/captcha">Manage safeguards →</a>
                 </label>
             </div>

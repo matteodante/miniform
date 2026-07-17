@@ -9,46 +9,42 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/matteodante/miniform/internal/integrations"
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 	"github.com/matteodante/miniform/internal/pkg/sqliteerr"
 )
 
 type CreateParams struct {
-	Name                 string
-	Slug                 string
-	AllowedOrigins       string
-	UseSDK               bool
-	GeneratedHTML        string
-	MailerProfileID      *uint
-	CaptchaProfileID     *uint
-	CaptchaOverridesJSON string
-	EmailRecipient       string
-	EmailEnabled         bool
-	WebhookEnabled       bool
-	WebhookURL           string
-	WebhookSecret        string
-	WebhookHeadersJSON   string
+	Name               string
+	Slug               string
+	AllowedOrigins     string
+	UseSDK             bool
+	GeneratedHTML      string
+	MailerProfileID    *uint
+	CaptchaProfileID   *uint
+	EmailRecipient     string
+	EmailEnabled       bool
+	WebhookEnabled     bool
+	WebhookURL         string
+	WebhookSecret      string
+	WebhookHeadersJSON string
 }
 
 type UpdateParams struct {
-	ID                     uint
-	Name                   string
-	Slug                   string
-	AllowedOrigins         string
-	UseSDK                 bool
-	GeneratedHTML          string
-	MailerProfileID        *uint
-	CaptchaProfileID       *uint
-	CaptchaOverridesJSON   string
-	UpdateGeneratedHTML    bool
-	UpdateCaptchaOverrides bool
-	EmailRecipient         string
-	EmailEnabled           bool
-	WebhookEnabled         bool
-	WebhookURL             string
-	WebhookSecret          string
-	WebhookHeadersJSON     string
+	ID                  uint
+	Name                string
+	Slug                string
+	AllowedOrigins      string
+	UseSDK              bool
+	GeneratedHTML       string
+	MailerProfileID     *uint
+	CaptchaProfileID    *uint
+	UpdateGeneratedHTML bool
+	EmailRecipient      string
+	EmailEnabled        bool
+	WebhookEnabled      bool
+	WebhookURL          string
+	WebhookSecret       string
+	WebhookHeadersJSON  string
 }
 
 type ValidationError struct {
@@ -61,7 +57,7 @@ func (err *ValidationError) Error() string {
 }
 
 type deliveryValues struct {
-	emailOverrides string
+	emailRecipient string
 	webhookURL     string
 	webhookSecret  string
 	webhookHeaders string
@@ -81,18 +77,6 @@ func Create(logger *slog.Logger, db *gorm.DB, params CreateParams) (*Form, error
 		return nil, invalid("allowed_origins", "Allowed origins is required")
 	}
 
-	captchaOverrides, err := canonicalObject(
-		"captcha_overrides",
-		params.CaptchaOverridesJSON,
-		new(map[string]any),
-		"Captcha overrides must be valid JSON",
-	)
-	if err != nil {
-		return nil, err
-	}
-	if err := integrations.ValidateCaptchaSettingsJSON(captchaOverrides); err != nil {
-		return nil, invalid("captcha_overrides", err.Error())
-	}
 	delivery, err := prepareDelivery(params.EmailEnabled, params.MailerProfileID, params.EmailRecipient, params.WebhookEnabled, params.WebhookURL, params.WebhookSecret, params.WebhookHeadersJSON)
 	if err != nil {
 		return nil, err
@@ -103,17 +87,16 @@ func Create(logger *slog.Logger, db *gorm.DB, params CreateParams) (*Form, error
 	}
 
 	form := &Form{
-		Name:                 name,
-		Slug:                 normalizedSlug,
-		AllowedOrigins:       origins,
-		UseSDK:               params.UseSDK,
-		GeneratedHTML:        strings.TrimSpace(params.GeneratedHTML),
-		CaptchaProfileID:     params.CaptchaProfileID,
-		CaptchaOverridesJSON: captchaOverrides,
+		Name:             name,
+		Slug:             normalizedSlug,
+		AllowedOrigins:   origins,
+		UseSDK:           params.UseSDK,
+		GeneratedHTML:    strings.TrimSpace(params.GeneratedHTML),
+		CaptchaProfileID: params.CaptchaProfileID,
 		EmailDelivery: &EmailDelivery{
 			Enabled:         params.EmailEnabled,
 			MailerProfileID: params.MailerProfileID,
-			OverridesJSON:   delivery.emailOverrides,
+			Recipient:       delivery.emailRecipient,
 		},
 		WebhookDelivery: &WebhookDelivery{
 			Enabled:     params.WebhookEnabled,
@@ -144,6 +127,9 @@ func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error
 	if err != nil {
 		return nil, err
 	}
+	if form.EmailDelivery == nil || form.WebhookDelivery == nil {
+		return nil, fmt.Errorf("form %d has incomplete delivery configuration", params.ID)
+	}
 	delivery, err := prepareDelivery(params.EmailEnabled, params.MailerProfileID, params.EmailRecipient, params.WebhookEnabled, params.WebhookURL, params.WebhookSecret, params.WebhookHeadersJSON)
 	if err != nil {
 		return nil, err
@@ -161,36 +147,17 @@ func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error
 	if params.UpdateGeneratedHTML {
 		generatedHTML = strings.TrimSpace(params.GeneratedHTML)
 	}
-	captchaOverrides := form.CaptchaOverridesJSON
-	if params.UpdateCaptchaOverrides {
-		captchaOverrides, err = canonicalObject(
-			"captcha_overrides",
-			params.CaptchaOverridesJSON,
-			new(map[string]any),
-			"Captcha overrides must be valid JSON",
-		)
-		if err != nil {
-			return nil, err
-		}
-		if err := integrations.ValidateCaptchaSettingsJSON(captchaOverrides); err != nil {
-			return nil, invalid("captcha_overrides", err.Error())
-		}
-	}
-
-	if err := EnsureDeliveryRecords(logger, db, form); err != nil {
-		return nil, err
-	}
 	err = dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
 		if err := tx.Model(&Form{}).Where("id = ?", params.ID).Updates(map[string]any{
 			"name": name, "slug": slug, "allowed_origins": origins,
 			"use_sdk": params.UseSDK, "generated_html": generatedHTML,
-			"captcha_profile_id": params.CaptchaProfileID, "captcha_overrides_json": captchaOverrides,
+			"captcha_profile_id": params.CaptchaProfileID,
 		}).Error; err != nil {
 			return err
 		}
 		if err := tx.Model(&EmailDelivery{}).Where("id = ?", form.EmailDelivery.ID).Updates(map[string]any{
 			"enabled": params.EmailEnabled, "mailer_profile_id": params.MailerProfileID,
-			"overrides_json": delivery.emailOverrides,
+			"recipient": delivery.emailRecipient,
 		}).Error; err != nil {
 			return err
 		}
@@ -268,39 +235,6 @@ func Delete(logger *slog.Logger, db *gorm.DB, id uint) error {
 	})
 }
 
-func EnsureDeliveryRecords(logger *slog.Logger, db *gorm.DB, form *Form) error {
-	if form.EmailDelivery != nil && form.WebhookDelivery != nil {
-		return nil
-	}
-
-	var email *EmailDelivery
-	var webhook *WebhookDelivery
-	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		if form.EmailDelivery == nil {
-			email = &EmailDelivery{FormID: form.ID}
-			if err := tx.Create(email).Error; err != nil {
-				return err
-			}
-		}
-		if form.WebhookDelivery == nil {
-			webhook = &WebhookDelivery{FormID: form.ID}
-			if err := tx.Create(webhook).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("ensure form deliveries: %w", err)
-	}
-	if email != nil {
-		form.EmailDelivery = email
-	}
-	if webhook != nil {
-		form.WebhookDelivery = webhook
-	}
-	return nil
-}
-
 func loadForm(query *gorm.DB) (*Form, error) {
 	var form Form
 	err := query.
@@ -330,13 +264,7 @@ func prepareDelivery(emailEnabled bool, mailerID *uint, recipient string, webhoo
 		webhookSecret: strings.TrimSpace(webhookSecret),
 	}
 	recipient = strings.TrimSpace(recipient)
-	if recipient != "" {
-		encoded, err := json.Marshal(map[string]string{"to": recipient})
-		if err != nil {
-			return values, fmt.Errorf("encode email recipient: %w", err)
-		}
-		values.emailOverrides = string(encoded)
-	}
+	values.emailRecipient = recipient
 	if emailEnabled && (mailerID == nil || recipient == "") {
 		return values, invalid("email", "Mailer profile and email recipient required when email forwarding is enabled")
 	}
@@ -345,26 +273,22 @@ func prepareDelivery(emailEnabled bool, mailerID *uint, recipient string, webhoo
 	}
 
 	var err error
-	values.webhookHeaders, err = canonicalObject(
-		"webhook_headers",
-		webhookHeaders,
-		new(map[string]string),
-		"Webhook headers must be valid JSON",
-	)
+	values.webhookHeaders, err = canonicalWebhookHeaders(webhookHeaders)
 	return values, err
 }
 
-func canonicalObject(field, value string, object any, message string) (string, error) {
+func canonicalWebhookHeaders(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", nil
 	}
-	if err := json.Unmarshal([]byte(value), object); err != nil {
-		return "", invalid(field, message)
+	var headers map[string]string
+	if err := json.Unmarshal([]byte(value), &headers); err != nil {
+		return "", invalid("webhook_headers", "Webhook headers must be valid JSON")
 	}
-	normalized, err := json.Marshal(object)
+	normalized, err := json.Marshal(headers)
 	if err != nil {
-		return "", fmt.Errorf("normalize %s: %w", field, err)
+		return "", fmt.Errorf("normalize webhook headers: %w", err)
 	}
 	return string(normalized), nil
 }

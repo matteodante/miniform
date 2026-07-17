@@ -12,10 +12,7 @@ import (
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 )
 
-const (
-	HoneypotField       = "__mf_hp"
-	legacyHoneypotField = "__fl_hp"
-)
+const HoneypotField = "__mf_hp"
 
 func CreateSubmission(logger *slog.Logger, db *gorm.DB, form *Form, payload map[string]any, userAgent string) (*Submission, error) {
 	return CreateSubmissionWithFiles(logger, db, form, payload, userAgent, "", nil)
@@ -86,40 +83,22 @@ func createDeliveryEvents(tx *gorm.DB, form *Form, submissionID uint) error {
 			return err
 		}
 	}
-	if form.EmailDelivery != nil && form.EmailDelivery.Enabled && extractEmailRecipient(form.EmailDelivery) != "" {
+	if form.EmailDelivery != nil && form.EmailDelivery.Enabled && form.EmailDelivery.Recipient != "" {
 		return tx.Create(NewEmailEvent(submissionID, now)).Error
 	}
 	return nil
 }
 
 func consumeHoneypot(payload map[string]any) bool {
-	spam := false
-	for _, field := range []string{HoneypotField, legacyHoneypotField} {
-		value, found := payload[field]
-		if !found {
-			continue
-		}
-		delete(payload, field)
-		if text, ok := value.(string); ok {
-			spam = spam || strings.TrimSpace(text) != ""
-		} else {
-			spam = spam || value != nil
-		}
+	value, found := payload[HoneypotField]
+	if !found {
+		return false
 	}
-	return spam
-}
-
-func extractEmailRecipient(delivery *EmailDelivery) string {
-	if delivery == nil || delivery.OverridesJSON == "" {
-		return ""
+	delete(payload, HoneypotField)
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text) != ""
 	}
-	var overrides struct {
-		To string `json:"to"`
-	}
-	if json.Unmarshal([]byte(delivery.OverridesJSON), &overrides) != nil {
-		return ""
-	}
-	return overrides.To
+	return value != nil
 }
 
 func cleanupSubmission(logger *slog.Logger, db *gorm.DB, formID, submissionID uint, dataDir string) {

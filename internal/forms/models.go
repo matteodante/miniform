@@ -23,19 +23,18 @@ const (
 )
 
 type Form struct {
-	ID                   uint                         `gorm:"primaryKey"`
-	PublicID             string                       `gorm:"size:20;uniqueIndex;not null"`
-	Name                 string                       `gorm:"size:255;not null"`
-	Slug                 string                       `gorm:"size:255;uniqueIndex;not null"`
-	Token                string                       `gorm:"size:64;uniqueIndex;not null"`
-	AllowedOrigins       string                       `gorm:"type:text"`
-	UseSDK               bool                         `gorm:"not null;default:false"`
-	GeneratedHTML        string                       `gorm:"type:text"`
-	CaptchaProfileID     *uint                        `gorm:"index"`
-	CaptchaProfile       *integrations.CaptchaProfile `gorm:"constraint:OnDelete:SET NULL"`
-	CaptchaOverridesJSON string                       `gorm:"type:text"`
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID               uint                         `gorm:"primaryKey"`
+	PublicID         string                       `gorm:"size:20;uniqueIndex;not null"`
+	Name             string                       `gorm:"size:255;not null"`
+	Slug             string                       `gorm:"size:255;uniqueIndex;not null"`
+	Token            string                       `gorm:"size:64;uniqueIndex;not null"`
+	AllowedOrigins   string                       `gorm:"type:text"`
+	UseSDK           bool                         `gorm:"not null;default:false"`
+	GeneratedHTML    string                       `gorm:"type:text"`
+	CaptchaProfileID *uint                        `gorm:"index"`
+	CaptchaProfile   *integrations.CaptchaProfile `gorm:"constraint:OnDelete:SET NULL"`
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 
 	Submissions     []Submission
 	EmailDelivery   *EmailDelivery   `gorm:"constraint:OnDelete:CASCADE"`
@@ -49,7 +48,7 @@ type EmailDelivery struct {
 	Enabled         bool                        `gorm:"not null;default:false"`
 	MailerProfileID *uint                       `gorm:"index"`
 	MailerProfile   *integrations.MailerProfile `gorm:"constraint:OnDelete:SET NULL"`
-	OverridesJSON   string                      `gorm:"type:text"`
+	Recipient       string                      `gorm:"size:320"`
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -71,7 +70,6 @@ type Submission struct {
 	FormID    uint      `gorm:"not null;index:idx_submissions_form_created,priority:1"`
 	Form      *Form     `gorm:"constraint:OnDelete:CASCADE"`
 	DataJSON  string    `gorm:"type:text;not null"`
-	IPHash    string    `gorm:"size:128;index"`
 	UserAgent string    `gorm:"type:text"`
 	IsSpam    bool      `gorm:"index"`
 	CreatedAt time.Time `gorm:"index:idx_submissions_created_at;index:idx_submissions_form_created,priority:2"`

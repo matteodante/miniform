@@ -1,6 +1,6 @@
 ---
 name: miniform-cli
-description: Operate and automate a local or self-hosted Miniform instance through the `miniform` CLI. Use when an agent needs to inspect or manage Miniform accounts, runtime configuration, database settings, forms, embed code, mailer or captcha profiles, submissions, uploaded files, webhook/email events, retries, or when it needs deterministic JSON output and safe secret handling instead of the Web UI.
+description: Operate and automate a local or self-hosted Miniform instance through the `miniform` CLI. Use when an agent needs to inspect or manage Miniform accounts, effective runtime configuration, forms, embed code, SMTP or Turnstile profiles, submissions, uploaded files, webhook/email events, retries, or when it needs deterministic JSON output and safe secret handling instead of the Web UI.
 ---
 
 # Miniform CLI
@@ -26,7 +26,7 @@ Use the CLI as the administrative API for agents. Prefer it over direct SQLite e
 5. Inspect the current resource with `list`, `get`, or `show` before mutating it.
 6. Execute one focused mutation. Require user authorization for deletion, token rotation, redelivery, credential reset, or any other consequential action; `--yes` is a safety declaration, not authorization.
 7. Read the resource again and verify the requested state.
-8. Report the target instance, affected IDs, command result, and whether a restart is required.
+8. Report the target instance, affected IDs, and command result.
 
 Treat `miniform commands --json` as the authoritative command contract. Read the relevant section of [docs/cli.md](../../../docs/cli.md) when a command uses profiles, JSON files, uploads, destructive behavior, or secrets.
 
@@ -55,7 +55,7 @@ Handle exit codes explicitly:
 | `5` | Conflict/reference | Inspect dependencies; do not force deletion |
 | `10` | Storage/internal failure | Stop mutations and report the failure |
 
-Check `supports_json` in the command catalog. Legacy deployment commands such as `install`, `update`, and `reload` retain human-oriented output.
+Check `supports_json` in the command catalog. Deployment commands such as `install`, `update`, and `reload` use human-oriented output.
 
 ## Safety Rules
 
@@ -65,7 +65,6 @@ Check `supports_json` in the command catalog. Legacy deployment commands such as
 - Never print, summarize, log, or retain secret-bearing output unnecessarily.
 - Use explicit `--flag=true` or `--flag=false` for boolean updates. Omitted update flags preserve current values.
 - Use the matching `--clear-*` flag to remove a stored optional value. Do not substitute empty strings unless the command contract says to.
-- Never use `setting set` for forms, mailers, captcha, accounts, or other domain-owned records. Use their dedicated resources.
 - Never modify SQLite directly to bypass validation, reference checks, retry transactions, or file cleanup.
 - Do not retry an identical failed mutation automatically unless the failure is clearly transient and the operation is idempotent.
 
@@ -74,13 +73,14 @@ Check `supports_json` in the command catalog. Legacy deployment commands such as
 | Intent | Resource/actions |
 | --- | --- |
 | Operator identity and credentials | `account show`, `set-email`, `change-password`, `reset-password` |
-| Effective environment and dotenv | `config show`, `set`, `unset` |
-| Generic database-backed keys | `setting list`, `get`, `set`, `delete` |
+| Effective process environment | `config show` |
 | Endpoints, delivery policy, templates, embed HTML | `form list`, `get`, `code`, `create`, `update`, `rotate-token`, `delete`, `template-list`, `template-get` |
 | SMTP routes | `mailer list`, `get`, `create`, `update`, `delete` |
-| Turnstile profiles and policies | `captcha list`, `get`, `create`, `update`, `delete` |
+| Turnstile credentials | `captcha list`, `get`, `create`, `update`, `delete` |
 | Inbox data and attachments | `submission list`, `get`, `create`, `delete`, `file-list`, `file-copy` |
 | Delivery history and redelivery | `event list`, `retry` |
+
+A captcha profile contains exactly `name`, one Turnstile `site_key`, and one `secret_key`. Assigning it with `form create/update --captcha-profile-id` makes Turnstile mandatory; remove it with `--clear-captcha-profile`.
 
 ## Common Agent Patterns
 
@@ -125,7 +125,5 @@ miniform --json event list --type webhook --status failed --limit 100
 miniform --json event retry --type webhook --id 12 --yes
 miniform --json event list --type webhook --form-id 1
 ```
-
-For `config set` or `config unset`, report `restart_required` and do not restart or reload the service unless the user authorized it. In containers, change persistent container configuration rather than an ephemeral `.env` inside the image.
 
 For raw file output, use `submission file-copy --output -` without `--json`; otherwise copy to an explicit path and keep overwrite protection unless the user authorized `--force`.

@@ -54,20 +54,13 @@ class TestClient {
     return result.lastID;
   }
 
-  async createCaptcha(name, { required = false, secret = "test-secret" } = {}) {
+  async createCaptcha(name, { siteKey = "test-site-key", secret = "test-secret" } = {}) {
     const now = databaseTimestamp();
     const result = await this.run(
       `INSERT INTO captcha_profiles
-       (name, provider, secret_key, site_keys_json, policy_json, created_at, updated_at)
-       VALUES (?, 'turnstile', ?, ?, ?, ?, ?)`,
-      [
-        name,
-        secret,
-        JSON.stringify([{ host_pattern: "*", site_key: "test-site-key" }]),
-        JSON.stringify({ required, action: "submit", widget: "managed" }),
-        now,
-        now,
-      ],
+       (name, site_key, secret_key, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [name, siteKey, secret, now, now],
     );
     return result.lastID;
   }
@@ -83,21 +76,24 @@ class TestClient {
       [publicID, name, slug, token, options.allowedOrigins ?? "*", options.captchaProfileID ?? null, now, now],
     );
 
-    if (options.email) {
-      await this.run(
-        `INSERT INTO email_deliveries
-         (form_id, mailer_profile_id, enabled, overrides_json, created_at, updated_at)
-         VALUES (?, ?, 1, ?, ?, ?)`,
-        [result.lastID, options.email.mailerProfileID, JSON.stringify({ to: options.email.recipient }), now, now],
-      );
-    }
-    if (options.webhookURL) {
-      await this.run(
-        `INSERT INTO webhook_deliveries (form_id, enabled, url, created_at, updated_at)
-         VALUES (?, 1, ?, ?, ?)`,
-        [result.lastID, options.webhookURL, now, now],
-      );
-    }
+    await this.run(
+      `INSERT INTO email_deliveries
+       (form_id, mailer_profile_id, enabled, recipient, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        result.lastID,
+        options.email?.mailerProfileID ?? null,
+        options.email ? 1 : 0,
+        options.email?.recipient ?? "",
+        now,
+        now,
+      ],
+    );
+    await this.run(
+      `INSERT INTO webhook_deliveries (form_id, enabled, url, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [result.lastID, options.webhookURL ? 1 : 0, options.webhookURL ?? "", now, now],
+    );
     return { id: result.lastID, slug, token };
   }
 

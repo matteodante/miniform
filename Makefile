@@ -42,7 +42,7 @@ help:
 	@echo "  css-watch    - watch and rebuild Tailwind CSS on changes"
 	@echo "  build        - compile the CLI binary to $(BIN_DIR)"
 	@echo "  run          - run the application from source"
-	@echo "  dev          - hot-reload the server using watchexec (requires .env)"
+	@echo "  dev          - hot-reload the server using watchexec"
 	@echo "  demo         - seed and run an isolated local instance with a test form"
 	@echo "  test         - run unit & e2e tests"
 	@echo "  test-unit    - run all non-VM Go tests"

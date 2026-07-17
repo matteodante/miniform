@@ -34,21 +34,18 @@ func TestManagement(t *testing.T) {
 		originalToken := form.Token
 
 		updated, err := forms.Update(logger, db, forms.UpdateParams{
-			ID:                     form.ID,
-			Name:                   "Renamed",
-			Slug:                   "renamed-form",
-			AllowedOrigins:         "*.example.com",
-			UseSDK:                 true,
-			GeneratedHTML:          "<form><button>Send</button></form>",
-			UpdateGeneratedHTML:    true,
-			CaptchaOverridesJSON:   `{"theme":"dark"}`,
-			UpdateCaptchaOverrides: true,
+			ID:                  form.ID,
+			Name:                "Renamed",
+			Slug:                "renamed-form",
+			AllowedOrigins:      "*.example.com",
+			UseSDK:              true,
+			GeneratedHTML:       "<form><button>Send</button></form>",
+			UpdateGeneratedHTML: true,
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "renamed-form", updated.Slug)
 		assert.True(t, updated.UseSDK)
 		assert.Contains(t, updated.GeneratedHTML, "<form>")
-		assert.JSONEq(t, `{"theme":"dark"}`, updated.CaptchaOverridesJSON)
 
 		rotated, err := forms.RotateToken(logger, db, form.ID)
 		require.NoError(t, err)

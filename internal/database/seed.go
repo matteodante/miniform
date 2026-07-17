@@ -10,7 +10,6 @@ import (
 
 	"github.com/matteodante/miniform/internal/accounts"
 	"github.com/matteodante/miniform/internal/forms"
-	"github.com/matteodante/miniform/internal/integrations"
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 )
 
@@ -23,9 +22,6 @@ func Seed(db *gorm.DB) error {
 	createdForms := 0
 	createdEntries := 0
 	err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		if err := ensureSeedCaptchaProfile(tx); err != nil {
-			return err
-		}
 		var count int64
 		if err := tx.Model(&forms.Form{}).Count(&count).Error; err != nil {
 			return fmt.Errorf("count demo forms: %w", err)
@@ -44,23 +40,11 @@ func Seed(db *gorm.DB) error {
 	return nil
 }
 
-func ensureSeedCaptchaProfile(tx *gorm.DB) error {
-	captcha := &integrations.CaptchaProfile{
-		Name: "default", Provider: "turnstile",
-		SiteKeysJSON: `[{"host_pattern":"*","site_key":""}]`,
-		PolicyJSON:   `{"required":false,"action":"submit","widget":"managed"}`,
-	}
-	if err := tx.Where("name = ?", captcha.Name).FirstOrCreate(captcha).Error; err != nil {
-		return fmt.Errorf("seed captcha profile: %w", err)
-	}
-	return nil
-}
-
 func createDemoInbox(tx *gorm.DB, now time.Time) (int, int, error) {
 	demoForms := []*forms.Form{
-		{Name: "Contact Form", Slug: "contact", AllowedOrigins: "*"},
-		{Name: "Newsletter Signup", Slug: "newsletter", AllowedOrigins: "*"},
-		{Name: "Feedback Form", Slug: "feedback", AllowedOrigins: "*"},
+		completeDemoForm("Contact Form", "contact"),
+		completeDemoForm("Newsletter Signup", "newsletter"),
+		completeDemoForm("Feedback Form", "feedback"),
 	}
 	for _, form := range demoForms {
 		if err := tx.Create(form).Error; err != nil {
@@ -79,13 +63,13 @@ func createDemoInbox(tx *gorm.DB, now time.Time) (int, int, error) {
 		{demoForms[1], 30 * time.Minute, map[string]any{"email": "reader@example.com"}},
 		{demoForms[2], 4 * time.Hour, map[string]any{"rating": 5, "comment": "Simple and fast."}},
 	}
-	for index, entry := range entries {
+	for _, entry := range entries {
 		payload, err := json.Marshal(entry.fields)
 		if err != nil {
 			return 0, 0, fmt.Errorf("encode demo submission: %w", err)
 		}
 		submission := &forms.Submission{
-			FormID: entry.form.ID, DataJSON: string(payload), IPHash: fmt.Sprintf("demo-%d", index),
+			FormID: entry.form.ID, DataJSON: string(payload),
 			UserAgent: "Miniform demo seed", CreatedAt: now.Add(-entry.age),
 		}
 		if err := tx.Create(submission).Error; err != nil {
@@ -93,4 +77,11 @@ func createDemoInbox(tx *gorm.DB, now time.Time) (int, int, error) {
 		}
 	}
 	return len(demoForms), len(entries), nil
+}
+
+func completeDemoForm(name, slug string) *forms.Form {
+	return &forms.Form{
+		Name: name, Slug: slug, AllowedOrigins: "*",
+		EmailDelivery: &forms.EmailDelivery{}, WebhookDelivery: &forms.WebhookDelivery{},
+	}
 }

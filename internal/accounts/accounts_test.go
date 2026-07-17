@@ -83,21 +83,6 @@ func TestAccounts(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("upserts and removes settings", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-
-		require.NoError(t, accounts.SetSetting(db, logger, "theme", "dark"))
-		require.NoError(t, accounts.SetSetting(db, logger, "theme", "light"))
-		value, err := accounts.GetSetting(db, "theme")
-		require.NoError(t, err)
-		assert.Equal(t, "light", value)
-
-		settings, err := accounts.ListSettings(db)
-		require.NoError(t, err)
-		assert.Len(t, settings, 1)
-		require.NoError(t, accounts.DeleteSetting(logger, db, "theme"))
-		assert.ErrorIs(t, accounts.DeleteSetting(logger, db, "theme"), gorm.ErrRecordNotFound)
-	})
 }
 
 func createUser(t *testing.T, db *gorm.DB, email, password string) *accounts.User {

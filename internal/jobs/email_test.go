@@ -74,7 +74,7 @@ func TestEmailDelivery(t *testing.T) {
 			profileID := profile.ID
 			if err := tx.Create(&forms.EmailDelivery{
 				FormID: form.ID, Enabled: true, MailerProfileID: &profileID,
-				OverridesJSON: `{"to":"owner@example.com"}`,
+				Recipient: "owner@example.com",
 			}).Error; err != nil {
 				return err
 			}

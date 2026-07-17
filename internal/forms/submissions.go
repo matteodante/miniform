@@ -36,6 +36,10 @@ func CreateSubmissionWithFiles(logger *slog.Logger, db *gorm.DB, form *Form, pay
 		FormID: form.ID, DataJSON: string(data), UserAgent: userAgent, IsSpam: spam,
 	}
 	storeFiles := !spam && len(files) > 0 && strings.TrimSpace(dataDir) != ""
+	if storeFiles {
+		submissionFilesMutex.RLock()
+		defer submissionFilesMutex.RUnlock()
+	}
 
 	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
 		if err := tx.Create(submission).Error; err != nil {
@@ -119,18 +123,10 @@ func extractEmailRecipient(delivery *EmailDelivery) string {
 }
 
 func cleanupSubmission(logger *slog.Logger, db *gorm.DB, formID, submissionID uint, dataDir string) {
-	if err := DeleteSubmissionFiles(dataDir, formID, submissionID); err != nil {
-		logger.Error("clean up incomplete submission files", slog.Any("error", err), slog.Uint64("submission_id", uint64(submissionID)))
-		return
+	err := deleteSubmission(logger, db, dataDir, submissionID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		err = DeleteSubmissionFiles(dataDir, formID, submissionID)
 	}
-	err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		for _, model := range []any{&WebhookEvent{}, &EmailEvent{}, &SubmissionFile{}} {
-			if err := tx.Where("submission_id = ?", submissionID).Delete(model).Error; err != nil {
-				return err
-			}
-		}
-		return tx.Delete(&Submission{}, submissionID).Error
-	})
 	if err != nil {
 		logger.Error("clean up incomplete submission", slog.Any("error", err), slog.Uint64("submission_id", uint64(submissionID)))
 	}

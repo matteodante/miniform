@@ -1,9 +1,13 @@
 package forms
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -11,15 +15,47 @@ import (
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 )
 
+// submissionFilesMutex lets uploads run together while serializing deletion across database and filesystem.
+var submissionFilesMutex sync.RWMutex
+
 // DeleteForm deletes a form and removes all upload directories owned by it.
 func DeleteForm(logger *slog.Logger, db *gorm.DB, dataDir string, id uint) error {
+	submissionFilesMutex.Lock()
+	defer submissionFilesMutex.Unlock()
+
 	if _, err := GetByID(db, id); err != nil {
 		return err
 	}
-	if err := DeleteFormFiles(dataDir, id); err != nil {
+
+	var submissionIDs []uint
+	if err := db.Model(&Submission{}).Where("form_id = ?", id).Pluck("id", &submissionIDs).Error; err != nil {
+		return fmt.Errorf("list form submissions for deletion: %w", err)
+	}
+	uploadPaths := make([]string, 0, len(submissionIDs))
+	formDirectory := strconv.FormatUint(uint64(id), 10)
+	for _, submissionID := range submissionIDs {
+		uploadPaths = append(uploadPaths, filepath.Join(
+			"uploads",
+			formDirectory,
+			strconv.FormatUint(uint64(submissionID), 10),
+		))
+	}
+	stagedFiles, err := stageUploadDeletions(dataDir, uploadPaths)
+	if err != nil {
+		return fmt.Errorf("stage form uploads: %w", err)
+	}
+	defer stagedFiles.close()
+
+	if deleteErr := Delete(logger, db, id); deleteErr != nil && !errors.Is(deleteErr, gorm.ErrRecordNotFound) {
+		if restoreErr := stagedFiles.restore(); restoreErr != nil {
+			deleteErr = errors.Join(deleteErr, restoreErr)
+		}
+		return fmt.Errorf("delete form: %w", deleteErr)
+	}
+	if err := errors.Join(DeleteFormFiles(dataDir, id), stagedFiles.commit()); err != nil {
 		return fmt.Errorf("delete form uploads: %w", err)
 	}
-	return Delete(logger, db, id)
+	return nil
 }
 
 // RotateToken replaces the public submission token for a form.
@@ -175,17 +211,29 @@ func GetSubmissionFile(db *gorm.DB, submissionID, fileID uint) (*SubmissionFile,
 	return &file, nil
 }
 
-// DeleteSubmission removes a submission's uploads and then its database records.
+// DeleteSubmission removes a submission and its uploads.
 func DeleteSubmission(logger *slog.Logger, db *gorm.DB, dataDir string, id uint) error {
+	submissionFilesMutex.Lock()
+	defer submissionFilesMutex.Unlock()
+	return deleteSubmission(logger, db, dataDir, id)
+}
+
+func deleteSubmission(logger *slog.Logger, db *gorm.DB, dataDir string, id uint) error {
 	submission, err := GetSubmissionByID(db, id)
 	if err != nil {
 		return err
 	}
-	if err := DeleteSubmissionFiles(dataDir, submission.FormID, submission.ID); err != nil {
-		return fmt.Errorf("delete submission files: %w", err)
+	stagedFiles, err := stageUploadDeletions(dataDir, []string{filepath.Join(
+		"uploads",
+		strconv.FormatUint(uint64(submission.FormID), 10),
+		strconv.FormatUint(uint64(submission.ID), 10),
+	)})
+	if err != nil {
+		return fmt.Errorf("stage submission files: %w", err)
 	}
+	defer stagedFiles.close()
 
-	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+	if err = dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
 		if err := tx.Where("submission_id = ?", id).Delete(&WebhookEvent{}).Error; err != nil {
 			return err
 		}
@@ -203,8 +251,14 @@ func DeleteSubmission(logger *slog.Logger, db *gorm.DB, dataDir string, id uint)
 			return gorm.ErrRecordNotFound
 		}
 		return nil
-	}); err != nil {
+	}); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		if restoreErr := stagedFiles.restore(); restoreErr != nil {
+			err = errors.Join(err, restoreErr)
+		}
 		return fmt.Errorf("delete submission: %w", err)
+	}
+	if err := stagedFiles.commit(); err != nil {
+		return fmt.Errorf("delete submission files: %w", err)
 	}
 
 	return nil

@@ -99,6 +99,8 @@ jobs:
     name: Browser tests
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/ms-playwright
     steps:
       - name: Check out source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

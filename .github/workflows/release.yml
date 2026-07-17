@@ -18,6 +18,8 @@ jobs:
     name: Validate release source
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/ms-playwright
     steps:
       - name: Validate semantic version tag
         env:

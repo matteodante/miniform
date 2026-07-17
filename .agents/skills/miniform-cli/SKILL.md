@@ -77,7 +77,7 @@ Check `supports_json` in the command catalog. Legacy deployment commands such as
 | Effective environment and dotenv | `config show`, `set`, `unset` |
 | Generic database-backed keys | `setting list`, `get`, `set`, `delete` |
 | Endpoints, delivery policy, templates, embed HTML | `form list`, `get`, `code`, `create`, `update`, `rotate-token`, `delete`, `template-list`, `template-get` |
-| SMTP and Mailgun routes | `mailer list`, `get`, `create`, `update`, `delete` |
+| SMTP routes | `mailer list`, `get`, `create`, `update`, `delete` |
 | Turnstile profiles and policies | `captcha list`, `get`, `create`, `update`, `delete` |
 | Inbox data and attachments | `submission list`, `get`, `create`, `delete`, `file-list`, `file-copy` |
 | Delivery history and redelivery | `event list`, `retry` |

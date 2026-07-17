@@ -11,7 +11,7 @@ Miniform is a self-hosted form inbox written in Go. It uses small domain package
 Code is organized into contexts (bounded domains):
 - **accounts** — User management
 - **forms** — Form definitions and submissions
-- **integrations** — External services (webhooks, Mailgun)
+- **integrations** — External services (webhooks, SMTP)
 - **jobs** — Background processing
 - **http** — HTTP handlers
 

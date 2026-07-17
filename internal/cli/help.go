@@ -52,8 +52,8 @@ func commandManifest() []CommandSpec {
 		{Name: "form delete", Summary: "Delete a form and related deliveries/submissions.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--yes"}},
 		{Name: "mailer list", Summary: "List reusable mailer profiles with secrets redacted.", RequiresDatabase: true, Flags: []string{"--show-secrets"}},
 		{Name: "mailer get", Summary: "Get a mailer profile and usage count.", RequiresDatabase: true, Flags: []string{"--id UINT", "--show-secrets"}},
-		{Name: "mailer create", Summary: "Create an SMTP or Mailgun profile.", Mutates: true, RequiresDatabase: true, Flags: []string{"--name STRING", "--provider smtp|mailgun", "--api-key-file PATH|-", "--domain STRING", "--default-from-name STRING", "--default-from-email STRING", "--defaults-file PATH", "--smtp-host STRING", "--smtp-port INT", "--smtp-username STRING", "--smtp-password-file PATH|-", "--smtp-encryption starttls|tls|none"}},
-		{Name: "mailer update", Summary: "Update a mailer; omitted flags preserve current values.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--name STRING", "--provider smtp|mailgun", "--api-key-file PATH|-", "--domain STRING", "--default-from-name STRING", "--default-from-email STRING", "--defaults-file PATH", "--smtp-host STRING", "--smtp-port INT", "--smtp-username STRING", "--smtp-password-file PATH|-", "--smtp-encryption starttls|tls|none", "--clear-api-key", "--clear-smtp-password", "--clear-defaults"}},
+		{Name: "mailer create", Summary: "Create an SMTP profile.", Mutates: true, RequiresDatabase: true, Flags: []string{"--name STRING", "--default-from-name STRING", "--default-from-email STRING", "--smtp-host STRING", "--smtp-port INT", "--smtp-username STRING", "--smtp-password-file PATH|-", "--smtp-encryption starttls|tls|none"}},
+		{Name: "mailer update", Summary: "Update a mailer; omitted flags preserve current values.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--name STRING", "--default-from-name STRING", "--default-from-email STRING", "--smtp-host STRING", "--smtp-port INT", "--smtp-username STRING", "--smtp-password-file PATH|-", "--smtp-encryption starttls|tls|none", "--clear-smtp-password"}},
 		{Name: "mailer delete", Summary: "Delete an unused mailer profile.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--yes"}},
 		{Name: "captcha list", Summary: "List captcha profiles with secrets redacted.", RequiresDatabase: true, Flags: []string{"--show-secrets"}},
 		{Name: "captcha get", Summary: "Get a captcha profile and usage count.", RequiresDatabase: true, Flags: []string{"--id UINT", "--show-secrets"}},
@@ -129,7 +129,7 @@ func (r *Runner) writeRootHelp() {
 	fmt.Fprintln(r.Stdout, "  config      Runtime configuration and .env persistence")
 	fmt.Fprintln(r.Stdout, "  setting     Database-backed key/value settings")
 	fmt.Fprintln(r.Stdout, "  form        Form endpoints and delivery policies")
-	fmt.Fprintln(r.Stdout, "  mailer      SMTP and Mailgun profiles")
+	fmt.Fprintln(r.Stdout, "  mailer      SMTP profiles")
 	fmt.Fprintln(r.Stdout, "  captcha     Captcha profiles")
 	fmt.Fprintln(r.Stdout, "  submission  Inbox entries and uploaded files")
 	fmt.Fprintln(r.Stdout, "  event       Webhook and email delivery events")

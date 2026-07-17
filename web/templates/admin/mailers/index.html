@@ -4,7 +4,7 @@
         <div>
             <p class="mf-kicker">Delivery</p>
             <h1 class="mf-title mt-3">Email routes.</h1>
-            <p class="mt-4 max-w-xl text-sm leading-6 text-ink-muted">Reusable SMTP and Mailgun connections for forwarding inbox entries.</p>
+            <p class="mt-4 max-w-xl text-sm leading-6 text-ink-muted">Reusable SMTP connections for forwarding inbox entries.</p>
         </div>
         <a href="/admin/settings/mailers/new" class="mf-button">New email route</a>
     </header>
@@ -13,7 +13,7 @@
     <section class="border-y border-rule py-16">
         <p class="mf-kicker">No email routes</p>
         <h2 class="mt-3 font-display text-3xl tracking-[-0.03em] text-ink">Forward entries when they arrive.</h2>
-        <p class="mt-4 max-w-lg text-sm leading-6 text-ink-muted">Create one provider connection, then attach it to any endpoint.</p>
+        <p class="mt-4 max-w-lg text-sm leading-6 text-ink-muted">Create one SMTP connection, then attach it to any endpoint.</p>
         <a href="/admin/settings/mailers/new" class="mf-button mt-7">Create an email route</a>
     </section>
     {{ else }}
@@ -22,11 +22,10 @@
         <article class="grid gap-5 border-b border-rule px-2 py-6 md:grid-cols-[minmax(12rem,0.8fr)_minmax(16rem,1fr)_minmax(12rem,1fr)_auto] md:items-center">
             <div class="min-w-0">
                 <p class="font-display text-2xl tracking-[-0.025em] text-ink">{{ .Name }}</p>
-                <p class="mt-1 font-mono text-[0.625rem] uppercase tracking-[0.14em] text-moss">{{ .Provider }}</p>
             </div>
             <div class="min-w-0">
-                <p class="font-mono text-[0.625rem] uppercase tracking-[0.12em] text-ink-muted">Domain</p>
-                <p class="mt-1 truncate font-mono text-xs text-ink">{{ if .Domain }}{{ .Domain }}{{ else }}local relay{{ end }}</p>
+                <p class="font-mono text-[0.625rem] uppercase tracking-[0.12em] text-ink-muted">Server</p>
+                <p class="mt-1 truncate font-mono text-xs text-ink">{{ if .SMTPHost }}{{ .SMTPHost }}:{{ .SMTPPort }}{{ else }}Local relay{{ end }}</p>
             </div>
             <div class="min-w-0">
                 <p class="font-mono text-[0.625rem] uppercase tracking-[0.12em] text-ink-muted">Sender</p>

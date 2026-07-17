@@ -119,10 +119,9 @@ func mailerParams(ctx *cartridge.Context) integrations.MailerProfileParams {
 		}
 	}
 	return integrations.MailerProfileParams{
-		Name: ctx.FormValue("name"), Provider: ctx.FormValue("provider"),
-		APIKey: ctx.FormValue("api_key"), Domain: ctx.FormValue("domain"),
+		Name:            ctx.FormValue("name"),
 		DefaultFromName: ctx.FormValue("default_from_name"), DefaultFromEmail: ctx.FormValue("default_from_email"),
-		DefaultsJSON: ctx.FormValue("defaults_json"), SMTPHost: ctx.FormValue("smtp_host"), SMTPPort: port,
+		SMTPHost: ctx.FormValue("smtp_host"), SMTPPort: port,
 		SMTPUsername: ctx.FormValue("smtp_username"), SMTPPassword: ctx.FormValue("smtp_password"),
 		SMTPEncryption: ctx.FormValue("smtp_encryption"),
 	}
@@ -156,10 +155,9 @@ func renderMailerEditor(ctx *cartridge.Context, profile *integrations.MailerProf
 
 func mailerProfileDraft(id uint, params integrations.MailerProfileParams) *integrations.MailerProfile {
 	return &integrations.MailerProfile{
-		ID: id, Name: params.Name, Provider: params.Provider,
-		APIKey: params.APIKey, Domain: params.Domain,
+		ID: id, Name: params.Name,
 		DefaultFromName: params.DefaultFromName, DefaultFromEmail: params.DefaultFromEmail,
-		DefaultsJSON: params.DefaultsJSON, SMTPHost: params.SMTPHost, SMTPPort: params.SMTPPort,
+		SMTPHost: params.SMTPHost, SMTPPort: params.SMTPPort,
 		SMTPUsername: params.SMTPUsername, SMTPPassword: params.SMTPPassword,
 		SMTPEncryption: params.SMTPEncryption,
 	}

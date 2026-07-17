@@ -68,10 +68,6 @@ func AdminSettingsUpdateEmail(ctx *cartridge.Context) error {
 	return renderSettings(ctx, "", "Email updated successfully")
 }
 
-func AdminSettingsUpdateMailgun(ctx *cartridge.Context) error {
-	return ctx.Redirect("/admin/settings/mailers")
-}
-
 func AdminSettingsUpdateTurnstile(ctx *cartridge.Context) error {
 	return ctx.Redirect("/admin/settings/captcha")
 }

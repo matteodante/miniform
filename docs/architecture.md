@@ -6,7 +6,7 @@ Miniform is a single Go process with embedded web assets and SQLite storage. It 
 HTML form -> public HTTP route -> validation -> SQLite submission
                                                 |
                                                 +-> webhook jobs
-                                                +-> SMTP/Mailgun jobs
+                                                +-> SMTP jobs
 
 Operator browser -> authenticated admin routes -> inbox and configuration
 ```

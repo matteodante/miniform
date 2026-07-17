@@ -43,13 +43,13 @@ class TestClient {
     });
   }
 
-  async createMailer(name, provider = "mailgun") {
+  async createMailer(name) {
     const now = databaseTimestamp();
     const result = await this.run(
       `INSERT INTO mailer_profiles
-       (name, provider, default_from_name, default_from_email, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [name, provider, "Miniform", "no-reply@example.com", now, now],
+       (name, default_from_name, default_from_email, smtp_host, smtp_port, smtp_encryption, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, "Miniform", "no-reply@example.com", "smtp.example.com", 587, "starttls", now, now],
     );
     return result.lastID;
   }

@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Rebranded the application and source tree as Miniform
 - Removed commercial licensing gates while preserving self-hosted functionality
+- Standardized transactional email delivery on SMTP
 
 ### Security
 

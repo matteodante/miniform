@@ -65,7 +65,7 @@ Without `--json`, commands print indented JSON data. File streaming with `submis
 
 ## Secret input
 
-Password, token, API-key, and provider-secret flags accept a file path or `-` for stdin. This keeps secrets out of shell history and process listings.
+Password, token, and secret flags accept a file path or `-` for stdin. This keeps secrets out of shell history and process listings.
 
 ```bash
 printf '%s' "$NEW_PASSWORD" | miniform account reset-password \
@@ -75,7 +75,7 @@ printf '%s' "$NEW_PASSWORD" | miniform account reset-password \
 One command can consume only one secret from stdin. Store additional secrets in permission-restricted files. Output redacts these fields unless you pass `--show-secrets`:
 
 - form token, generated HTML, webhook secret, and webhook headers;
-- Mailgun API key, SMTP password, and mailer defaults;
+- SMTP password;
 - captcha secret key;
 - database-backed setting values;
 - session secret and anonymization salt.
@@ -224,7 +224,6 @@ miniform --json mailer get --id 1
 
 miniform mailer create \
   --name primary-smtp \
-  --provider smtp \
   --smtp-host smtp.example.com \
   --smtp-port 587 \
   --smtp-username miniform \
@@ -232,19 +231,11 @@ miniform mailer create \
   --smtp-encryption starttls \
   --default-from-email forms@example.com
 
-miniform mailer create \
-  --name transactional-mailgun \
-  --provider mailgun \
-  --domain mg.example.com \
-  --api-key-file ./mailgun-key
-
 miniform mailer update --id 1 --smtp-host smtp2.example.com
 miniform mailer delete --id 1 --yes
 ```
 
-Updates preserve omitted credentials. Use `--clear-api-key`, `--clear-smtp-password`, or `--clear-defaults` to remove them. Miniform rejects deletion while a form references the profile.
-
-`--defaults-file` accepts a JSON object for provider defaults such as tags, template, or headers.
+Updates preserve omitted passwords. Use `--clear-smtp-password` to remove one. Miniform rejects deletion while a form references the profile.
 
 ## Captcha profiles
 

@@ -10,7 +10,7 @@ Miniform uses small domain packages inside one Go process.
 internal/
 ├── forms/           # Forms domain (models + business logic)
 ├── accounts/        # User accounts domain
-├── integrations/    # Third-party integrations (Mailgun, Turnstile)
+├── integrations/    # Third-party integrations (SMTP, Turnstile)
 ├── jobs/            # Background job processors
 ├── http/            # HTTP handlers (cartridge-based)
 ├── middleware/      # HTTP middleware

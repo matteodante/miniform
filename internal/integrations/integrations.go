@@ -1,7 +1,6 @@
 package integrations
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -16,12 +15,8 @@ import (
 type MailerProfile struct {
 	ID               uint   `gorm:"primaryKey"`
 	Name             string `gorm:"size:255;not null;uniqueIndex"`
-	Provider         string `gorm:"size:50;not null;default:'smtp'"`
-	APIKey           string `gorm:"type:text"`
-	Domain           string `gorm:"size:255"`
 	DefaultFromName  string `gorm:"size:255"`
 	DefaultFromEmail string `gorm:"size:255"`
-	DefaultsJSON     string `gorm:"type:text"`
 	SMTPHost         string `gorm:"size:255"`
 	SMTPPort         int    `gorm:"default:587"`
 	SMTPUsername     string `gorm:"size:255"`
@@ -87,18 +82,6 @@ func profileName(raw string) (string, error) {
 		return "", &ValidationError{Field: "name", Message: "Name is required"}
 	}
 	return name, nil
-}
-
-func jsonObjectField(raw, field, message string) (string, error) {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return "", nil
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(value), &object); err != nil || object == nil {
-		return "", &ValidationError{Field: field, Message: message}
-	}
-	return value, nil
 }
 
 func persistProfile(logger *slog.Logger, db *gorm.DB, action string, write func(*gorm.DB) error) error {

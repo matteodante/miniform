@@ -97,7 +97,6 @@ func TestRunner(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 		profile, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
 			Name:           "Primary",
-			Provider:       "smtp",
 			SMTPHost:       "smtp.example.com",
 			SMTPPort:       587,
 			SMTPPassword:   "original-secret",
@@ -113,6 +112,24 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "Renamed", updated.Name)
 		assert.Equal(t, "original-secret", updated.SMTPPassword)
+	})
+
+	t.Run("creates an SMTP mailer from protected password input", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		runner, stdout, _ := newTestRunner(t, db, "smtp-secret\n")
+
+		exitCode := runner.Run([]string{
+			"mailer", "create", "--json", "--name", "SMTP",
+			"--smtp-host", "smtp.example.com", "--smtp-password-file", "-",
+		})
+
+		assert.Equal(t, ExitSuccess, exitCode)
+		assert.Contains(t, stdout.String(), `"smtp_password":"[REDACTED]"`)
+		profiles, err := integrations.ListMailerProfiles(db)
+		require.NoError(t, err)
+		require.Len(t, profiles, 1)
+		assert.Equal(t, "smtp.example.com", profiles[0].SMTPHost)
+		assert.Equal(t, "smtp-secret", profiles[0].SMTPPassword)
 	})
 
 	t.Run("config set writes secrets from stdin and config unset preserves other lines", func(t *testing.T) {

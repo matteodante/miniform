@@ -23,7 +23,7 @@ func Seed(db *gorm.DB) error {
 	createdForms := 0
 	createdEntries := 0
 	err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		if err := ensureSeedProfiles(tx); err != nil {
+		if err := ensureSeedCaptchaProfile(tx); err != nil {
 			return err
 		}
 		var count int64
@@ -44,13 +44,7 @@ func Seed(db *gorm.DB) error {
 	return nil
 }
 
-func ensureSeedProfiles(tx *gorm.DB) error {
-	mailer := &integrations.MailerProfile{
-		Name: "default", Provider: "mailgun", DefaultFromName: "Miniform", DefaultFromEmail: "no-reply@example.com",
-	}
-	if err := tx.Where("name = ?", mailer.Name).FirstOrCreate(mailer).Error; err != nil {
-		return fmt.Errorf("seed mailer profile: %w", err)
-	}
+func ensureSeedCaptchaProfile(tx *gorm.DB) error {
 	captcha := &integrations.CaptchaProfile{
 		Name: "default", Provider: "turnstile",
 		SiteKeysJSON: `[{"host_pattern":"*","site_key":""}]`,

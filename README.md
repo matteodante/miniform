@@ -6,7 +6,7 @@
 
 **A quiet, self-hosted inbox for form submissions.**
 
-Miniform accepts submissions and file uploads from any HTML form, stores them in SQLite, and forwards them to webhooks, SMTP, or Mailgun. It ships as one Go binary and one OCI image, with no hosted account or external database.
+Miniform accepts submissions and file uploads from any HTML form, stores them in SQLite, and forwards them to webhooks or SMTP. It ships as one Go binary and one OCI image, with no hosted account or external database.
 
 > Miniform is preparing its first public release. Until a versioned release is published, build from source and treat `main` as development software.
 

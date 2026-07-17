@@ -9,12 +9,8 @@ import (
 
 type MailerProfileParams struct {
 	Name             string
-	Provider         string
-	APIKey           string
-	Domain           string
 	DefaultFromName  string
 	DefaultFromEmail string
-	DefaultsJSON     string
 	SMTPHost         string
 	SMTPPort         int
 	SMTPUsername     string
@@ -60,13 +56,6 @@ func (params MailerProfileParams) mailerProfile() (*MailerProfile, error) {
 	if err != nil {
 		return nil, err
 	}
-	provider := strings.ToLower(strings.TrimSpace(params.Provider))
-	if provider == "" {
-		provider = "smtp"
-	}
-	if provider != "smtp" && provider != "mailgun" {
-		return nil, &ValidationError{Field: "provider", Message: "Provider must be smtp or mailgun"}
-	}
 	port := params.SMTPPort
 	if port == 0 {
 		port = 587
@@ -81,19 +70,15 @@ func (params MailerProfileParams) mailerProfile() (*MailerProfile, error) {
 	if encryption != "starttls" && encryption != "tls" && encryption != "none" {
 		return nil, &ValidationError{Field: "smtp_encryption", Message: "SMTP encryption must be starttls, tls, or none"}
 	}
-	defaults, err := jsonObjectField(params.DefaultsJSON, "defaults_json", "Defaults must be a JSON object")
-	if err != nil {
-		return nil, err
+	host := strings.TrimSpace(params.SMTPHost)
+	if host == "" {
+		return nil, &ValidationError{Field: "smtp_host", Message: "SMTP host is required"}
 	}
 	return &MailerProfile{
 		Name:             name,
-		Provider:         provider,
-		APIKey:           strings.TrimSpace(params.APIKey),
-		Domain:           strings.TrimSpace(params.Domain),
 		DefaultFromName:  strings.TrimSpace(params.DefaultFromName),
 		DefaultFromEmail: strings.TrimSpace(params.DefaultFromEmail),
-		DefaultsJSON:     defaults,
-		SMTPHost:         strings.TrimSpace(params.SMTPHost),
+		SMTPHost:         host,
 		SMTPPort:         port,
 		SMTPUsername:     strings.TrimSpace(params.SMTPUsername),
 		SMTPPassword:     strings.TrimSpace(params.SMTPPassword),
@@ -103,10 +88,9 @@ func (params MailerProfileParams) mailerProfile() (*MailerProfile, error) {
 
 func (profile *MailerProfile) mailerValues() map[string]any {
 	return map[string]any{
-		"name": profile.Name, "provider": profile.Provider,
-		"api_key": profile.APIKey, "domain": profile.Domain,
+		"name":              profile.Name,
 		"default_from_name": profile.DefaultFromName, "default_from_email": profile.DefaultFromEmail,
-		"defaults_json": profile.DefaultsJSON, "smtp_host": profile.SMTPHost,
+		"smtp_host": profile.SMTPHost,
 		"smtp_port": profile.SMTPPort, "smtp_username": profile.SMTPUsername,
 		"smtp_password": profile.SMTPPassword, "smtp_encryption": profile.SMTPEncryption,
 	}

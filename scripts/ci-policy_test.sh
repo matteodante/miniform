@@ -67,6 +67,9 @@ grep -Fq 'test -z "$$(git status --porcelain)"' "$root/Makefile"
 grep -Fq 'rm -f $(BIN_DIR)/$(APP) $(INSTALLER_BINARY) $(E2E_BINARY)' "$root/Makefile"
 grep -Fq 'rm -rf "$(CURDIR)/dist"' "$root/Makefile"
 
+e2e_setup=$(make -s -n -C "$root" test-e2e-setup)
+printf '%s\n' "$e2e_setup" | grep -Fq "PLAYWRIGHT_BROWSERS_PATH=\"$root/tmp/ms-playwright\" npx playwright install chromium"
+
 if grep -Fq 'raw.githubusercontent.com/golangci/golangci-lint' "$root/Makefile"; then
 	echo "golangci-lint installer script is executed from a mutable Git tag" >&2
 	exit 1

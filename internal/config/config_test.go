@@ -48,6 +48,16 @@ func TestConfig(t *testing.T) {
 		assert.Equal(t, 10, cfg.GetMaxOpenConns())
 	})
 
+	t.Run("preserves an explicit error log level", func(t *testing.T) {
+		cleanEnvironment(t)
+		t.Setenv("MINIFORM_ENV", "test")
+		t.Setenv("MINIFORM_LOG_LEVEL", "error")
+
+		cfg, err := Load()
+		require.NoError(t, err)
+		assert.Equal(t, "error", cfg.LogLevel)
+	})
+
 	t.Run("loads dotenv without leaking values into process environment", func(t *testing.T) {
 		cleanEnvironment(t)
 		require.NoError(t, os.WriteFile(".env", []byte(strings.Join([]string{

@@ -1,231 +1,176 @@
 package jobs
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"net/mail"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
-	"log/slog"
-
-	"gorm.io/gorm"
+	"github.com/karloscodes/cartridge"
 
 	"github.com/matteodante/miniform/internal/config"
 	"github.com/matteodante/miniform/internal/forms"
 	"github.com/matteodante/miniform/internal/integrations"
 )
 
-// EmailDispatcher delivers form submissions via Mailgun.
 type EmailDispatcher struct {
-	cfg   *config.Config
-	http  *http.Client
-	retry *RetryStrategy
+	client  *http.Client
+	retries retryPlan
 }
 
-// NewEmailDispatcher constructs a dispatcher for email forwarding.
 func NewEmailDispatcher(cfg *config.Config) *EmailDispatcher {
-	client := &http.Client{Timeout: 15 * time.Second}
 	return &EmailDispatcher{
-		cfg:   cfg,
-		http:  client,
-		retry: NewRetryStrategy(cfg),
+		client:  &http.Client{Timeout: 15 * time.Second},
+		retries: newRetryPlan(cfg),
 	}
 }
 
-// ProcessBatch implements the Processor interface.
-func (d *EmailDispatcher) ProcessBatch(ctx *JobContext) error {
-	db := ctx.DB
-	now := time.Now().UTC()
+func (dispatcher *EmailDispatcher) ProcessBatch(ctx *cartridge.JobContext) error {
 	var events []forms.EmailEvent
-	query := db.
-		Preload("Submission").
-		Preload("Submission.Form.EmailDelivery").
-		Preload("Submission.Form.EmailDelivery.MailerProfile")
-	if err := dueEventQuery(query, now).
-		Limit(10).
-		Find(&events).Error; err != nil {
-		ctx.Logger.Error("query email events", slog.Any("error", err))
+	query := ctx.DB.Preload("Submission.Form.EmailDelivery.MailerProfile")
+	if err := dueEvents(query, time.Now()).Limit(10).Find(&events).Error; err != nil {
+		ctx.Logger.Error("query email queue", slog.Any("error", err))
 		return err
 	}
-
 	for i := range events {
-		d.handleEvent(ctx, db, &events[i])
+		dispatcher.deliver(ctx, &events[i])
 	}
-
 	return nil
 }
 
-func (d *EmailDispatcher) handleEvent(ctx *JobContext, db *gorm.DB, event *forms.EmailEvent) {
+func (dispatcher *EmailDispatcher) deliver(ctx *cartridge.JobContext, event *forms.EmailEvent) {
 	if event.Submission == nil || event.Submission.Form == nil {
-		if err := db.
-			Preload("Submission").
-			Preload("Submission.Form").
-			First(event, event.ID).Error; err != nil {
-			ctx.Logger.Error("load email event associations", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
-			return
-		}
-	}
-
-	form := event.Submission.Form
-	emailDelivery := form.EmailDelivery
-	if emailDelivery == nil || !emailDelivery.Enabled {
-		MarkEmailAsFinal(ctx, db, event, forms.WebhookStatusFailed, "email forwarding disabled")
+		applyEmailState(ctx, ctx.DB, event, finalState(forms.WebhookStatusFailed, "submission unavailable"))
 		return
 	}
 
-	profile, from, to := resolveProfileRecipients(db, emailDelivery)
-	if profile == nil || from == "" || to == "" {
-		MarkEmailAsFinal(ctx, db, event, forms.WebhookStatusFailed, "mailer configuration missing")
+	delivery := event.Submission.Form.EmailDelivery
+	profile, from, to, err := emailSettings(delivery)
+	if err != nil {
+		applyEmailState(ctx, ctx.DB, event, finalState(forms.WebhookStatusFailed, err.Error()))
 		return
 	}
 
-	subject := fmt.Sprintf("New submission · %s", event.Submission.Form.Name)
-	body := bodyForEvent(event)
-
-	var sendErr error
-	switch profile.Provider {
+	subject := "New submission · " + event.Submission.Form.Name
+	body := emailBody(event.Submission.DataJSON)
+	switch strings.ToLower(profile.Provider) {
 	case "mailgun":
-		if profile.APIKey == "" || profile.Domain == "" {
-			MarkEmailAsFinal(ctx, db, event, forms.WebhookStatusFailed, "mailgun configuration missing")
-			return
+		err = dispatcher.sendMailgun(ctx, profile, from, to, subject, body)
+	default:
+		settings, configErr := smtpSettings(profile, from, to)
+		if configErr != nil {
+			err = configErr
+			break
 		}
-		sendErr = d.sendMailgun(ctx, profile, from, to, subject, body)
-	default: // smtp is the default provider
-		cfg := smtpConfigFromProfile(profile, from, to)
-		if cfg == nil {
-			MarkEmailAsFinal(ctx, db, event, forms.WebhookStatusFailed, "smtp configuration missing")
-			return
-		}
-		sendErr = sendSMTP(cfg, buildSMTPMessage(from, to, subject, body))
+		err = sendSMTP(ctx, settings, buildSMTPMessage(from, to, subject, body))
 	}
 
-	if sendErr != nil {
-		MarkEmailAsRetry(ctx, db, event, d.retry, sendErr)
+	if err != nil {
+		applyEmailState(ctx, ctx.DB, event, retryState(event.AttemptCount, dispatcher.retries, err))
 		return
 	}
-
-	d.markEmailDelivered(ctx, db, event)
+	applyEmailState(ctx, ctx.DB, event, deliveredState(event.AttemptCount))
 }
 
-// resolveProfileRecipients loads the mailer profile and resolves the From and
-// To addresses shared by every provider.
-func resolveProfileRecipients(db *gorm.DB, emailDelivery *forms.EmailDelivery) (*integrations.MailerProfile, string, string) {
-	if emailDelivery.MailerProfileID == nil {
-		return nil, "", ""
+func emailSettings(delivery *forms.EmailDelivery) (*integrations.MailerProfile, string, string, error) {
+	if delivery == nil || !delivery.Enabled {
+		return nil, "", "", fmt.Errorf("email forwarding disabled")
+	}
+	profile := delivery.MailerProfile
+	if profile == nil {
+		return nil, "", "", fmt.Errorf("mailer configuration missing")
 	}
 
-	var profile integrations.MailerProfile
-	if err := db.First(&profile, *emailDelivery.MailerProfileID).Error; err != nil {
-		return nil, "", ""
+	fromAddress, err := mail.ParseAddress(strings.TrimSpace(profile.DefaultFromEmail))
+	if err != nil {
+		return nil, "", "", fmt.Errorf("mailer sender missing or invalid")
 	}
+	fromAddress.Name = strings.TrimSpace(profile.DefaultFromName)
 
-	var to string
-	if emailDelivery.OverridesJSON != "" {
-		var overrides map[string]interface{}
-		if err := json.Unmarshal([]byte(emailDelivery.OverridesJSON), &overrides); err == nil {
-			if toField, ok := overrides["to"].(string); ok {
-				to = toField
-			}
-		}
+	var overrides struct {
+		To string `json:"to"`
 	}
-
-	from := profile.DefaultFromEmail
-	if profile.DefaultFromName != "" {
-		from = fmt.Sprintf("%s <%s>", profile.DefaultFromName, profile.DefaultFromEmail)
+	if err := json.Unmarshal([]byte(delivery.OverridesJSON), &overrides); err != nil {
+		return nil, "", "", fmt.Errorf("email recipient configuration invalid")
 	}
-
-	return &profile, from, to
+	to := strings.TrimSpace(overrides.To)
+	if to == "" {
+		return nil, "", "", fmt.Errorf("email recipient missing")
+	}
+	return profile, fromAddress.String(), to, nil
 }
 
-// smtpConfigFromProfile builds an SMTP send config from a mailer profile,
-// returning nil when required fields are missing.
-func smtpConfigFromProfile(profile *integrations.MailerProfile, from, to string) *smtpConfig {
+func smtpSettings(profile *integrations.MailerProfile, from, to string) (*smtpConfig, error) {
 	if profile.SMTPHost == "" || profile.SMTPPort == 0 {
-		return nil
+		return nil, fmt.Errorf("smtp configuration missing")
 	}
-	encryption := profile.SMTPEncryption
+	encryption := strings.ToLower(strings.TrimSpace(profile.SMTPEncryption))
 	if encryption == "" {
 		encryption = "starttls"
 	}
-	return &smtpConfig{
-		Host:       profile.SMTPHost,
-		Port:       profile.SMTPPort,
-		Username:   profile.SMTPUsername,
-		Password:   profile.SMTPPassword,
-		Encryption: encryption,
-		From:       from,
-		To:         to,
+	if !slices.Contains([]string{"starttls", "tls", "none"}, encryption) {
+		return nil, fmt.Errorf("smtp encryption mode invalid")
 	}
+	return &smtpConfig{
+		Host: profile.SMTPHost, Port: profile.SMTPPort,
+		Username: profile.SMTPUsername, Password: profile.SMTPPassword, Encryption: encryption,
+		From: from, To: to,
+	}, nil
 }
 
-// sendMailgun delivers the message through the Mailgun HTTP API.
-func (d *EmailDispatcher) sendMailgun(ctx *JobContext, profile *integrations.MailerProfile, from, to, subject, body string) error {
-	values := url.Values{}
-	values.Set("from", from)
-	values.Set("to", to)
-	values.Set("subject", subject)
-	values.Set("text", body)
-
-	endpoint := fmt.Sprintf("https://api.mailgun.net/v3/%s/messages", profile.Domain)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(values.Encode()))
-	if err != nil {
-		return err
+func (dispatcher *EmailDispatcher) sendMailgun(ctx context.Context, profile *integrations.MailerProfile, from, to, subject, body string) error {
+	if profile.APIKey == "" || profile.Domain == "" {
+		return fmt.Errorf("mailgun configuration missing")
 	}
-	req.SetBasicAuth("api", profile.APIKey)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "Miniform/1.0")
-
-	resp, err := d.http.Do(req)
+	values := url.Values{"from": {from}, "to": {to}, "subject": {subject}, "text": {body}}
+	endpoint := "https://api.mailgun.net/v3/" + url.PathEscape(profile.Domain) + "/messages"
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(values.Encode()))
 	if err != nil {
-		return err
+		return fmt.Errorf("create mailgun request: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	request.SetBasicAuth("api", profile.APIKey)
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("User-Agent", "Miniform/1.0")
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	response, err := dispatcher.client.Do(request)
+	if err != nil {
+		return fmt.Errorf("send mailgun message: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if err := discardBody(response.Body); err != nil {
+		return fmt.Errorf("read mailgun response: %w", err)
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("mailgun returned status %d", response.StatusCode)
 	}
 	return nil
 }
 
-// markEmailDelivered records a successful send on the event.
-func (d *EmailDispatcher) markEmailDelivered(ctx *JobContext, db *gorm.DB, event *forms.EmailEvent) {
-	attemptCount := event.AttemptCount + 1
-	attemptTime := time.Now().UTC()
-	updater := NewEventUpdater(&forms.EmailEvent{})
-	if err := updater.Update(ctx, db, event.ID, forms.WebhookStatusDelivered, attemptTime, "", WithAttemptCount(attemptCount), WithNextAttempt(nil)); err != nil {
-		ctx.Logger.Error("update email event", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
-		return
+func emailBody(rawJSON string) string {
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(rawJSON), &fields); err != nil {
+		fields = map[string]any{"raw": rawJSON}
 	}
-	event.Status = forms.WebhookStatusDelivered
-	event.AttemptCount = attemptCount
-	event.LastAttemptAt = &attemptTime
-	event.LastAttemptErr = ""
-	event.NextAttemptAt = nil
-}
-
-func bodyForEvent(event *forms.EmailEvent) string {
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(event.Submission.DataJSON), &payload); err != nil {
-		payload = map[string]any{"raw": event.Submission.DataJSON}
+	keys := make([]string, 0, len(fields))
+	for key := range fields {
+		keys = append(keys, key)
 	}
-	return renderEmailBody(payload)
-}
+	slices.Sort(keys)
 
-func renderEmailBody(payload map[string]any) string {
-	lines := make([]string, 0, len(payload)*2+2)
-	lines = append(lines, "New submission received:")
-	lines = append(lines, "")
-
-	for key, value := range payload {
-		serialized, err := json.MarshalIndent(value, "", "  ")
+	var body strings.Builder
+	body.WriteString("New submission received:\n\n")
+	for _, key := range keys {
+		value, err := json.MarshalIndent(fields[key], "", "  ")
 		if err != nil {
-			serialized = []byte(fmt.Sprintf("%v", value))
+			value = fmt.Appendf(nil, "%v", fields[key])
 		}
-		lines = append(lines, fmt.Sprintf("%s:\n%s", key, string(serialized)))
-		lines = append(lines, "")
+		fmt.Fprintf(&body, "%s:\n%s\n\n", key, value)
 	}
-
-	return strings.Join(lines, "\n")
+	return body.String()
 }

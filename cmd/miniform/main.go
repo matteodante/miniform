@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -9,7 +10,6 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/matteodante/miniform/internal"
@@ -29,62 +29,65 @@ var (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		runServer()
-		return
+	os.Exit(execute(os.Args[1:]))
+}
+
+func execute(args []string) int {
+	if cli.IsInvocation(args) {
+		return runDataCLI(args)
 	}
-	if cli.IsInvocation(os.Args[1:]) {
-		os.Exit(runDataCLI(os.Args[1:]))
-	}
-	if strings.HasPrefix(os.Args[1], "-") {
-		runServer()
-		return
+	if len(args) == 0 {
+		return report(runServer(nil))
 	}
 
-	m := newMatcha()
-
-	switch os.Args[1] {
-	case "serve", "server", "run":
-		os.Args = append(os.Args[:1], os.Args[2:]...)
-		runServer()
-	case "install":
-		if err := m.Install(); err != nil {
-			fmt.Printf("Error: %v\n", err)
-			os.Exit(1)
-		}
-	case "update":
-		if err := m.Update(); err != nil {
-			fmt.Printf("Error: %v\n", err)
-			os.Exit(1)
-		}
-	case "reload":
-		if err := m.Reload(); err != nil {
-			fmt.Printf("Error: %v\n", err)
-			os.Exit(1)
-		}
-	case "restore-db":
-		if err := m.RestoreDB(); err != nil {
-			fmt.Printf("Error: %v\n", err)
-			os.Exit(1)
-		}
-	case "change-admin-password":
-		if err := runAdminPasswordChange(m); err != nil {
-			fmt.Printf("Error: %v\n", err)
-			os.Exit(1)
-		}
-	case "check":
-		if err := matcha.Check(); err != nil {
-			os.Exit(1)
-		}
+	switch args[0] {
 	case "version", "--version", "-v":
-		printVersion()
-	case "help", "--help", "-h":
-		printUsage()
-	default:
-		fmt.Printf("Unknown command: %s\n\n", os.Args[1])
-		printUsage()
-		os.Exit(1)
+		return report(printVersion(os.Stdout))
+	case "--help", "-h":
+		return report(printUsage(os.Stdout))
+	case "serve", "server", "run":
+		return report(runServer(args[1:]))
 	}
+	if strings.HasPrefix(args[0], "-") {
+		return report(runServer(args))
+	}
+
+	manager := newMatcha()
+	commands := map[string]func() error{
+		"install":               manager.Install,
+		"update":                manager.Update,
+		"reload":                manager.Reload,
+		"restore-db":            manager.RestoreDB,
+		"change-admin-password": func() error { return changeAdminPassword(manager) },
+		"check":                 matcha.Check,
+	}
+	command, found := commands[args[0]]
+	if !found {
+		if _, err := fmt.Fprintf(os.Stderr, "unknown command %q\n\n", args[0]); err != nil {
+			return 1
+		}
+		if err := printUsage(os.Stderr); err != nil {
+			return 1
+		}
+		return 1
+	}
+	if len(args) > 1 {
+		if _, err := fmt.Fprintf(os.Stderr, "%s does not accept positional arguments\n", args[0]); err != nil {
+			return 1
+		}
+		return 1
+	}
+	return report(command())
+}
+
+func report(err error) int {
+	if err == nil || errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
+	if _, writeErr := fmt.Fprintf(os.Stderr, "miniform: %v\n", err); writeErr != nil {
+		return 1
+	}
+	return 1
 }
 
 func runDataCLI(args []string) int {
@@ -101,10 +104,7 @@ func runDataCLI(args []string) int {
 	if cli.RequiresDatabase(args) {
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 		manager := cartridgesqlite.NewManager(cartridgesqlite.Config{
-			Path:         cfg.DatabasePath,
-			MaxOpenConns: cfg.GetMaxOpenConns(),
-			MaxIdleConns: cfg.GetMaxIdleConns(),
-			Logger:       logger,
+			Path: cfg.DatabasePath, MaxOpenConns: cfg.GetMaxOpenConns(), MaxIdleConns: cfg.GetMaxIdleConns(), Logger: logger,
 		})
 		db, err := manager.Connect()
 		if err != nil {
@@ -118,154 +118,176 @@ func runDataCLI(args []string) int {
 				log.Printf("close database: %v", err)
 			}
 		}()
-
-		dependencies.DB = db
-		dependencies.Logger = logger
+		dependencies.DB, dependencies.Logger = db, logger
 	}
 
-	runner := cli.NewRunner(dependencies)
-	return runner.Run(args)
+	return cli.NewRunner(dependencies).Run(args)
 }
 
 func newMatcha() *matcha.Matcha {
+	appImage := strings.TrimSpace(os.Getenv("APP_IMAGE"))
+	if appImage == "" {
+		appImage = "ghcr.io/matteodante/miniform:latest"
+	}
 	return matcha.New(matcha.Config{
-		Name:           "miniform",
-		AppImage:       "ghcr.io/matteodante/miniform:latest",
-		HealthPath:     "/_health",
-		Volumes:        []string{"/app/storage", "/app/logs"},
-		CronUpdates:    true,
-		Backups:        true,
-		ManagerRepo:    "matteodante/miniform",
-		ManagerVersion: version,
+		Name: "miniform", AppImage: appImage, HealthPath: "/_health",
+		Volumes: []string{"/app/storage"}, CronUpdates: true, Backups: true,
+		ManagerRepo: "matteodante/miniform", ManagerVersion: version,
 	})
 }
 
-func runServer() {
-	seedFlag := flag.Bool("seed", false, "Seed the database with sample data")
-	versionFlag := flag.Bool("version", false, "Print version and exit")
-	flag.Parse()
-
-	if *versionFlag {
-		printVersion()
-		return
+func runServer(args []string) error {
+	flags := flag.NewFlagSet("miniform serve", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	seed := flags.Bool("seed", false, "seed the database with sample data")
+	showVersion := flags.Bool("version", false, "print version and exit")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected server argument %q", flags.Arg(0))
+	}
+	if *showVersion {
+		return printVersion(os.Stdout)
 	}
 
 	app, err := internal.NewApp()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-
-	log.Println("Running database migrations...")
+	log.Print("Preparing database")
 	if err := internal.RunMigrations(app); err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
+		return fmt.Errorf("prepare database: %w", err)
 	}
-	log.Println("Database migrations completed")
-
-	if *seedFlag {
-		db := app.GetDB()
-		log.Println("Seeding database...")
-		if err := database.Seed(db); err != nil {
-			log.Fatalf("Failed to seed database: %v", err)
-		}
-		log.Println("Database seeded successfully!")
-		return
+	if *seed {
+		return seedDatabase(app)
 	}
 
 	shutdownTimeout := 2 * time.Second
 	if app.Config.IsProduction() {
 		shutdownTimeout = 10 * time.Second
 	}
-	if err := app.RunWithTimeout(shutdownTimeout); err != nil {
-		log.Fatal(err)
-	}
+	return app.RunWithTimeout(shutdownTimeout)
 }
 
-func runAdminPasswordChange(m *matcha.Matcha) error {
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Print("Enter admin email: ")
-	email, err := reader.ReadString('\n')
+func seedDatabase(app *internal.App) error {
+	db, err := app.DBManager.Connect()
 	if err != nil {
-		return fmt.Errorf("failed to read email: %w", err)
+		return fmt.Errorf("connect database for seed: %w", err)
 	}
-	email = strings.TrimSpace(email)
-	if email == "" {
-		return fmt.Errorf("email cannot be empty")
+	if err := database.Seed(db); err != nil {
+		return fmt.Errorf("seed database: %w", err)
 	}
-
-	var password string
-	for {
-		fmt.Print("Enter new admin password (minimum 8 characters): ")
-		passBytes, err := term.ReadPassword(syscall.Stdin)
-		if err != nil {
-			return fmt.Errorf("failed to read password: %w", err)
-		}
-		fmt.Println()
-
-		password = strings.TrimSpace(string(passBytes))
-		if len(password) < 8 {
-			fmt.Println("Error: password must be at least 8 characters")
-			continue
-		}
-
-		fmt.Print("Confirm new admin password: ")
-		confirmBytes, err := term.ReadPassword(syscall.Stdin)
-		if err != nil {
-			return fmt.Errorf("failed to read password: %w", err)
-		}
-		fmt.Println()
-
-		if password != strings.TrimSpace(string(confirmBytes)) {
-			fmt.Println("Error: Passwords do not match. Please try again.")
-			continue
-		}
-		break
-	}
-
-	fmt.Println("Changing password...")
-	if err := m.Exec("/app/fnctl", "change-admin-password", email, password); err != nil {
-		return fmt.Errorf("failed to change password: %w", err)
-	}
-
-	fmt.Println("Password changed successfully.")
+	log.Print("Sample data created")
 	return nil
 }
 
-func printVersion() {
-	fmt.Printf("Miniform %s\n", version)
-	fmt.Printf("  Commit:     %s\n", commit)
-	fmt.Printf("  Build Time: %s\n", buildTime)
+func changeAdminPassword(manager *matcha.Matcha) error {
+	reader := bufio.NewReader(os.Stdin)
+	email, err := readLine(reader, os.Stdout, "Admin email: ")
+	if err != nil {
+		return fmt.Errorf("read email: %w", err)
+	}
+	if email == "" {
+		return errors.New("email cannot be empty")
+	}
+	password, err := readConfirmedPassword(os.Stdout)
+	if err != nil {
+		return err
+	}
+
+	if err := writeLine(os.Stdout, "Changing password..."); err != nil {
+		return err
+	}
+	if err := manager.Exec("/app/fnctl", "change-admin-password", email, password); err != nil {
+		return fmt.Errorf("change password: %w", err)
+	}
+	return writeLine(os.Stdout, "Password changed successfully.")
 }
 
-func printUsage() {
-	fmt.Println("Miniform - Your self-hosted form inbox")
-	fmt.Println("")
-	fmt.Println("Usage: miniform [command] [options]")
-	fmt.Println("")
-	fmt.Println("Server Commands:")
-	fmt.Println("  serve                       Start the web server (default)")
-	fmt.Println("  --seed                      Seed database with sample data")
-	fmt.Println("")
-	fmt.Println("Installer Commands:")
-	fmt.Println("  install                     Install Miniform via Docker")
-	fmt.Println("  update                      Update existing installation")
-	fmt.Println("  reload                      Reload containers")
-	fmt.Println("  restore-db                  Restore database from backup")
-	fmt.Println("  change-admin-password       Change admin password")
-	fmt.Println("  check                       Check server security")
-	fmt.Println("")
-	fmt.Println("Data Commands:")
-	fmt.Println("  account <action>            Manage operator credentials")
-	fmt.Println("  config <action>             Inspect or persist runtime configuration")
-	fmt.Println("  setting <action>            Manage database-backed settings")
-	fmt.Println("  form <action>               Manage endpoints and delivery policies")
-	fmt.Println("  mailer <action>             Manage SMTP and Mailgun profiles")
-	fmt.Println("  captcha <action>            Manage captcha profiles")
-	fmt.Println("  submission <action>         Manage inbox entries and files")
-	fmt.Println("  event <action>              Inspect or retry delivery events")
-	fmt.Println("  commands --json             Print the machine-readable command catalog")
-	fmt.Println("")
-	fmt.Println("Other Commands:")
-	fmt.Println("  version                     Show version info")
-	fmt.Println("  help                        Show this help")
+func readLine(reader *bufio.Reader, writer io.Writer, prompt string) (string, error) {
+	if _, err := fmt.Fprint(writer, prompt); err != nil {
+		return "", fmt.Errorf("write prompt: %w", err)
+	}
+	value, err := reader.ReadString('\n')
+	return strings.TrimSpace(value), err
+}
+
+func readConfirmedPassword(writer io.Writer) (string, error) {
+	for {
+		password, err := readHidden(writer, "New password (minimum 8 characters): ")
+		if err != nil {
+			return "", err
+		}
+		if len(password) < 8 {
+			if err := writeLine(writer, "Password must be at least 8 characters."); err != nil {
+				return "", err
+			}
+			continue
+		}
+		confirmation, err := readHidden(writer, "Confirm password: ")
+		if err != nil {
+			return "", err
+		}
+		if password == confirmation {
+			return password, nil
+		}
+		if err := writeLine(writer, "Passwords do not match; try again."); err != nil {
+			return "", err
+		}
+	}
+}
+
+func readHidden(writer io.Writer, prompt string) (string, error) {
+	if _, err := fmt.Fprint(writer, prompt); err != nil {
+		return "", fmt.Errorf("write prompt: %w", err)
+	}
+	value, readErr := term.ReadPassword(int(os.Stdin.Fd()))
+	if err := writeLine(writer, ""); err != nil {
+		return "", err
+	}
+	if readErr != nil {
+		return "", fmt.Errorf("read password: %w", readErr)
+	}
+	return strings.TrimSpace(string(value)), nil
+}
+
+func writeLine(writer io.Writer, text string) error {
+	if _, err := fmt.Fprintln(writer, text); err != nil {
+		return fmt.Errorf("write output: %w", err)
+	}
+	return nil
+}
+
+func printVersion(writer io.Writer) error {
+	_, err := fmt.Fprintf(writer, "Miniform %s\n  Commit:     %s\n  Build Time: %s\n", version, commit, buildTime)
+	return err
+}
+
+func printUsage(writer io.Writer) error {
+	_, err := fmt.Fprint(writer, `Miniform — self-hosted form inbox
+
+Usage: miniform [command] [options]
+
+Server:
+  serve [--seed]              Start Miniform (default)
+
+Deployment:
+  install                     Install via Docker
+  update                      Update the installation
+  reload                      Reload containers
+  restore-db                  Restore a database backup
+  change-admin-password       Change the remote admin password
+  check                       Check server security
+
+Data:
+  account | config | setting | form | mailer | captcha
+  submission | event | commands
+  Run "miniform help <resource>" for actions and flags.
+
+Other:
+  version                     Show build information
+  --help                      Show this help
+`)
+	return err
 }

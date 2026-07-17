@@ -3,9 +3,6 @@ package forms
 import (
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,17 +16,10 @@ func DeleteForm(logger *slog.Logger, db *gorm.DB, dataDir string, id uint) error
 	if _, err := GetByID(db, id); err != nil {
 		return err
 	}
-	if err := Delete(logger, db, id); err != nil {
-		return err
-	}
-	if strings.TrimSpace(dataDir) == "" {
-		return nil
-	}
-	uploadDir := filepath.Join(dataDir, "uploads", strconv.FormatUint(uint64(id), 10))
-	if err := os.RemoveAll(uploadDir); err != nil {
+	if err := DeleteFormFiles(dataDir, id); err != nil {
 		return fmt.Errorf("delete form uploads: %w", err)
 	}
-	return nil
+	return Delete(logger, db, id)
 }
 
 // RotateToken replaces the public submission token for a form.
@@ -79,6 +69,26 @@ type SubmissionPage struct {
 	PerPage    int
 	TotalCount int64
 	TotalPages int
+}
+
+type InboxSummary struct {
+	Forms         []Form
+	FormCount     int64
+	EntriesLast24 int64
+}
+
+func GetInboxSummary(db *gorm.DB, now time.Time) (*InboxSummary, error) {
+	summary := &InboxSummary{}
+	if err := db.Select("id, name").Order("name").Find(&summary.Forms).Error; err != nil {
+		return nil, fmt.Errorf("list inbox forms: %w", err)
+	}
+	if err := db.Model(&Form{}).Count(&summary.FormCount).Error; err != nil {
+		return nil, fmt.Errorf("count inbox forms: %w", err)
+	}
+	if err := db.Model(&Submission{}).Where("created_at > ?", now.UTC().Add(-24*time.Hour)).Count(&summary.EntriesLast24).Error; err != nil {
+		return nil, fmt.Errorf("count recent submissions: %w", err)
+	}
+	return summary, nil
 }
 
 // ListSubmissions returns submissions matching the same filters used by the inbox.
@@ -165,11 +175,14 @@ func GetSubmissionFile(db *gorm.DB, submissionID, fileID uint) (*SubmissionFile,
 	return &file, nil
 }
 
-// DeleteSubmission deletes a submission and then removes its upload directory.
+// DeleteSubmission removes a submission's uploads and then its database records.
 func DeleteSubmission(logger *slog.Logger, db *gorm.DB, dataDir string, id uint) error {
 	submission, err := GetSubmissionByID(db, id)
 	if err != nil {
 		return err
+	}
+	if err := DeleteSubmissionFiles(dataDir, submission.FormID, submission.ID); err != nil {
+		return fmt.Errorf("delete submission files: %w", err)
 	}
 
 	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
@@ -194,9 +207,6 @@ func DeleteSubmission(logger *slog.Logger, db *gorm.DB, dataDir string, id uint)
 		return fmt.Errorf("delete submission: %w", err)
 	}
 
-	if err := DeleteSubmissionFiles(dataDir, submission.FormID, submission.ID); err != nil {
-		return fmt.Errorf("delete submission files: %w", err)
-	}
 	return nil
 }
 

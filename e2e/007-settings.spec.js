@@ -1,167 +1,38 @@
-// e2e/007-settings.spec.js - Test workspace management
-const { test, expect } = require("@playwright/test");
-const { TestHelpers } = require("./test-helpers");
-const { TEST_EMAIL, TEST_PASSWORD } = require("./test-constants");
+const { test, expect } = require("./fixtures");
+const { ADMIN_EMAIL, ADMIN_PASSWORD, uniqueName } = require("./test-client");
 
-test.describe("Workspace management", () => {
-  let helpers;
-
-  test.beforeEach(async ({ page }) => {
-    helpers = new TestHelpers(page);
-
-    // Login
-    await page.context().clearCookies();
-    await helpers.login(TEST_EMAIL, TEST_PASSWORD);
+test.describe("operator settings", () => {
+  test("shows workspace identity and security controls", async ({ page, admin }) => {
+    await admin.open("/admin/settings");
+    await expect(page.getByRole("heading", { name: "Operator access." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Operator email" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Workspace password" })).toBeVisible();
   });
 
-  test.afterEach(async ({ page }) => {
-    if (helpers) {
-      await helpers.cleanup();
-    }
+  test("changes the login email", async ({ page, admin }) => {
+    const temporaryEmail = `${uniqueName("operator")}@example.com`;
+    await admin.open("/admin/settings");
+    await page.getByLabel("Email").fill(temporaryEmail);
+    await page.getByLabel("Current password").first().fill(ADMIN_PASSWORD);
+    await page.getByRole("button", { name: "Update email" }).click();
+    await expect(page.getByRole("status")).toContainText("Email updated successfully");
+
+    await admin.logout();
+    await admin.login(temporaryEmail, ADMIN_PASSWORD);
+    await expect(page).toHaveURL(/\/admin\/submissions/);
   });
 
-  test("1. View settings page", async ({ page }) => {
-    helpers.log("=== Viewing Settings Page ===");
+  test("changes the password", async ({ page, admin }) => {
+    const temporaryPassword = `Tmp-${uniqueName("password")}`;
+    await admin.open("/admin/settings");
+    await page.locator("#current_password").fill(ADMIN_PASSWORD);
+    await page.locator("#new_password").fill(temporaryPassword);
+    await page.locator("#confirm_password").fill(temporaryPassword);
+    await page.getByRole("button", { name: "Update password" }).click();
+    await expect(page.getByRole("status")).toContainText("Password updated successfully");
 
-    await helpers.navigateTo("/admin/settings");
-
-    const pageContent = await page.textContent("body");
-    expect(pageContent).toContain("Workspace");
-    expect(pageContent).toContain("Operator email");
-
-    helpers.log("✅ Settings page loaded");
-  });
-
-  test("2. Manage mailer profiles", async ({ page }) => {
-    helpers.log("=== Managing Email Routes ===");
-
-    // Navigate to mailers page
-    await helpers.navigateTo("/admin/settings/mailers");
-
-    // Should see the mailer profiles page (might be empty initially)
-    const pageContent = await page.textContent("body");
-    expect(pageContent).toContain("Email routes");
-
-    helpers.log("✅ Email routes page loaded");
-
-    // Create a new mailer profile
-    await page.click('text=New email route');
-    await page.waitForLoadState("networkidle");
-
-    const mailerName = `test-mailgun-${Date.now()}`;
-
-    // Fill out the new mailer form manually (select fields need special handling)
-    await page.fill('input[name="name"]', mailerName);
-    await page.selectOption('select[name="provider"]', "mailgun");
-    await page.fill('input[name="api_key"]', "key-test-mailgun-key");
-    await page.fill('input[name="domain"]', "mg.example.com");
-    await page.fill('input[name="default_from_name"]', "Test Sender");
-    await page.fill('input[name="default_from_email"]', `test+${Date.now()}@example.com`);
-    await page.fill('textarea[name="defaults_json"]', '{"tags":["miniform-e2e"]}');
-
-    await page.click('form[action="/admin/settings/mailers"] button[type="submit"]');
-    await page.waitForURL("**/admin/settings/mailers");
-    await page.waitForLoadState("networkidle");
-    await expect(page.locator("body")).toContainText(mailerName);
-
-    helpers.log("✅ Mailer profile created");
-  });
-
-  test("3. Manage captcha profiles", async ({ page }) => {
-    helpers.log("=== Managing Safeguards ===");
-
-    // Navigate to captcha page
-    await helpers.navigateTo("/admin/settings/captcha");
-
-    // Should see the captcha profiles page (might be empty initially)
-    const pageContent = await page.textContent("body");
-    expect(pageContent).toContain("Safeguards");
-
-    helpers.log("✅ Safeguards page loaded");
-
-    // Create a new captcha profile
-    await page.click('text=New safeguard');
-    await page.waitForLoadState("networkidle");
-
-    const captchaName = `test-turnstile-${Date.now()}`;
-    const siteKey = `0xTEST-${Date.now()}`;
-
-    // Fill out the new captcha form manually (select fields need special handling)
-    await page.fill('input[name="name"]', captchaName);
-    await page.selectOption('select[name="provider"]', "turnstile");
-    await page.fill('input[name="secret_key"]', "1x0000000000000000000000000000000AA");
-    await page.fill('textarea[name="site_keys_json"]', JSON.stringify([{ host_pattern: "*", site_key: siteKey }], null, 2));
-    await page.fill('textarea[name="policy_json"]', JSON.stringify({ required: true, action: "submit" }, null, 2));
-
-    await page.click('form[action="/admin/settings/captcha"] button[type="submit"]');
-    await page.waitForURL("**/admin/settings/captcha");
-    await page.waitForLoadState("networkidle");
-    await expect(page.locator("body")).toContainText(captchaName);
-
-    helpers.log("✅ Captcha profile created");
-  });
-
-  test("4. Change admin email via settings page", async ({ page }) => {
-    helpers.log("=== Changing Admin Email From Settings Page ===");
-
-    const tempEmail = `temp-admin-${Date.now()}@example.com`;
-
-    await helpers.navigateTo("/admin/settings");
-    await helpers.fillForm(
-      {
-        new_email: tempEmail,
-        current_password_email: TEST_PASSWORD,
-      },
-      { submitButton: 'form[action="/admin/settings/email"] button[type="submit"]' }
-    );
-    await expect(page.locator("body")).toContainText("Email updated successfully");
-
-    await helpers.logout();
-    await helpers.login(tempEmail, TEST_PASSWORD);
-
-    await helpers.navigateTo("/admin/settings");
-    await helpers.fillForm(
-      {
-        new_email: TEST_EMAIL,
-        current_password_email: TEST_PASSWORD,
-      },
-      { submitButton: 'form[action="/admin/settings/email"] button[type="submit"]' }
-    );
-    await expect(page.locator("body")).toContainText("Email updated successfully");
-
-    helpers.log("✅ Settings email change verified");
-  });
-
-  test("5. Change password via settings page", async ({ page }) => {
-    helpers.log("=== Changing Password From Settings Page ===");
-
-    const tempPassword = `TempPwd!${Date.now()}`;
-
-    await helpers.navigateTo("/admin/settings");
-    await helpers.fillForm(
-      {
-        current_password: TEST_PASSWORD,
-        new_password: tempPassword,
-        confirm_password: tempPassword,
-      },
-      { submitButton: 'form[action="/admin/settings/password"] button[type="submit"]' }
-    );
-    await expect(page.locator("body")).toContainText("Password updated successfully");
-
-    await helpers.logout();
-    await helpers.login(TEST_EMAIL, tempPassword);
-
-    await helpers.navigateTo("/admin/settings");
-    await helpers.fillForm(
-      {
-        current_password: tempPassword,
-        new_password: TEST_PASSWORD,
-        confirm_password: TEST_PASSWORD,
-      },
-      { submitButton: 'form[action="/admin/settings/password"] button[type="submit"]' }
-    );
-    await expect(page.locator("body")).toContainText("Password updated successfully");
-
-    helpers.log("✅ Settings password change verified");
+    await admin.logout();
+    await admin.login(ADMIN_EMAIL, temporaryPassword);
+    await expect(page).toHaveURL(/\/admin\/submissions/);
   });
 });

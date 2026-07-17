@@ -1,98 +1,26 @@
-# Miniform E2E Tests
+# Browser acceptance tests
 
-End-to-end tests for Miniform using Playwright.
+This directory verifies Miniform’s user-facing flows with Playwright and Chromium. The runner starts an isolated `MINIFORM_ENV=test` server on port `41817` and recreates `storage/miniform.test.db` for each run.
 
-## Setup
-
-Install Playwright and dependencies:
+Install once:
 
 ```bash
 make test-e2e-setup
 ```
 
-Or manually:
-
-```bash
-cd e2e
-npm install
-npx playwright install --with-deps chromium
-```
-
-## Running Tests
-
-Run all E2E tests:
+Run the suite:
 
 ```bash
 make test-e2e
 ```
 
-Or manually:
+For an interactive run:
 
 ```bash
 cd e2e
-npm test
+npm run test:ui
 ```
 
-## Test Structure
+The test-only account is `admin@miniform.local` / `miniform`. Tests use isolated browser contexts and a small database fixture; the single worker prevents concurrent writes to the shared SQLite test database.
 
-- **001-onboarding.spec.js** - MUST RUN FIRST - Sets up admin account
-- **002-forms.spec.js** - Form CRUD operations
-- **003-submissions.spec.js** - Form submissions and rate limiting
-- **004-settings.spec.js** - Settings management (Mailgun, Turnstile)
-- **099-logout.spec.js** - Final cleanup and logout
-
-Tests run **sequentially** in numeric order due to dependencies.
-
-## Default Admin Credentials
-
-The app automatically creates a default admin on first run:
-
-- Email: `admin@miniform.local`
-- Password: `miniform`
-
-The onboarding test changes these to:
-
-- Email: `admin@test-e2e.com`
-- Password: `testpassword123`
-
-## Test Environment
-
-Tests use `MINIFORM_ENV=test` which creates a separate test database:
-
-- Database: `storage/miniform-test.db`
-- Server: `http://localhost:8080`
-
-The test database is reset before each test run.
-
-## Configuration
-
-See `playwright.config.js` for Playwright configuration:
-
-- Single worker (sequential execution)
-- 45s timeout per test
-- Screenshots on failure
-- No videos (for speed)
-
-## Debugging
-
-Run with UI mode for debugging:
-
-```bash
-cd e2e
-npx playwright test --ui
-```
-
-Run specific test file:
-
-```bash
-cd e2e
-npx playwright test 003-submissions.spec.js
-```
-
-## CI/CD
-
-The tests work in CI with `CI=true` environment variable:
-
-- Retries enabled (1 retry)
-- GitHub reporter
-- Trace on first retry
+Artifacts for failed tests are written to `e2e/test-results/`.

@@ -1,218 +1,82 @@
 {{ define "admin/submissions/show/content" }}
-<div class="max-w-5xl mx-auto space-y-8">
-    <!-- Header -->
-    <div class="flex items-start justify-between">
+<div class="mx-auto max-w-5xl space-y-6">
+    <header class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-            <div class="flex items-center gap-3 mb-2">
-                <h1 class="text-3xl font-bold text-gray-900">Inbox entry #{{ .Submission.ID }}</h1>
-                {{ if .Submission.IsSpam }}
-                <span
-                    class="inline-flex items-center rounded-full bg-red-50 px-3 py-1 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
-                    <svg class="mr-1 h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                        <path fill-rule="evenodd"
-                            d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z"
-                            clip-rule="evenodd" />
-                    </svg>
-                    Spam
-                </span>
-                {{ else }}
-                <span
-                    class="inline-flex items-center rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">
-                    <svg class="mr-1 h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                        <path fill-rule="evenodd"
-                            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                            clip-rule="evenodd" />
-                    </svg>
-                    Valid
-                </span>
-                {{ end }}
+            <div class="flex flex-wrap items-center gap-3">
+                <p class="mf-kicker">Inbox entry</p>
+                <span class="rounded-full px-2.5 py-1 text-xs font-semibold {{ if .Submission.IsSpam }}bg-rose-50 text-rose-700{{ else }}bg-green-50 text-green-700{{ end }}">{{ if .Submission.IsSpam }}Spam{{ else }}Accepted{{ end }}</span>
             </div>
-            <p class="text-sm text-gray-600">Received <time datetime="{{ timeRFC3339 .Submission.CreatedAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .Submission.CreatedAt "Jan 2, 2006 at 3:04 PM UTC" }}</time></p>
+            <h1 class="mt-2 text-3xl font-bold text-ink">Entry #{{ .Submission.ID }}</h1>
+            <p class="mt-2 text-sm text-ink-muted">Received <time datetime="{{ timeRFC3339 .Submission.CreatedAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .Submission.CreatedAt "Jan 2, 2006 at 15:04 UTC" }}</time></p>
         </div>
-        <a href="/admin/forms/{{ .Submission.FormID }}"
-            class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-            <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back to endpoint
-        </a>
-    </div>
+        <a class="mf-button-secondary" href="/admin/forms/{{ .Submission.FormID }}">Back to endpoint</a>
+    </header>
 
-    <!-- Payload -->
-    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-lg font-semibold text-gray-900">Payload</h2>
-            <p class="text-sm text-gray-500">Fields received from the public endpoint</p>
-        </div>
-        <div class="p-6">
-            <pre
-                class="max-h-96 overflow-auto rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 font-mono">{{ .JSON }}</pre>
-        </div>
-    </div>
+    <section class="mf-panel p-6">
+        <div class="flex items-baseline justify-between gap-4"><h2 class="text-lg font-semibold text-ink">Payload</h2><span class="font-mono text-xs text-ink-muted">JSON</span></div>
+        <pre class="mt-4 max-h-[32rem] overflow-auto rounded-xl bg-gray-900 p-4 font-mono text-xs leading-6 text-gray-100">{{ .JSON }}</pre>
+    </section>
 
-    <!-- Files -->
     {{ if .HasFiles }}
-    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-lg font-semibold text-gray-900">Uploaded Files</h2>
-            <p class="text-sm text-gray-500">{{ len .Submission.Files }} file{{ if ne (len .Submission.Files) 1 }}s{{ end }} attached</p>
-        </div>
-        <div class="divide-y divide-gray-200">
+    <section class="mf-panel overflow-hidden">
+        <div class="border-b border-rule p-6"><h2 class="text-lg font-semibold text-ink">Files</h2><p class="text-sm text-ink-muted">{{ len .Submission.Files }} attachment{{ if ne (len .Submission.Files) 1 }}s{{ end }}</p></div>
+        <ul class="divide-y divide-rule">
             {{ range .Submission.Files }}
-            <div class="px-6 py-4 flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <div class="flex-shrink-0 w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
-                        <svg class="h-5 w-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                        </svg>
-                    </div>
-                    <div>
-                        <p class="text-sm font-medium text-gray-900">{{ .Filename }}</p>
-                        <p class="text-xs text-gray-500">{{ .FieldName }} · {{ .Size }} bytes · {{ .ContentType }}</p>
-                    </div>
-                </div>
-                <a href="/admin/submissions/{{ .SubmissionID }}/files/{{ .ID }}"
-                    class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition-all hover:bg-gray-50">
-                    <svg class="mr-1.5 h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    Download
-                </a>
-            </div>
+            <li class="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+                <div class="min-w-0"><p class="truncate font-medium text-ink">{{ .Filename }}</p><p class="mt-1 text-xs text-ink-muted">{{ .FieldName }} · {{ .Size }} bytes · {{ .ContentType }}</p></div>
+                <a class="mf-button-secondary !px-3 !py-1.5 text-xs" href="/admin/submissions/{{ .SubmissionID }}/files/{{ .ID }}">Download</a>
+            </li>
             {{ end }}
-        </div>
-    </div>
+        </ul>
+    </section>
     {{ end }}
 
-    <!-- Metadata -->
-    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-lg font-semibold text-gray-900">Metadata</h2>
-            <p class="text-sm text-gray-500">Request information</p>
-        </div>
-        <div class="divide-y divide-gray-200">
-            <div class="grid grid-cols-1 gap-4 px-6 py-4 sm:grid-cols-3">
-                <div class="sm:col-span-1">
-                    <dt class="text-sm font-medium text-gray-500">User Agent</dt>
-                </div>
-                <div class="sm:col-span-2">
-                    <dd class="text-sm text-gray-900 break-words">{{ .Submission.UserAgent }}</dd>
-                </div>
-            </div>
-            <div class="grid grid-cols-1 gap-4 px-6 py-4 sm:grid-cols-3">
-                <div class="sm:col-span-1">
-                    <dt class="text-sm font-medium text-gray-500">Endpoint</dt>
-                </div>
-                <div class="sm:col-span-2">
-                    <dd class="text-sm text-gray-900">
-                        {{ if .Submission.Form }}
-                        <a href="/admin/forms/{{ .Submission.Form.ID }}"
-                            class="text-blue-600 hover:text-blue-700 hover:underline">
-                            {{ .Submission.Form.Name }}
-                        </a>
-                        {{ else }}
-                        Unknown
-                        {{ end }}
-                    </dd>
-                </div>
-            </div>
-        </div>
-    </div>
+    <section class="mf-panel p-6">
+        <h2 class="text-lg font-semibold text-ink">Request metadata</h2>
+        <dl class="mt-5 grid gap-5 sm:grid-cols-[10rem_minmax(0,1fr)]">
+            <dt class="text-sm font-semibold text-ink-muted">Endpoint</dt>
+            <dd class="text-sm text-ink">{{ if .Submission.Form }}<a class="font-semibold text-moss" href="/admin/forms/{{ .Submission.Form.ID }}">{{ .Submission.Form.Name }}</a>{{ else }}Unknown{{ end }}</dd>
+            <dt class="text-sm font-semibold text-ink-muted">User agent</dt>
+            <dd class="break-words font-mono text-xs leading-5 text-ink">{{ if .Submission.UserAgent }}{{ .Submission.UserAgent }}{{ else }}Not provided{{ end }}</dd>
+        </dl>
+    </section>
 
-    <!-- Webhook Events -->
-    {{ if .Submission.WebhookEvents }}
-    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-lg font-semibold text-gray-900">Webhook Deliveries</h2>
-            <p class="text-sm text-gray-500">Forwarding attempts to external endpoints</p>
-        </div>
-        <div class="divide-y divide-gray-200">
-            {{ range .Submission.WebhookEvents }}
-            <div class="px-6 py-4">
-                <div class="flex items-start justify-between mb-2">
-                    <div class="flex items-center gap-2">
-                        {{ if eq .Status "completed" }}
-                        <span
-                            class="inline-flex items-center rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">
-                            ✓ Delivered
-                        </span>
-                        {{ else if eq .Status "failed" }}
-                        <span
-                            class="inline-flex items-center rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
-                            × Failed
-                        </span>
-                        {{ else }}
-                        <span
-                            class="inline-flex items-center rounded-full bg-yellow-50 px-2.5 py-0.5 text-xs font-medium text-yellow-700 ring-1 ring-inset ring-yellow-600/20">
-                            ⟳ {{ .Status }}
-                        </span>
-                        {{ end }}
-                        <span class="text-sm text-gray-600">{{ .AttemptCount }} attempt{{ if ne .AttemptCount 1 }}s{{
-                            end }}</span>
+    <div class="grid gap-6 lg:grid-cols-2">
+        {{ if .Submission.WebhookEvents }}
+        <section class="mf-panel overflow-hidden">
+            <div class="border-b border-rule p-6"><h2 class="text-lg font-semibold text-ink">Webhook deliveries</h2></div>
+            <div class="divide-y divide-rule">
+                {{ range .Submission.WebhookEvents }}
+                <article class="p-5">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="rounded-full px-2.5 py-1 text-xs font-semibold {{ if eq .Status "failed" }}bg-rose-50 text-rose-700{{ else if eq .Status "delivered" }}bg-green-50 text-green-700{{ else }}bg-blue-50 text-blue-700{{ end }}">{{ .Status }}</span>
+                        {{ if .LastAttemptAt }}<time class="text-xs text-ink-muted" datetime="{{ timeRFC3339 .LastAttemptAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .LastAttemptAt "Jan 2 15:04 UTC" }}</time>{{ end }}
                     </div>
-                    {{ if .LastAttemptAt }}
-                    <time class="text-xs text-gray-500" datetime="{{ timeRFC3339 .LastAttemptAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .LastAttemptAt "Jan 2 at 3:04 PM UTC" }}</time>
-                    {{ end }}
-                </div>
-                {{ if .LastAttemptErr }}
-                <div class="mt-2">
-                    <p class="text-xs font-medium text-gray-700 mb-1">Error:</p>
-                    <pre
-                        class="text-xs text-red-600 bg-red-50 rounded px-2 py-1 overflow-x-auto">{{ .LastAttemptErr }}</pre>
-                </div>
+                    <p class="mt-2 text-xs text-ink-muted">{{ .AttemptCount }} attempt{{ if ne .AttemptCount 1 }}s{{ end }}</p>
+                    {{ if .LastAttemptErr }}<pre class="mt-3 overflow-x-auto rounded-lg bg-rose-50 p-3 text-xs text-rose-800">{{ .LastAttemptErr }}</pre>{{ end }}
+                </article>
                 {{ end }}
             </div>
-            {{ end }}
-        </div>
-    </div>
-    {{ end }}
+        </section>
+        {{ end }}
 
-    <!-- Email Events -->
-    {{ if .Submission.EmailEvents }}
-    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-lg font-semibold text-gray-900">Email Deliveries</h2>
-            <p class="text-sm text-gray-500">Notification emails sent for this entry</p>
-        </div>
-        <div class="divide-y divide-gray-200">
-            {{ range .Submission.EmailEvents }}
-            <div class="px-6 py-4">
-                <div class="flex items-start justify-between mb-2">
-                    <div class="flex items-center gap-2">
-                        {{ if eq .Status "completed" }}
-                        <span
-                            class="inline-flex items-center rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">
-                            ✓ Sent
-                        </span>
-                        {{ else if eq .Status "failed" }}
-                        <span
-                            class="inline-flex items-center rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
-                            × Failed
-                        </span>
-                        {{ else }}
-                        <span
-                            class="inline-flex items-center rounded-full bg-yellow-50 px-2.5 py-0.5 text-xs font-medium text-yellow-700 ring-1 ring-inset ring-yellow-600/20">
-                            ⟳ {{ .Status }}
-                        </span>
-                        {{ end }}
-                        <span class="text-sm text-gray-600">{{ .AttemptCount }} attempt{{ if ne .AttemptCount 1 }}s{{
-                            end }}</span>
+        {{ if .Submission.EmailEvents }}
+        <section class="mf-panel overflow-hidden">
+            <div class="border-b border-rule p-6"><h2 class="text-lg font-semibold text-ink">Email deliveries</h2></div>
+            <div class="divide-y divide-rule">
+                {{ range .Submission.EmailEvents }}
+                <article class="p-5">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="rounded-full px-2.5 py-1 text-xs font-semibold {{ if eq .Status "failed" }}bg-rose-50 text-rose-700{{ else if eq .Status "delivered" }}bg-green-50 text-green-700{{ else }}bg-blue-50 text-blue-700{{ end }}">{{ .Status }}</span>
+                        {{ if .LastAttemptAt }}<time class="text-xs text-ink-muted" datetime="{{ timeRFC3339 .LastAttemptAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .LastAttemptAt "Jan 2 15:04 UTC" }}</time>{{ end }}
                     </div>
-                    {{ if .LastAttemptAt }}
-                    <time class="text-xs text-gray-500" datetime="{{ timeRFC3339 .LastAttemptAt }}" data-local-time data-date-style="medium" data-time-style="short">{{ formatUTC .LastAttemptAt "Jan 2 at 3:04 PM UTC" }}</time>
-                    {{ end }}
-                </div>
-                {{ if .LastAttemptErr }}
-                <div class="mt-2">
-                    <p class="text-xs font-medium text-gray-700 mb-1">Error:</p>
-                    <pre
-                        class="text-xs text-red-600 bg-red-50 rounded px-2 py-1 overflow-x-auto">{{ .LastAttemptErr }}</pre>
-                </div>
+                    <p class="mt-2 text-xs text-ink-muted">{{ .AttemptCount }} attempt{{ if ne .AttemptCount 1 }}s{{ end }}</p>
+                    {{ if .LastAttemptErr }}<pre class="mt-3 overflow-x-auto rounded-lg bg-rose-50 p-3 text-xs text-rose-800">{{ .LastAttemptErr }}</pre>{{ end }}
+                </article>
                 {{ end }}
             </div>
-            {{ end }}
-        </div>
+        </section>
+        {{ end }}
     </div>
-    {{ end }}
 </div>
 {{ end }}

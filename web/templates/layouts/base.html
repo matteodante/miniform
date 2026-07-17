@@ -160,10 +160,13 @@
 
         markCurrentNavigation();
         localizeTimes();
-        document.body.addEventListener('htmx:afterSwap', (event) => {
-            markCurrentNavigation();
-            localizeTimes(event.target);
-        });
+        if (!document.body.dataset.miniformLifecycleBound) {
+            document.body.dataset.miniformLifecycleBound = 'true';
+            document.body.addEventListener('htmx:afterSwap', (event) => {
+                markCurrentNavigation();
+                localizeTimes(event.target);
+            });
+        }
     </script>
 </body>
 

@@ -10,54 +10,39 @@ import (
 	"github.com/matteodante/miniform/internal/accounts"
 )
 
-// AdminLoginPage renders the admin login form.
 func AdminLoginPage(ctx *cartridge.Context) error {
-	return ctx.Render("layouts/base", fiber.Map{
-		"Title":              "Sign in",
-		"HideHeaderActions":  true,
-		"ContentView":        "admin/login/content",
-		"ShowFirstLoginHelp": accounts.IsFirstLoginPending(ctx.DB()),
-	}, "")
+	return renderLogin(ctx, "")
 }
 
-// AdminLoginSubmit handles credential verification.
 func AdminLoginSubmit(ctx *cartridge.Context) error {
-	email := ctx.FormValue("email")
-	password := ctx.FormValue("password")
-
-	db := ctx.DB()
-
-	result, err := accounts.Authenticate(ctx.Logger, db, email, password)
+	result, err := accounts.Authenticate(ctx.Logger, ctx.DB(), ctx.FormValue("email"), ctx.FormValue("password"))
 	if err != nil {
 		if errors.Is(err, accounts.ErrInvalidCredentials) || errors.Is(err, accounts.ErrMissingFields) {
-			return renderLoginError(ctx, "Invalid credentials")
+			return renderLogin(ctx, "Invalid credentials")
 		}
-		ctx.Logger.Error("authentication failed", slog.Any("error", err))
+		ctx.Logger.Error("authenticate admin", slog.Any("error", err))
 		return fiber.ErrInternalServerError
 	}
-
-	if err := GetSession(ctx).SetSession(ctx.Ctx, result.User.ID); err != nil {
-		ctx.Logger.Error("failed to set session cookie", slog.Any("error", err), slog.Uint64("userID", uint64(result.User.ID)))
+	if ctx.Session == nil {
 		return fiber.ErrInternalServerError
 	}
-
+	if err := ctx.Session.SetSession(ctx.Ctx, result.User.ID); err != nil {
+		ctx.Logger.Error("start admin session", slog.Uint64("user_id", uint64(result.User.ID)), slog.Any("error", err))
+		return fiber.ErrInternalServerError
+	}
 	return ctx.Redirect("/admin/submissions")
 }
 
-// AdminLogout destroys the session and redirects to login.
 func AdminLogout(ctx *cartridge.Context) error {
-	GetSession(ctx).ClearSession(ctx.Ctx)
+	if ctx.Session != nil {
+		ctx.Session.ClearSession(ctx.Ctx)
+	}
 	return ctx.Redirect("/admin/login")
 }
 
-func renderLoginError(ctx *cartridge.Context, message string) error {
-	return ctx.Render("layouts/base", fiber.Map{
-		"Title":              "Sign in",
-		"Error":              message,
-		"HideHeaderActions":  true,
-		"ContentView":        "admin/login/content",
+func renderLogin(ctx *cartridge.Context, message string) error {
+	return renderPage(ctx, "Sign in", "admin/login/content", fiber.Map{
+		"Error": message, "HideHeaderActions": true,
 		"ShowFirstLoginHelp": accounts.IsFirstLoginPending(ctx.DB()),
-	}, "")
+	})
 }
-
-// Password changes are handled in the settings page (AdminSettingsUpdatePassword).

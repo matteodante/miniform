@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -13,317 +14,295 @@ import (
 
 	"github.com/matteodante/miniform/internal/config"
 	"github.com/matteodante/miniform/internal/forms"
-	"github.com/matteodante/miniform/internal/middleware"
+	"github.com/matteodante/miniform/internal/integrations"
 )
 
-// PublicFormSubmission accepts a submission for the given form slug.
-func PublicFormSubmission(ctx *cartridge.Context) error {
-	db := ctx.DB()
+var (
+	errEmptySubmission = errors.New("submission payload empty")
+	errTooManyFields   = errors.New("too many fields")
+	errCaptchaFailed   = errors.New("captcha verification failed")
+)
 
-	cfg := GetAppConfig(ctx)
+type publicFailure struct {
+	status  int
+	message string
+}
 
-	slug := ctx.Params("slug")
-	if slug == "" {
-		return jsonError(ctx, fiber.StatusNotFound, "form not found")
-	}
+func (failure *publicFailure) Error() string { return failure.message }
 
-	form, err := forms.GetBySlug(db, slug)
+func PublicFormSubmission(ctx *cartridge.Context, cfg *config.Config) error {
+	form, err := publicForm(ctx)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return jsonError(ctx, fiber.StatusNotFound, "form not found")
+		var failure *publicFailure
+		if !errors.As(err, &failure) {
+			return fiber.ErrInternalServerError
 		}
-		return jsonError(ctx, fiber.StatusInternalServerError, "form lookup failed")
-	}
-
-	if token := ctx.Query("token"); token == "" || token != form.Token {
-		return jsonError(ctx, fiber.StatusUnauthorized, "invalid token")
-	}
-
-	// Check allowed origins (domain allowlisting)
-	if !form.IsOriginAllowed(getRequestOrigin(ctx)) {
-		return jsonError(ctx, fiber.StatusForbidden, "origin not allowed")
+		return jsonError(ctx, failure.status, failure.message)
 	}
 
 	payload, err := extractSubmissionPayload(ctx, cfg)
 	if err != nil {
-		// Check for custom error redirect
-		if errorURL := extractRedirectURL(payload, "_error_url"); errorURL != "" {
-			if err := form.ValidateRedirectURL(errorURL); err == nil {
-				return ctx.Redirect(errorURL)
-			}
-		}
-		return jsonError(ctx, fiber.StatusBadRequest, err.Error())
+		return submissionFailure(ctx, form, payload, fiber.StatusBadRequest, err.Error())
+	}
+	successURL := redirectField(payload, "_success_url")
+	errorURL := redirectField(payload, "_error_url")
+	if !validRedirect(form, successURL) {
+		return jsonError(ctx, fiber.StatusBadRequest, "invalid success redirect URL")
+	}
+	if !validRedirect(form, errorURL) {
+		return jsonError(ctx, fiber.StatusBadRequest, "invalid error redirect URL")
 	}
 
-	// Extract custom redirect URLs before saving (don't store them)
-	successURL := extractRedirectURL(payload, "_success_url")
-	errorURL := extractRedirectURL(payload, "_error_url")
-
-	// Validate redirect URLs
-	if successURL != "" {
-		if err := form.ValidateRedirectURL(successURL); err != nil {
-			return jsonError(ctx, fiber.StatusBadRequest, "invalid success redirect URL")
-		}
+	if err := verifyCaptcha(ctx, form, payload); err != nil {
+		return redirectOrJSON(ctx, errorURL, fiber.StatusBadRequest, err.Error())
 	}
-	if errorURL != "" {
-		if err := form.ValidateRedirectURL(errorURL); err != nil {
-			return jsonError(ctx, fiber.StatusBadRequest, "invalid error redirect URL")
-		}
-	}
-
-	if err := enforceCaptchaIfNeeded(ctx, form, payload); err != nil {
-		if errorURL != "" {
-			return ctx.Redirect(errorURL)
-		}
-		return jsonError(ctx, fiber.StatusBadRequest, err.Error())
-	}
-
-	// Remove special fields from payload
 	delete(payload, "_success_url")
 	delete(payload, "_error_url")
 
-	// Extract files from multipart form
-	var uploadedFiles []*forms.UploadedFile
-	if multipartForm, err := ctx.MultipartForm(); err == nil && multipartForm != nil {
-		uploadedFiles, err = forms.ExtractFiles(multipartForm)
-		if err != nil {
-			if errorURL != "" {
-				return ctx.Redirect(errorURL)
-			}
-			return jsonError(ctx, fiber.StatusBadRequest, err.Error())
-		}
-	}
-
-	logger := ctx.Logger
-	userAgent := ctx.Get(fiber.HeaderUserAgent)
-	dataDir := cfg.DataDirectory
-
-	submission, err := forms.CreateSubmissionWithFiles(logger, db, form, payload, userAgent, dataDir, uploadedFiles)
+	files, err := uploadedFiles(ctx)
 	if err != nil {
-		forms.CloseFiles(uploadedFiles) // Clean up on error
-		if errorURL != "" {
-			return ctx.Redirect(errorURL)
-		}
-		return jsonError(ctx, fiber.StatusInternalServerError, err.Error())
+		return redirectOrJSON(ctx, errorURL, fiber.StatusBadRequest, err.Error())
 	}
-
-	// Check for custom success redirect
+	submission, err := forms.CreateSubmissionWithFiles(
+		ctx.Logger, ctx.DB(), form, payload, ctx.Get(fiber.HeaderUserAgent),
+		cfg.DataDirectory, files,
+	)
+	if err != nil {
+		return redirectOrJSON(ctx, errorURL, fiber.StatusInternalServerError, "submission failed")
+	}
 	if successURL != "" {
 		return ctx.Redirect(successURL)
 	}
-
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-		"ok":            true,
-		"submission_id": submission.ID,
-		"received_at":   submission.CreatedAt.UTC().Format(time.RFC3339),
+	return ctx.JSON(fiber.Map{
+		"ok": true, "submission_id": submission.ID,
+		"received_at": submission.CreatedAt.UTC().Format(time.RFC3339),
 	})
 }
 
-func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[string]any, error) {
-	result := make(map[string]any)
-	fieldCount := 0
+func publicForm(ctx *cartridge.Context) (*forms.Form, error) {
+	slug := strings.TrimSpace(ctx.Params("slug"))
+	if slug == "" {
+		return nil, &publicFailure{fiber.StatusNotFound, "form not found"}
+	}
+	form, err := forms.GetBySlug(ctx.DB(), slug)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, &publicFailure{fiber.StatusNotFound, "form not found"}
+		}
+		return nil, &publicFailure{fiber.StatusInternalServerError, "form lookup failed"}
+	}
+	if token := ctx.Query("token"); token == "" || token != form.Token {
+		return nil, &publicFailure{fiber.StatusUnauthorized, "invalid token"}
+	}
+	if !form.IsOriginAllowed(getRequestOrigin(ctx)) {
+		return nil, &publicFailure{fiber.StatusForbidden, "origin not allowed"}
+	}
+	return form, nil
+}
 
-	contentType := ctx.Get(fiber.HeaderContentType)
-	if strings.Contains(contentType, fiber.MIMEApplicationJSON) {
-		if err := json.Unmarshal(ctx.Body(), &result); err != nil {
-			return nil, err
+func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[string]any, error) {
+	payload := make(map[string]any)
+	if strings.Contains(ctx.Get(fiber.HeaderContentType), fiber.MIMEApplicationJSON) {
+		if err := json.Unmarshal(ctx.Body(), &payload); err != nil {
+			return payload, err
+		}
+		if len(payload) > cfg.MaxInputFields {
+			return payload, errTooManyFields
+		}
+		if len(payload) == 0 {
+			return payload, errEmptySubmission
+		}
+		return payload, nil
+	}
+
+	fieldCount := 0
+	if strings.Contains(ctx.Get(fiber.HeaderContentType), fiber.MIMEMultipartForm) {
+		multipart, err := ctx.MultipartForm()
+		if err != nil {
+			return payload, err
+		}
+		for name, values := range multipart.Value {
+			fieldCount += len(values)
+			if fieldCount > cfg.MaxInputFields {
+				return payload, errTooManyFields
+			}
+			setFormValues(payload, name, values)
 		}
 	} else {
-		if form, err := ctx.MultipartForm(); err == nil && form != nil {
-			for key, values := range form.Value {
-				fieldCount += len(values)
-				if fieldCount > cfg.MaxInputFields {
-					return nil, errors.New("too many fields")
-				}
-				assignFormField(result, key, values)
+		for name, value := range ctx.Request().PostArgs().All() {
+			fieldCount++
+			if fieldCount <= cfg.MaxInputFields {
+				appendFormValue(payload, string(name), string(value))
 			}
-		} else {
-			args := ctx.Request().PostArgs()
-			if args == nil {
-				return nil, errors.New("submission payload empty")
-			}
-			for key, value := range args.All() {
-				k := string(key)
-				v := string(value)
-				fieldCount++
-				if fieldCount > cfg.MaxInputFields {
-					result["__limit"] = true
-					break
-				}
-				if existing, ok := result[k]; ok {
-					switch current := existing.(type) {
-					case []string:
-						result[k] = append(current, v)
-					case string:
-						result[k] = []string{current, v}
-					}
-				} else {
-					result[k] = v
-				}
-			}
-			if result["__limit"] == true {
-				return nil, errors.New("too many fields")
-			}
-			delete(result, "__limit")
+		}
+		if fieldCount > cfg.MaxInputFields {
+			return payload, errTooManyFields
 		}
 	}
-
-	if len(result) == 0 {
-		return nil, errors.New("submission payload empty")
+	if len(payload) == 0 {
+		return payload, errEmptySubmission
 	}
-
-	return result, nil
+	return payload, nil
 }
 
-func assignFormField(dst map[string]any, key string, values []string) {
+func setFormValues(payload map[string]any, name string, values []string) {
 	if len(values) == 1 {
-		dst[key] = values[0]
+		payload[name] = values[0]
 		return
 	}
-	dst[key] = append([]string(nil), values...)
+	payload[name] = append([]string(nil), values...)
 }
 
-func extractRedirectURL(payload map[string]any, key string) string {
-	if payload == nil {
+func appendFormValue(payload map[string]any, name, value string) {
+	switch current := payload[name].(type) {
+	case nil:
+		payload[name] = value
+	case string:
+		payload[name] = []string{current, value}
+	case []string:
+		payload[name] = append(current, value)
+	}
+}
+
+func uploadedFiles(ctx *cartridge.Context) ([]*forms.UploadedFile, error) {
+	if !strings.Contains(ctx.Get(fiber.HeaderContentType), fiber.MIMEMultipartForm) {
+		return nil, nil
+	}
+	multipart, err := ctx.MultipartForm()
+	if err != nil {
+		return nil, err
+	}
+	return forms.ExtractFiles(multipart)
+}
+
+func submissionFailure(ctx *cartridge.Context, form *forms.Form, payload map[string]any, status int, message string) error {
+	redirect := redirectField(payload, "_error_url")
+	if validRedirect(form, redirect) && redirect != "" {
+		return ctx.Redirect(redirect)
+	}
+	return jsonError(ctx, status, message)
+}
+
+func redirectField(payload map[string]any, name string) string {
+	value, _ := payload[name].(string)
+	return strings.TrimSpace(value)
+}
+
+func validRedirect(form *forms.Form, target string) bool {
+	return target == "" || form.ValidateRedirectURL(target) == nil
+}
+
+func redirectOrJSON(ctx *cartridge.Context, target string, status int, message string) error {
+	if target != "" {
+		return ctx.Redirect(target)
+	}
+	return jsonError(ctx, status, message)
+}
+
+func verifyCaptcha(ctx *cartridge.Context, form *forms.Form, payload map[string]any) error {
+	if form.CaptchaProfileID == nil {
+		return nil
+	}
+	profile := form.CaptchaProfile
+	if profile == nil || !strings.EqualFold(strings.TrimSpace(profile.Provider), "turnstile") {
+		ctx.Logger.Warn("captcha profile unavailable", slog.Uint64("form_id", uint64(form.ID)))
+		return errCaptchaFailed
+	}
+	settings := integrations.ResolveCaptchaSettings(profile.PolicyJSON, form.CaptchaOverridesJSON)
+	token, ok := extractCaptchaToken(payload)
+	if !ok {
+		if settings.Required {
+			return errCaptchaFailed
+		}
+		return nil
+	}
+	if strings.TrimSpace(profile.SecretKey) == "" {
+		ctx.Logger.Warn("captcha secret unavailable", slog.Uint64("form_id", uint64(form.ID)))
+		return errCaptchaFailed
+	}
+	result, err := integrations.VerifyTurnstileToken(ctx.UserContext(), profile.SecretKey, token, ctx.IP())
+	if err != nil {
+		ctx.Logger.Warn("turnstile rejected submission", slog.Uint64("form_id", uint64(form.ID)), slog.Any("error", err))
+		return errCaptchaFailed
+	}
+	if reason := turnstileResultFailure(form, settings, result); reason != "" {
+		ctx.Logger.Warn("turnstile result rejected", slog.Uint64("form_id", uint64(form.ID)), slog.String("reason", reason))
+		return errCaptchaFailed
+	}
+	return nil
+}
+
+func turnstileResultFailure(form *forms.Form, settings integrations.CaptchaSettings, result *integrations.TurnstileResult) string {
+	if result == nil || !result.Success {
+		return "unsuccessful verification"
+	}
+	if strings.TrimSpace(result.Action) != settings.Action {
+		return "action mismatch"
+	}
+	if strings.TrimSpace(form.AllowedOrigins) == "*" {
 		return ""
 	}
-	if val, ok := payload[key]; ok {
-		if str, ok := val.(string); ok {
-			return strings.TrimSpace(str)
-		}
+	if hostname := strings.TrimSpace(result.Hostname); hostname == "" || !form.IsOriginAllowed(hostname) {
+		return "hostname mismatch"
 	}
 	return ""
 }
 
-func enforceCaptchaIfNeeded(ctx *cartridge.Context, form *forms.Form, payload map[string]any) error {
-	if form == nil || form.CaptchaProfileID == nil {
-		return nil
-	}
-
-	logger := ctx.Logger
-
-	if form.CaptchaProfile == nil {
-		if logger != nil {
-			logger.Warn("captcha profile missing preload", slog.Uint64("form_id", uint64(form.ID)))
-		}
-		return errors.New("captcha verification failed")
-	}
-
-	token, ok := extractCaptchaToken(payload)
-	if !ok || strings.TrimSpace(token) == "" {
-		return errors.New("captcha verification failed")
-	}
-
-	secret := strings.TrimSpace(form.CaptchaProfile.SecretKey)
-	if secret == "" {
-		if logger != nil {
-			logger.Warn("captcha profile missing secret", slog.Uint64("form_id", uint64(form.ID)))
-		}
-		return errors.New("captcha verification failed")
-	}
-
-	result, err := middleware.VerifyTurnstileToken(secret, token, ctx.IP())
-	if err != nil {
-		if logger != nil {
-			logger.Warn("turnstile verification failed",
-				slog.Uint64("form_id", uint64(form.ID)),
-				slog.Any("error", err),
-			)
-		}
-		return errors.New("captcha verification failed")
-	}
-
-	// Validate that the captcha was solved on an allowed origin
-	// This prevents token reuse from other sites
-	if result.Hostname != "" && strings.TrimSpace(form.AllowedOrigins) != "" && form.AllowedOrigins != "*" {
-		if !form.IsOriginAllowed(result.Hostname) {
-			if logger != nil {
-				logger.Warn("captcha hostname mismatch",
-					slog.Uint64("form_id", uint64(form.ID)),
-					slog.String("captcha_hostname", result.Hostname),
-					slog.String("allowed_origins", form.AllowedOrigins),
-				)
-			}
-			return errors.New("captcha verification failed")
-		}
-	}
-
-	return nil
-}
-
 func extractCaptchaToken(payload map[string]any) (string, bool) {
-	if payload == nil {
-		return "", false
-	}
-	keys := []string{"cf-turnstile-response", "cf_turnstile_response"}
-	for _, key := range keys {
-		if raw, ok := payload[key]; ok {
-			delete(payload, key)
-			if token := coerceToString(raw); token != "" {
-				return token, true
-			}
+	var token string
+	for _, name := range []string{"cf-turnstile-response", "cf_turnstile_response"} {
+		value, found := payload[name]
+		delete(payload, name)
+		if found && token == "" {
+			token = firstString(value)
 		}
 	}
-	return "", false
+	token = strings.TrimSpace(token)
+	return token, token != ""
 }
 
-func coerceToString(value any) string {
-	switch v := value.(type) {
+func firstString(value any) string {
+	switch typed := value.(type) {
 	case string:
-		return v
+		return typed
 	case []string:
-		if len(v) > 0 {
-			return v[0]
+		if len(typed) > 0 {
+			return typed[0]
 		}
-	case []interface{}:
-		if len(v) > 0 {
-			if s, ok := v[0].(string); ok {
-				return s
-			}
+	case []any:
+		if len(typed) > 0 {
+			text, _ := typed[0].(string)
+			return text
 		}
 	case []byte:
-		return string(v)
+		return string(typed)
 	}
 	return ""
 }
 
 func jsonError(ctx *cartridge.Context, status int, message string) error {
-	return ctx.Status(status).JSON(fiber.Map{
-		"ok":    false,
-		"error": message,
-	})
+	return ctx.Status(status).JSON(fiber.Map{"ok": false, "error": message})
 }
 
-// getRequestOrigin extracts the origin domain from the request headers.
-// Checks Origin header first, falls back to Referer.
-// Returns an extracted domain (e.g., "example.com"), not the full URL.
 func getRequestOrigin(ctx *cartridge.Context) string {
-	origin := ctx.Get("Origin")
+	origin := ctx.Get(fiber.HeaderOrigin)
 	if origin == "" {
-		origin = ctx.Get("Referer")
-	}
-	if origin == "" {
-		return ""
+		origin = ctx.Get(fiber.HeaderReferer)
 	}
 	return extractDomain(origin)
 }
 
-// extractDomain extracts the domain from a full URL (origin or referer).
-// Removes protocol, path, query, fragment, and port.
-func extractDomain(urlStr string) string {
-	// Remove protocol
-	urlStr = strings.TrimPrefix(urlStr, "https://")
-	urlStr = strings.TrimPrefix(urlStr, "http://")
-
-	// Remove path, query and fragment
-	if idx := strings.IndexAny(urlStr, "/?#"); idx >= 0 {
-		urlStr = urlStr[:idx]
+func extractDomain(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
 	}
-
-	// Remove port
-	if idx := strings.LastIndex(urlStr, ":"); idx >= 0 {
-		urlStr = urlStr[:idx]
+	if !strings.Contains(raw, "://") {
+		raw = "//" + raw
 	}
-
-	return strings.ToLower(urlStr)
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(parsed.Hostname())
 }

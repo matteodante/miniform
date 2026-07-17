@@ -3,78 +3,58 @@ package dbtxn
 import (
 	"crypto/rand"
 	"fmt"
-	"math"
+	"log/slog"
 	"math/big"
-	"strings"
 	"time"
 
 	"gorm.io/gorm"
-	"log/slog"
+
+	"github.com/matteodante/miniform/internal/pkg/sqliteerr"
 )
 
-// WithRetry executes a write transaction with retry logic for SQLite busy errors.
-// Given the current database configuration (busy_timeout=5000, WAL mode, _txlock=immediate),
-// retries should be rare but provide an additional safety layer for high-concurrency scenarios.
+const (
+	maxAttempts = 10
+	basePause   = 100 * time.Millisecond
+	maxPause    = 5 * time.Second
+)
+
+// WithRetry runs one SQLite transaction, retrying only lock contention.
 func WithRetry(logger *slog.Logger, db *gorm.DB, fn func(tx *gorm.DB) error) error {
-	const (
-		maxRetries = 10
-		baseDelay  = 100 * time.Millisecond
-		maxDelay   = 5 * time.Second
-	)
+	transactionDB := db.Session(&gorm.Session{SkipDefaultTransaction: true})
 
-	var err error
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			delay := time.Duration(float64(baseDelay) * math.Pow(2, float64(attempt-1)))
-			if delay > maxDelay {
-				delay = maxDelay
-			}
-			jitter, randomErr := rand.Int(rand.Reader, big.NewInt(int64(delay/5)))
-			if randomErr != nil {
-				return fmt.Errorf("models: generate retry jitter: %w", randomErr)
-			}
-			delay += time.Duration(jitter.Int64())
-			logger.Info("retrying transaction", slog.Int("attempt", attempt+1), slog.Duration("delay", delay), slog.Any("error", err))
-			time.Sleep(delay)
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		lastErr = transactionDB.Transaction(fn)
+		if lastErr == nil {
+			return nil
+		}
+		if !sqliteerr.IsContention(lastErr) {
+			return lastErr
+		}
+		if attempt == maxAttempts {
+			break
 		}
 
-		tx := db.Session(&gorm.Session{
-			SkipDefaultTransaction: true,
-		}).Begin()
-		if tx.Error != nil {
-			return fmt.Errorf("models: begin transaction: %w", tx.Error)
-		}
-
-		err = fn(tx)
-		if err != nil {
-			tx.Rollback()
-			if isBusyError(err) {
-				continue
-			}
-			return err
-		}
-
-		if err = tx.Commit().Error; err != nil {
-			if isBusyError(err) {
-				tx.Rollback()
-				continue
-			}
-			return fmt.Errorf("models: commit transaction: %w", err)
-		}
-
-		return nil
+		pause := retryPause(attempt)
+		logger.Info("sqlite write waiting for lock",
+			slog.Int("next_attempt", attempt+1),
+			slog.Duration("pause", pause),
+			slog.Any("error", lastErr),
+		)
+		time.Sleep(pause)
 	}
 
-	return fmt.Errorf("models: transaction failed after %d attempts: %w", maxRetries, err)
+	return fmt.Errorf("sqlite write still locked after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func isBusyError(err error) bool {
-	if err == nil {
-		return false
+func retryPause(attempt int) time.Duration {
+	pause := basePause << (attempt - 1)
+	if pause > maxPause {
+		pause = maxPause
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "database is locked") ||
-		strings.Contains(msg, "database is busy") ||
-		strings.Contains(msg, "database table is locked") ||
-		strings.Contains(msg, "SQL statements in progress")
+	jitter, err := rand.Int(rand.Reader, big.NewInt(int64(pause/5)+1))
+	if err != nil {
+		return pause
+	}
+	return pause + time.Duration(jitter.Int64())
 }

@@ -260,8 +260,7 @@ func (r *Runner) submissionFileCopy(args []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	sourcePath := forms.GetFilePath(r.Config.DataDirectory, file)
-	source, err := os.Open(sourcePath)
+	source, err := forms.OpenSubmissionFile(r.Config.DataDirectory, file)
 	if err != nil {
 		return nil, internalError("open submission file", err)
 	}
@@ -292,6 +291,7 @@ func copySubmissionFile(source io.Reader, destination string, force bool) error 
 	} else {
 		flags |= os.O_EXCL
 	}
+	// #nosec G304 -- The destination is the operator's explicit --output path.
 	target, err := os.OpenFile(destination, flags, 0o600)
 	if os.IsExist(err) {
 		return conflictError("destination already exists; pass --force to overwrite it")
@@ -330,6 +330,7 @@ func openCLIUploads(specs []string) ([]*forms.UploadedFile, error) {
 			return nil, validationError("too many files for field " + field)
 		}
 
+		// #nosec G304 -- Each upload path is explicitly supplied as FIELD=PATH.
 		file, err := os.Open(path)
 		if err != nil {
 			forms.CloseFiles(uploads)

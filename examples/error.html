@@ -1,93 +1,30 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Oops! Something went wrong</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Submission not sent</title>
   <style>
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      margin: 0;
-      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    }
-
-    .container {
-      background: white;
-      padding: 60px 40px;
-      border-radius: 16px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-      text-align: center;
-      max-width: 500px;
-    }
-
-    .error-icon {
-      font-size: 80px;
-      margin-bottom: 20px;
-    }
-
-    h1 {
-      color: #111827;
-      margin: 0 0 10px 0;
-      font-size: 32px;
-    }
-
-    p {
-      color: #6b7280;
-      font-size: 16px;
-      line-height: 1.6;
-    }
-
-    .buttons {
-      margin-top: 30px;
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-    }
-
-    a {
-      padding: 12px 24px;
-      text-decoration: none;
-      border-radius: 6px;
-      font-weight: 600;
-    }
-
-    .primary {
-      background: #ec4899;
-      color: white;
-    }
-
-    .primary:hover {
-      background: #db2777;
-    }
-
-    .secondary {
-      background: #f3f4f6;
-      color: #374151;
-    }
-
-    .secondary:hover {
-      background: #e5e7eb;
-    }
+    :root { font-family: ui-sans-serif, system-ui, sans-serif; color: #171a2b; background: #ffded9; }
+    body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 1rem; }
+    main { width: min(100%, 34rem); border: 1px solid #ffbdb5; border-radius: 1.5rem; background: #fff; padding: clamp(2rem, 7vw, 4rem); box-shadow: 0 1.5rem 4rem rgb(23 26 43 / 12%); }
+    .status { display: inline-grid; width: 4rem; height: 4rem; place-items: center; border-radius: 1rem; background: #fff0ee; color: #c9483e; font-size: 1.5rem; font-weight: 800; }
+    h1 { margin: 1.5rem 0 .75rem; font-size: clamp(2.4rem, 9vw, 4.5rem); line-height: .95; letter-spacing: -.055em; }
+    p { color: #6f7891; line-height: 1.65; }
+    nav { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.5rem; }
+    a, button { border: 1px solid #ccd2e2; border-radius: .8rem; background: #fff; padding: .8rem 1rem; color: #171a2b; font: 700 .9rem/1 ui-sans-serif, system-ui, sans-serif; text-decoration: none; cursor: pointer; }
+    a { border-color: #4057f4; background: #4057f4; color: #fff; }
   </style>
 </head>
-
 <body>
-  <div class="container">
-    <div class="error-icon">⚠️</div>
-
-    <h1>Oops! Something went wrong</h1>
-    <p>We couldn't process your submission. This might be due to a temporary issue. Please try again.</p>
-
-    <div class="buttons">
-      <a href="javascript:history.back()" class="secondary">← Go Back</a>
-      <a href="/" class="primary">Home</a>
-    </div>
-  </div>
+  <main>
+    <div class="status" aria-hidden="true">!</div>
+    <h1>Not sent yet.</h1>
+    <p>Miniform could not accept this submission. Check the fields and connection, then try once more.</p>
+    <nav aria-label="Recovery actions">
+      <button type="button" onclick="history.back()">Review the form</button>
+      <a href="/">Return home</a>
+    </nav>
+  </main>
 </body>
-
 </html>

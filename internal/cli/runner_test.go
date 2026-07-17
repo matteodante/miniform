@@ -117,7 +117,7 @@ func TestRunner(t *testing.T) {
 
 	t.Run("config set writes secrets from stdin and config unset preserves other lines", func(t *testing.T) {
 		envPath := filepath.Join(t.TempDir(), ".env")
-		require.NoError(t, os.WriteFile(envPath, []byte("# keep\nMINIFORM_PORT=9000\n"), 0o600))
+		require.NoError(t, os.WriteFile(envPath, []byte("# keep\nMINIFORM_PORT=9000\n"), 0o644))
 		runner, _, _ := newTestRunner(t, nil, "new-session-secret\n")
 
 		exitCode := runner.Run([]string{
@@ -130,6 +130,9 @@ func TestRunner(t *testing.T) {
 		assert.Contains(t, string(content), "# keep")
 		assert.Contains(t, string(content), "MINIFORM_PORT=9000")
 		assert.Contains(t, string(content), "MINIFORM_SESSION_SECRET=new-session-secret")
+		info, err := os.Stat(envPath)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 
 		runner, _, _ = newTestRunner(t, nil, "")
 		exitCode = runner.Run([]string{"config", "unset", "--key", "MINIFORM_PORT", "--env-file", envPath})
@@ -138,6 +141,21 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotContains(t, string(content), "MINIFORM_PORT")
 		assert.Contains(t, string(content), "MINIFORM_SESSION_SECRET")
+	})
+
+	t.Run("config set creates private parent directories", func(t *testing.T) {
+		directory := filepath.Join(t.TempDir(), "config")
+		envPath := filepath.Join(directory, ".env")
+		runner, _, _ := newTestRunner(t, nil, "")
+
+		exitCode := runner.Run([]string{
+			"config", "set", "--key", "MINIFORM_PORT", "--value", "9000", "--env-file", envPath,
+		})
+
+		assert.Equal(t, ExitSuccess, exitCode)
+		info, err := os.Stat(directory)
+		require.NoError(t, err)
+		assert.Zero(t, info.Mode().Perm()&0o027)
 	})
 
 	t.Run("account reset hashes the replacement password", func(t *testing.T) {
@@ -216,6 +234,47 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, ExitSuccess, exitCode)
 		assert.Contains(t, stdout.String(), `"webhook_events"`)
 		assert.Contains(t, stdout.String(), `"form_name":"Delivery inbox"`)
+	})
+
+	t.Run("submission file copy cannot escape upload storage", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		form, err := forms.Create(logger, db, forms.CreateParams{
+			Name:           "Files",
+			Slug:           "files",
+			AllowedOrigins: "*",
+		})
+		require.NoError(t, err)
+		submission, err := forms.CreateSubmission(logger, db, form, map[string]any{"ok": true}, "test-agent")
+		require.NoError(t, err)
+
+		baseDirectory := t.TempDir()
+		storageDirectory := filepath.Join(baseDirectory, "storage")
+		require.NoError(t, os.Mkdir(storageDirectory, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(baseDirectory, "secret.txt"), []byte("secret"), 0o600))
+		storedFile := &forms.SubmissionFile{
+			SubmissionID: submission.ID,
+			FieldName:    "attachment",
+			Filename:     "secret.txt",
+			Size:         6,
+			StoragePath:  "../secret.txt",
+		}
+		require.NoError(t, dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+			return tx.Create(storedFile).Error
+		}))
+
+		runner, _, _ := newTestRunner(t, db, "")
+		runner.Config.DataDirectory = storageDirectory
+		destination := filepath.Join(t.TempDir(), "copy.txt")
+
+		exitCode := runner.Run([]string{
+			"submission", "file-copy", "--id", uintString(submission.ID),
+			"--file-id", uintString(storedFile.ID), "--output", destination,
+		})
+
+		assert.Equal(t, ExitInternal, exitCode)
+		_, err = os.Stat(destination)
+		assert.ErrorIs(t, err, os.ErrNotExist)
 	})
 }
 

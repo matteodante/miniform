@@ -258,7 +258,6 @@ func (r *Runner) formCreate(args []string) (any, error) {
 		WebhookURL:           *webhookURL,
 		WebhookSecret:        webhookSecret,
 		WebhookHeadersJSON:   webhookHeaders,
-		TemplateID:           strings.TrimSpace(*templateID),
 	})
 	if err != nil {
 		return nil, err

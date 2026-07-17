@@ -1,6 +1,7 @@
 package forms_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/matteodante/miniform/internal/forms"
@@ -8,224 +9,74 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestForm_IsOriginAllowed(t *testing.T) {
-	// Note: IsOriginAllowed takes an already-extracted domain (e.g., "example.com"),
-	// not a full URL. The HTTP layer is responsible for extracting the domain.
-	tests := []struct {
-		name           string
-		allowedOrigins string
-		domain         string
-		expected       bool
-	}{
-		{
-			name:           "empty origins rejects all",
-			allowedOrigins: "",
-			domain:         "example.com",
-			expected:       false,
-		},
-		{
-			name:           "whitespace-only origins rejects all",
-			allowedOrigins: "   ",
-			domain:         "example.com",
-			expected:       false,
-		},
-		{
-			name:           "wildcard allows all",
-			allowedOrigins: "*",
-			domain:         "anything.com",
-			expected:       true,
-		},
-		{
-			name:           "exact match",
-			allowedOrigins: "example.com",
-			domain:         "example.com",
-			expected:       true,
-		},
-		{
-			name:           "subdomain of allowed domain",
-			allowedOrigins: "example.com",
-			domain:         "sub.example.com",
-			expected:       true,
-		},
-		{
-			name:           "deep subdomain of allowed domain",
-			allowedOrigins: "example.com",
-			domain:         "deep.sub.example.com",
-			expected:       true,
-		},
-		{
-			name:           "wildcard in list allows all",
-			allowedOrigins: "example.com, *",
-			domain:         "anything.com",
-			expected:       true,
-		},
-		{
-			name:           "wildcard subdomain pattern",
-			allowedOrigins: "*.example.com",
-			domain:         "app.example.com",
-			expected:       true,
-		},
-		{
-			name:           "wildcard subdomain pattern allows base domain",
-			allowedOrigins: "*.example.com",
-			domain:         "example.com",
-			expected:       true,
-		},
-		{
-			name:           "multiple origins comma separated",
-			allowedOrigins: "foo.com, bar.com, baz.com",
-			domain:         "bar.com",
-			expected:       true,
-		},
-		{
-			name:           "no match in list",
-			allowedOrigins: "foo.com, bar.com",
-			domain:         "evil.com",
-			expected:       false,
-		},
-		{
-			name:           "partial match rejected (prefix)",
-			allowedOrigins: "example.com",
-			domain:         "notexample.com",
-			expected:       false,
-		},
-		{
-			name:           "suffix attack rejected",
-			allowedOrigins: "example.com",
-			domain:         "evilexample.com",
-			expected:       false,
-		},
-		{
-			name:           "empty domain with restrictions",
-			allowedOrigins: "example.com",
-			domain:         "",
-			expected:       false,
-		},
-		{
-			name:           "allowed origin as full URL normalizes",
-			allowedOrigins: "https://example.com",
-			domain:         "example.com",
-			expected:       true,
-		},
-		{
-			name:           "case insensitive matching",
-			allowedOrigins: "Example.COM",
-			domain:         "EXAMPLE.com",
-			expected:       true,
-		},
-	}
+func TestOrigins(t *testing.T) {
+	t.Run("matches configured hosts", func(t *testing.T) {
+		cases := []struct {
+			name, allowed, host string
+			want                bool
+		}{
+			{"empty configuration", "", "example.com", false},
+			{"wildcard", "*", "anything.test", true},
+			{"wildcard without request origin", "*", "", true},
+			{"wildcard in list without request origin", "example.com, *", "", true},
+			{"exact host", "example.com", "example.com", true},
+			{"nested subdomain", "example.com", "deep.app.example.com", true},
+			{"wildcard base domain", "*.example.com", "example.com", true},
+			{"comma-separated list", "one.test, two.test", "two.test", true},
+			{"full URL", "https://example.com/path", "example.com", true},
+			{"IPv6 URL", "http://[::1]", "::1", true},
+			{"case insensitive", "Example.COM", "EXAMPLE.com", true},
+			{"lookalike prefix", "example.com", "notexample.com", false},
+			{"empty host", "example.com", "", false},
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			form := &forms.Form{
-				AllowedOrigins: tt.allowedOrigins,
-			}
-			result := form.IsOriginAllowed(tt.domain)
-			assert.Equal(t, tt.expected, result, "domain: %s, allowed: %s", tt.domain, tt.allowedOrigins)
-		})
-	}
-}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				form := forms.Form{AllowedOrigins: tc.allowed}
+				assert.Equal(t, tc.want, form.IsOriginAllowed(tc.host))
+			})
+		}
+	})
 
-func TestForm_ValidateRedirectURL(t *testing.T) {
-	tests := []struct {
-		name           string
-		url            string
-		allowedOrigins string
-		expectError    bool
-		errorContains  string
-	}{
-		{
-			name:           "empty URL is allowed",
-			url:            "",
-			allowedOrigins: "",
-			expectError:    false,
-		},
-		{
-			name:           "relative URL is allowed",
-			url:            "/thank-you",
-			allowedOrigins: "",
-			expectError:    false,
-		},
-		{
-			name:           "relative URL with query is allowed",
-			url:            "/success?id=123",
-			allowedOrigins: "",
-			expectError:    false,
-		},
-		{
-			name:           "absolute URL rejected when no origins configured",
-			url:            "https://example.com/thanks",
-			allowedOrigins: "",
-			expectError:    true,
-			errorContains:  "absolute redirects not allowed",
-		},
-		{
-			name:           "absolute URL allowed when domain matches",
-			url:            "https://example.com/thanks",
-			allowedOrigins: "example.com",
-			expectError:    false,
-		},
-		{
-			name:           "absolute URL allowed for subdomain",
-			url:            "https://sub.example.com/thanks",
-			allowedOrigins: "example.com",
-			expectError:    false,
-		},
-		{
-			name:           "absolute URL rejected for non-matching domain",
-			url:            "https://evil.com/thanks",
-			allowedOrigins: "example.com",
-			expectError:    true,
-			errorContains:  "redirect URL not in allowed origins",
-		},
-		{
-			name:           "wildcard pattern allows subdomain",
-			url:            "https://app.example.com/thanks",
-			allowedOrigins: "*.example.com",
-			expectError:    false,
-		},
-		{
-			name:           "wildcard pattern allows base domain",
-			url:            "https://example.com/thanks",
-			allowedOrigins: "*.example.com",
-			expectError:    false,
-		},
-		{
-			name:           "comma-separated origins work",
-			url:            "https://other.com/thanks",
-			allowedOrigins: "example.com, other.com",
-			expectError:    false,
-		},
-		{
-			name:           "URL with port matches domain",
-			url:            "https://example.com:8080/thanks",
-			allowedOrigins: "example.com",
-			expectError:    false,
-		},
-		{
-			name:           "invalid URL returns error",
-			url:            "://invalid",
-			allowedOrigins: "example.com",
-			expectError:    true,
-			errorContains:  "invalid redirect URL",
-		},
-	}
+	t.Run("validates redirect destinations", func(t *testing.T) {
+		cases := []struct {
+			name, target, allowed string
+			wantError             bool
+			wantNotAllowed        bool
+		}{
+			{"empty", "", "", false, false},
+			{"root-relative", "/thanks?source=form", "", false, false},
+			{"path-relative", "thanks", "", false, false},
+			{"parent-relative", "../thanks", "", false, false},
+			{"query-relative", "?source=form", "", false, false},
+			{"fragment-relative", "#complete", "", false, false},
+			{"network-path", "//evil.test/thanks", "example.com", true, true},
+			{"triple-slash network-path", "///evil.test/thanks", "example.com", true, true},
+			{"backslash network-path", `\\evil.test/thanks`, "example.com", true, true},
+			{"mixed-slash network-path", `/\evil.test/thanks`, "example.com", true, true},
+			{"absolute without allowlist", "https://example.com/thanks", "", true, false},
+			{"matching domain", "https://example.com/thanks", "example.com", false, false},
+			{"case-insensitive scheme", "HTTPS://example.com/thanks", "example.com", false, false},
+			{"matching IPv6 host", "http://[::1]/thanks", "http://[::1]", false, false},
+			{"matching subdomain and port", "https://app.example.com:8443/thanks", "example.com", false, false},
+			{"second allowed host", "https://two.test/thanks", "one.test, two.test", false, false},
+			{"different host", "https://evil.test/thanks", "example.com", true, true},
+			{"malformed URL", "://invalid", "example.com", true, false},
+			{"absolute scheme without host", "https:evil.test/thanks", "*", true, true},
+			{"non HTTP scheme", "javascript:alert(1)", "example.com", true, true},
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			form := &forms.Form{
-				AllowedOrigins: tt.allowedOrigins,
-			}
-			err := form.ValidateRedirectURL(tt.url)
-
-			if tt.expectError {
-				assert.Error(t, err)
-				if tt.errorContains != "" {
-					assert.Contains(t, err.Error(), tt.errorContains)
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				form := forms.Form{AllowedOrigins: tc.allowed}
+				err := form.ValidateRedirectURL(tc.target)
+				if tc.wantError {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
 				}
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
+				assert.Equal(t, tc.wantNotAllowed, errors.Is(err, forms.ErrRedirectNotAllowed))
+			})
+		}
+	})
 }

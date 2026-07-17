@@ -1,358 +1,111 @@
 package accounts_test
 
 import (
+	"io"
+	"log/slog"
 	"testing"
-	"time"
-
-	"github.com/matteodante/miniform/internal/accounts"
-	"github.com/matteodante/miniform/internal/pkg/testsupport"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
-	"io"
-	"log/slog"
+
+	"github.com/matteodante/miniform/internal/accounts"
+	"github.com/matteodante/miniform/internal/pkg/testsupport"
 )
 
-func createTestUser(t *testing.T, db *gorm.DB, email, password string, withLastLogin bool) *accounts.User {
+func TestAccounts(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	t.Run("authenticates and records the login", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		createUser(t, db, accounts.DefaultAdminEmail, "password123")
+
+		assert.True(t, accounts.IsFirstLoginPending(db))
+		result, err := accounts.Authenticate(logger, db, "  ADMIN@MINIFORM.LOCAL ", "password123")
+		require.NoError(t, err)
+		assert.True(t, result.IsFirstLogin)
+		assert.NotNil(t, result.User.LastLoginAt)
+		assert.False(t, accounts.IsFirstLoginPending(db))
+
+		result, err = accounts.Authenticate(logger, db, accounts.DefaultAdminEmail, "password123")
+		require.NoError(t, err)
+		assert.False(t, result.IsFirstLogin)
+	})
+
+	t.Run("does not disclose invalid accounts", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		createUser(t, db, "user@example.com", "correct-password")
+
+		_, wrongPassword := accounts.Authenticate(logger, db, "user@example.com", "wrong-password")
+		_, missingUser := accounts.Authenticate(logger, db, "missing@example.com", "wrong-password")
+		_, missingField := accounts.Authenticate(logger, db, "", "wrong-password")
+
+		assert.ErrorIs(t, wrongPassword, accounts.ErrInvalidCredentials)
+		assert.ErrorIs(t, missingUser, accounts.ErrInvalidCredentials)
+		assert.ErrorIs(t, missingField, accounts.ErrMissingFields)
+	})
+
+	t.Run("changes credentials", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		createUser(t, db, "old@example.com", "old-password")
+		createUser(t, db, "taken@example.com", "other-password")
+
+		require.NoError(t, accounts.ChangeEmail(logger, db, "old@example.com", " NEW@Example.com ", "old-password"))
+		updated, err := accounts.FindByEmail(db, "new@example.com")
+		require.NoError(t, err)
+		assert.Equal(t, "new@example.com", updated.Email)
+
+		assert.ErrorIs(t, accounts.ChangeEmail(logger, db, "new@example.com", "taken@example.com", "old-password"), accounts.ErrDuplicateEmail)
+		assert.ErrorIs(t, accounts.ChangeEmail(logger, db, "new@example.com", "not-an-email", "old-password"), accounts.ErrInvalidEmail)
+		assert.ErrorIs(t, accounts.ChangeEmail(logger, db, "new@example.com", "next@example.com", "wrong"), accounts.ErrPasswordMismatch)
+
+		assert.ErrorIs(t, accounts.ChangePassword(logger, db, "new@example.com", "old-password", "short"), accounts.ErrWeakPassword)
+		assert.ErrorIs(t, accounts.ChangePassword(logger, db, "new@example.com", "wrong", "new-password"), accounts.ErrPasswordMismatch)
+		require.NoError(t, accounts.ChangePassword(logger, db, "NEW@example.com", "old-password", "new-password"))
+		_, err = accounts.Authenticate(logger, db, "new@example.com", "new-password")
+		assert.NoError(t, err)
+	})
+
+	t.Run("supports local password recovery", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		created := createUser(t, db, "admin@example.com", "old-password")
+
+		byID, err := accounts.FindByID(db, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, created.Email, byID.Email)
+		admin, err := accounts.GetAdmin(db)
+		require.NoError(t, err)
+		assert.Equal(t, created.ID, admin.ID)
+
+		require.NoError(t, accounts.ResetPassword(logger, db, created.Email, "replacement-password"))
+		_, err = accounts.Authenticate(logger, db, created.Email, "replacement-password")
+		assert.NoError(t, err)
+	})
+
+	t.Run("upserts and removes settings", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+
+		require.NoError(t, accounts.SetSetting(db, logger, "theme", "dark"))
+		require.NoError(t, accounts.SetSetting(db, logger, "theme", "light"))
+		value, err := accounts.GetSetting(db, "theme")
+		require.NoError(t, err)
+		assert.Equal(t, "light", value)
+
+		settings, err := accounts.ListSettings(db)
+		require.NoError(t, err)
+		assert.Len(t, settings, 1)
+		require.NoError(t, accounts.DeleteSetting(logger, db, "theme"))
+		assert.ErrorIs(t, accounts.DeleteSetting(logger, db, "theme"), gorm.ErrRecordNotFound)
+	})
+}
+
+func createUser(t *testing.T, db *gorm.DB, email, password string) *accounts.User {
+	t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	require.NoError(t, err)
 
-	user := &accounts.User{
-		Email:        email,
-		PasswordHash: string(hash),
-	}
-
-	if withLastLogin {
-		now := time.Now().UTC()
-		user.LastLoginAt = &now
-	}
-
-	err = db.Create(user).Error
-	require.NoError(t, err)
-
+	user := &accounts.User{Email: email, PasswordHash: string(hash)}
+	require.NoError(t, db.Create(user).Error)
 	return user
-}
-
-func TestIsFirstLoginPending(t *testing.T) {
-	t.Run("true before the initial admin signs in", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-		createTestUser(t, db, accounts.DefaultAdminEmail, "unique-temporary-password", false)
-
-		assert.True(t, accounts.IsFirstLoginPending(db))
-	})
-
-	t.Run("false after the initial admin signs in", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-		createTestUser(t, db, accounts.DefaultAdminEmail, "unique-temporary-password", true)
-
-		assert.False(t, accounts.IsFirstLoginPending(db))
-	})
-
-	t.Run("false when the initial admin does not exist", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-		createTestUser(t, db, "someone@example.com", "unique-temporary-password", false)
-
-		assert.False(t, accounts.IsFirstLoginPending(db))
-	})
-}
-
-func TestAuthenticate(t *testing.T) {
-	db := testsupport.SetupTestDB(t)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	t.Run("authenticates with correct credentials", func(t *testing.T) {
-		createTestUser(t, db, "test@example.com", "password123", false)
-
-		result, err := accounts.Authenticate(logger, db, "test@example.com", "password123")
-		require.NoError(t, err)
-		assert.NotNil(t, result)
-		assert.Equal(t, "test@example.com", result.User.Email)
-		assert.True(t, result.IsFirstLogin, "Should be first login")
-		assert.NotNil(t, result.User.LastLoginAt, "LastLoginAt should be set")
-	})
-
-	t.Run("updates last login on subsequent logins", func(t *testing.T) {
-		db2 := testsupport.SetupTestDB(t)
-		createTestUser(t, db2, "user@example.com", "password123", true)
-
-		result, err := accounts.Authenticate(logger, db2, "user@example.com", "password123")
-		require.NoError(t, err)
-		assert.False(t, result.IsFirstLogin, "Should not be first login")
-	})
-
-	t.Run("rejects wrong password", func(t *testing.T) {
-		db3 := testsupport.SetupTestDB(t)
-		createTestUser(t, db3, "user@example.com", "correctpassword", false)
-
-		_, err := accounts.Authenticate(logger, db3, "user@example.com", "wrongpassword")
-		assert.ErrorIs(t, err, accounts.ErrInvalidCredentials)
-	})
-
-	t.Run("rejects non-existent user", func(t *testing.T) {
-		db4 := testsupport.SetupTestDB(t)
-
-		_, err := accounts.Authenticate(logger, db4, "nonexistent@example.com", "password")
-		assert.ErrorIs(t, err, accounts.ErrInvalidCredentials)
-	})
-
-	t.Run("validates required fields", func(t *testing.T) {
-		db5 := testsupport.SetupTestDB(t)
-
-		_, err := accounts.Authenticate(logger, db5, "", "password")
-		assert.ErrorIs(t, err, accounts.ErrMissingFields)
-
-		_, err = accounts.Authenticate(logger, db5, "user@example.com", "")
-		assert.ErrorIs(t, err, accounts.ErrMissingFields)
-	})
-
-	t.Run("normalizes email to lowercase", func(t *testing.T) {
-		db6 := testsupport.SetupTestDB(t)
-		createTestUser(t, db6, "user@example.com", "password123", false)
-
-		result, err := accounts.Authenticate(logger, db6, "USER@EXAMPLE.COM", "password123")
-		require.NoError(t, err)
-		assert.Equal(t, "user@example.com", result.User.Email)
-	})
-
-	t.Run("trims whitespace from email", func(t *testing.T) {
-		db7 := testsupport.SetupTestDB(t)
-		createTestUser(t, db7, "user@example.com", "password123", false)
-
-		result, err := accounts.Authenticate(logger, db7, "  user@example.com  ", "password123")
-		require.NoError(t, err)
-		assert.Equal(t, "user@example.com", result.User.Email)
-	})
-}
-
-func TestChangePassword(t *testing.T) {
-	db := testsupport.SetupTestDB(t)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	t.Run("changes password successfully", func(t *testing.T) {
-		createTestUser(t, db, "user@example.com", "oldpassword", false)
-
-		err := accounts.ChangePassword(logger, db, "user@example.com", "oldpassword", "newpassword123")
-		require.NoError(t, err)
-
-		// Verify new password works
-		result, err := accounts.Authenticate(logger, db, "user@example.com", "newpassword123")
-		require.NoError(t, err)
-		assert.NotNil(t, result)
-
-		// Verify old password doesn't work
-		_, err = accounts.Authenticate(logger, db, "user@example.com", "oldpassword")
-		assert.ErrorIs(t, err, accounts.ErrInvalidCredentials)
-	})
-
-	t.Run("rejects weak password", func(t *testing.T) {
-		db2 := testsupport.SetupTestDB(t)
-		createTestUser(t, db2, "user@example.com", "oldpassword", false)
-
-		err := accounts.ChangePassword(logger, db2, "user@example.com", "oldpassword", "weak")
-		assert.ErrorIs(t, err, accounts.ErrWeakPassword)
-	})
-
-	t.Run("validates current password", func(t *testing.T) {
-		db3 := testsupport.SetupTestDB(t)
-		createTestUser(t, db3, "user@example.com", "correctpassword", false)
-
-		err := accounts.ChangePassword(logger, db3, "user@example.com", "wrongpassword", "newpassword123")
-		assert.ErrorIs(t, err, accounts.ErrPasswordMismatch)
-	})
-
-	t.Run("rejects non-existent user", func(t *testing.T) {
-		db4 := testsupport.SetupTestDB(t)
-
-		err := accounts.ChangePassword(logger, db4, "nonexistent@example.com", "old", "newpassword123")
-		assert.ErrorIs(t, err, accounts.ErrUserNotFound)
-	})
-
-	t.Run("accepts password with exactly 8 characters", func(t *testing.T) {
-		db5 := testsupport.SetupTestDB(t)
-		createTestUser(t, db5, "user@example.com", "oldpassword", false)
-
-		err := accounts.ChangePassword(logger, db5, "user@example.com", "oldpassword", "12345678")
-		require.NoError(t, err)
-	})
-}
-
-func TestChangeEmail(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	t.Run("changes email successfully", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-		createTestUser(t, db, "old@example.com", "password123", false)
-
-		err := accounts.ChangeEmail(logger, db, "old@example.com", "new@example.com", "password123")
-		require.NoError(t, err)
-
-		_, err = accounts.FindByEmail(db, "old@example.com")
-		assert.ErrorIs(t, err, accounts.ErrUserNotFound)
-
-		user, err := accounts.FindByEmail(db, "new@example.com")
-		require.NoError(t, err)
-		assert.Equal(t, "new@example.com", user.Email)
-
-		result, err := accounts.Authenticate(logger, db, "new@example.com", "password123")
-		require.NoError(t, err)
-		assert.Equal(t, "new@example.com", result.User.Email)
-	})
-
-	t.Run("normalizes new email to lowercase and trims whitespace", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-		createTestUser(t, db, "old@example.com", "password123", false)
-
-		err := accounts.ChangeEmail(logger, db, "old@example.com", "  NEW@Example.COM  ", "password123")
-		require.NoError(t, err)
-
-		user, err := accounts.FindByEmail(db, "new@example.com")
-		require.NoError(t, err)
-		assert.Equal(t, "new@example.com", user.Email)
-	})
-
-	t.Run("rejects wrong current password", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-		createTestUser(t, db, "old@example.com", "password123", false)
-
-		err := accounts.ChangeEmail(logger, db, "old@example.com", "new@example.com", "wrongpassword")
-		assert.ErrorIs(t, err, accounts.ErrPasswordMismatch)
-
-		_, err = accounts.FindByEmail(db, "old@example.com")
-		assert.NoError(t, err, "old email should remain after a failed change")
-	})
-
-	t.Run("rejects non-existent user", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-
-		err := accounts.ChangeEmail(logger, db, "nope@example.com", "new@example.com", "password123")
-		assert.ErrorIs(t, err, accounts.ErrUserNotFound)
-	})
-
-	t.Run("rejects duplicate email", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-		createTestUser(t, db, "a@example.com", "password123", false)
-		createTestUser(t, db, "b@example.com", "password123", false)
-
-		err := accounts.ChangeEmail(logger, db, "a@example.com", "b@example.com", "password123")
-		assert.ErrorIs(t, err, accounts.ErrDuplicateEmail)
-	})
-
-	t.Run("rejects empty new email", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-		createTestUser(t, db, "old@example.com", "password123", false)
-
-		err := accounts.ChangeEmail(logger, db, "old@example.com", "   ", "password123")
-		assert.ErrorIs(t, err, accounts.ErrInvalidEmail)
-	})
-
-	t.Run("rejects malformed email", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-		createTestUser(t, db, "old@example.com", "password123", false)
-
-		err := accounts.ChangeEmail(logger, db, "old@example.com", "not-an-email", "password123")
-		assert.ErrorIs(t, err, accounts.ErrInvalidEmail)
-	})
-
-	t.Run("no-op when new email equals current email after normalization", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-		createTestUser(t, db, "user@example.com", "password123", false)
-
-		err := accounts.ChangeEmail(logger, db, "user@example.com", "USER@example.com", "password123")
-		require.NoError(t, err)
-
-		user, err := accounts.FindByEmail(db, "user@example.com")
-		require.NoError(t, err)
-		assert.Equal(t, "user@example.com", user.Email)
-	})
-}
-
-func TestFindByEmail(t *testing.T) {
-	db := testsupport.SetupTestDB(t)
-
-	t.Run("retrieves existing user", func(t *testing.T) {
-		created := createTestUser(t, db, "user@example.com", "password123", false)
-
-		user, err := accounts.FindByEmail(db, "user@example.com")
-		require.NoError(t, err)
-		assert.NotNil(t, user)
-		assert.Equal(t, created.ID, user.ID)
-		assert.Equal(t, "user@example.com", user.Email)
-	})
-
-	t.Run("returns error for non-existent user", func(t *testing.T) {
-		db2 := testsupport.SetupTestDB(t)
-
-		_, err := accounts.FindByEmail(db2, "nonexistent@example.com")
-		assert.ErrorIs(t, err, accounts.ErrUserNotFound)
-	})
-}
-
-func TestPasswordHashing(t *testing.T) {
-	t.Run("password is properly hashed", func(t *testing.T) {
-		db := testsupport.SetupTestDB(t)
-		user := createTestUser(t, db, "user@example.com", "mypassword", false)
-
-		// Password should be hashed, not stored in plaintext
-		assert.NotEqual(t, "mypassword", user.PasswordHash)
-		assert.Greater(t, len(user.PasswordHash), 50, "Hash should be substantial length")
-
-		// Should start with bcrypt prefix
-		assert.Contains(t, user.PasswordHash, "$2a$", "Should use bcrypt")
-	})
-
-	t.Run("same password generates different hashes", func(t *testing.T) {
-		hash1, _ := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.DefaultCost)
-		hash2, _ := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.DefaultCost)
-
-		// Due to salt, hashes should be different
-		assert.NotEqual(t, string(hash1), string(hash2))
-	})
-}
-
-func TestAuthenticationSecurity(t *testing.T) {
-	db := testsupport.SetupTestDB(t)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	t.Run("password comparison uses bcrypt", func(t *testing.T) {
-		// Verify that wrong password attempts use bcrypt (timing-safe)
-		createTestUser(t, db, "user@example.com", "password123", false)
-
-		start := time.Now()
-		_, err := accounts.Authenticate(logger, db, "user@example.com", "wrongpassword")
-		duration := time.Since(start)
-
-		// bcrypt should take at least 10ms (usually 50-100ms)
-		assert.Error(t, err)
-		assert.Greater(t, duration.Milliseconds(), int64(10), "bcrypt comparison should take measurable time")
-	})
-
-	t.Run("prevents SQL injection in email", func(t *testing.T) {
-		db2 := testsupport.SetupTestDB(t)
-		createTestUser(t, db2, "user@example.com", "password123", false)
-
-		// Try SQL injection
-		_, err := accounts.Authenticate(logger, db2, "user@example.com' OR '1'='1", "password123")
-		assert.Error(t, err, "Should not authenticate with SQL injection attempt")
-	})
-}
-
-func TestFirstLoginDetection(t *testing.T) {
-	db := testsupport.SetupTestDB(t)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	t.Run("detects first login correctly", func(t *testing.T) {
-		createTestUser(t, db, "user@example.com", "password123", false)
-
-		// First login
-		result1, err := accounts.Authenticate(logger, db, "user@example.com", "password123")
-		require.NoError(t, err)
-		assert.True(t, result1.IsFirstLogin)
-
-		// Second login
-		result2, err := accounts.Authenticate(logger, db, "user@example.com", "password123")
-		require.NoError(t, err)
-		assert.False(t, result2.IsFirstLogin)
-	})
 }

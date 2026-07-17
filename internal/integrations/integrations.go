@@ -1,75 +1,133 @@
 package integrations
 
 import (
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/matteodante/miniform/internal/pkg/dbtxn"
+	"github.com/matteodante/miniform/internal/pkg/sqliteerr"
 )
 
-// MailerProfile stores reusable email provider configuration.
 type MailerProfile struct {
 	ID               uint   `gorm:"primaryKey"`
 	Name             string `gorm:"size:255;not null;uniqueIndex"`
-	Provider         string `gorm:"size:50;not null;default:'smtp'"` // smtp (default), mailgun
-	APIKey           string `gorm:"type:text"`                       // Mailgun: secret credential
-	Domain           string `gorm:"size:255"`                        // Mailgun: sending domain
+	Provider         string `gorm:"size:50;not null;default:'smtp'"`
+	APIKey           string `gorm:"type:text"`
+	Domain           string `gorm:"size:255"`
 	DefaultFromName  string `gorm:"size:255"`
 	DefaultFromEmail string `gorm:"size:255"`
-	DefaultsJSON     string `gorm:"type:text"` // JSON: tags, template, headers
-	// SMTP provider fields (null for mailgun profiles).
-	SMTPHost       string `gorm:"size:255"`
-	SMTPPort       int    `gorm:"default:587"`
-	SMTPUsername   string `gorm:"size:255"`
-	SMTPPassword   string `gorm:"type:text"`                  // Secret credential
-	SMTPEncryption string `gorm:"size:20;default:'starttls'"` // starttls | tls | none
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	DefaultsJSON     string `gorm:"type:text"`
+	SMTPHost         string `gorm:"size:255"`
+	SMTPPort         int    `gorm:"default:587"`
+	SMTPUsername     string `gorm:"size:255"`
+	SMTPPassword     string `gorm:"type:text"`
+	SMTPEncryption   string `gorm:"size:20;default:'starttls'"`
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
-// CaptchaProfile stores reusable captcha provider configuration.
 type CaptchaProfile struct {
 	ID           uint   `gorm:"primaryKey"`
 	Name         string `gorm:"size:255;not null;uniqueIndex"`
-	Provider     string `gorm:"size:50;not null;default:'turnstile'"` // turnstile, recaptcha, etc.
-	SecretKey    string `gorm:"type:text"`                            // Server-side secret
-	SiteKeysJSON string `gorm:"type:text"`                            // JSON: [{host_pattern, site_key}]
-	PolicyJSON   string `gorm:"type:text"`                            // JSON: {required, action, widget}
+	Provider     string `gorm:"size:50;not null;default:'turnstile'"`
+	SecretKey    string `gorm:"type:text"`
+	SiteKeysJSON string `gorm:"type:text"`
+	PolicyJSON   string `gorm:"type:text"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
 
-// ListMailerProfiles retrieves all mailer profiles ordered by name
+type ValidationError struct {
+	Field   string
+	Message string
+}
+
+func (err *ValidationError) Error() string {
+	return fmt.Sprintf("%s: %s", err.Field, err.Message)
+}
+
 func ListMailerProfiles(db *gorm.DB) ([]MailerProfile, error) {
-	var profiles []MailerProfile
-	if err := db.Order("name ASC").Find(&profiles).Error; err != nil {
-		return nil, err
-	}
-	return profiles, nil
+	return listProfiles[MailerProfile](db)
 }
 
-// ListCaptchaProfiles retrieves all captcha profiles ordered by name
 func ListCaptchaProfiles(db *gorm.DB) ([]CaptchaProfile, error) {
-	var profiles []CaptchaProfile
-	if err := db.Order("name ASC").Find(&profiles).Error; err != nil {
-		return nil, err
-	}
-	return profiles, nil
+	return listProfiles[CaptchaProfile](db)
 }
 
-// GetMailerProfileByID retrieves a mailer profile by ID
 func GetMailerProfileByID(db *gorm.DB, id uint) (*MailerProfile, error) {
-	var profile MailerProfile
+	return getProfile[MailerProfile](db, id)
+}
+
+func GetCaptchaProfileByID(db *gorm.DB, id uint) (*CaptchaProfile, error) {
+	return getProfile[CaptchaProfile](db, id)
+}
+
+func listProfiles[T any](db *gorm.DB) ([]T, error) {
+	var profiles []T
+	err := db.Order("name").Find(&profiles).Error
+	return profiles, err
+}
+
+func getProfile[T any](db *gorm.DB, id uint) (*T, error) {
+	var profile T
 	if err := db.First(&profile, id).Error; err != nil {
 		return nil, err
 	}
 	return &profile, nil
 }
 
-// GetCaptchaProfileByID retrieves a captcha profile by ID
-func GetCaptchaProfileByID(db *gorm.DB, id uint) (*CaptchaProfile, error) {
-	var profile CaptchaProfile
-	if err := db.First(&profile, id).Error; err != nil {
-		return nil, err
+func profileName(raw string) (string, error) {
+	name := strings.TrimSpace(raw)
+	if name == "" {
+		return "", &ValidationError{Field: "name", Message: "Name is required"}
 	}
-	return &profile, nil
+	return name, nil
+}
+
+func jsonObjectField(raw, field, message string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(value), &object); err != nil || object == nil {
+		return "", &ValidationError{Field: field, Message: message}
+	}
+	return value, nil
+}
+
+func persistProfile(logger *slog.Logger, db *gorm.DB, action string, write func(*gorm.DB) error) error {
+	err := dbtxn.WithRetry(logger, db, write)
+	if err == nil {
+		return nil
+	}
+	if uniqueViolation(err) {
+		return &ValidationError{Field: "name", Message: "A profile with this name already exists"}
+	}
+	if logger != nil {
+		logger.Error("profile write failed", slog.String("action", action), slog.Any("error", err))
+	}
+	return fmt.Errorf("failed to %s profile: %w", action, err)
+}
+
+func deleteProfile[T any](logger *slog.Logger, db *gorm.DB, id uint) error {
+	return persistProfile(logger, db, "delete", func(tx *gorm.DB) error {
+		result := tx.Delete(new(T), id)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
+}
+
+func uniqueViolation(err error) bool {
+	return sqliteerr.IsUniqueConstraint(err)
 }

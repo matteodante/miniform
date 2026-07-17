@@ -1,42 +1,62 @@
 package accounts
 
 import (
-	"gorm.io/gorm"
+	"fmt"
 	"log/slog"
+	"time"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 )
 
-// GetSetting retrieves a setting value by key
+type Settings struct {
+	ID        uint      `gorm:"primaryKey"`
+	Key       string    `gorm:"uniqueIndex;not null"`
+	Value     string    `gorm:"not null"`
+	CreatedAt time.Time `gorm:"not null;autoCreateTime:milli"`
+	UpdatedAt time.Time `gorm:"not null;autoUpdateTime:milli"`
+}
+
 func GetSetting(db *gorm.DB, key string) (string, error) {
 	var setting Settings
-	if err := db.Where("key = ?", key).First(&setting).Error; err != nil {
-		return "", err
+	if err := db.Where("key = ?", key).Take(&setting).Error; err != nil {
+		return "", fmt.Errorf("get setting %q: %w", key, err)
 	}
 	return setting.Value, nil
 }
 
-// SetSetting updates or creates a setting
-func SetSetting(db *gorm.DB, logger *slog.Logger, key, value string) error {
-	var setting Settings
-	err := db.Where("key = ?", key).First(&setting).Error
-
-	if err == gorm.ErrRecordNotFound {
-		// Create new setting
-		setting = Settings{
-			Key:   key,
-			Value: value,
-		}
-		return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-			return tx.Create(&setting).Error
-		})
-	} else if err != nil {
-		return err
+func ListSettings(db *gorm.DB) ([]Settings, error) {
+	var settings []Settings
+	if err := db.Where("key <> ''").Order("key ASC").Find(&settings).Error; err != nil {
+		return nil, fmt.Errorf("list settings: %w", err)
 	}
+	return settings, nil
+}
 
-	// Update existing setting
-	setting.Value = value
+func SetSetting(db *gorm.DB, logger *slog.Logger, key, value string) error {
+	setting := Settings{Key: key, Value: value}
+	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		return tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "key"}},
+			DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+		}).Create(&setting).Error
+	}); err != nil {
+		return fmt.Errorf("set setting %q: %w", key, err)
+	}
+	return nil
+}
+
+func DeleteSetting(logger *slog.Logger, db *gorm.DB, key string) error {
 	return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		return tx.Save(&setting).Error
+		result := tx.Where("key = ?", key).Delete(&Settings{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
 	})
 }

@@ -4,139 +4,89 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/matteodante/miniform/internal/forms"
+	"github.com/matteodante/miniform/internal/integrations"
 )
 
-func TestExtractCaptchaToken(t *testing.T) {
-	t.Run("extracts cf-turnstile-response", func(t *testing.T) {
-		payload := map[string]any{
-			"name":                  "John",
-			"cf-turnstile-response": "test-token-123",
+func TestPublicHelpers(t *testing.T) {
+	t.Run("extracts and removes captcha token variants", func(t *testing.T) {
+		for _, test := range []struct {
+			name  string
+			value any
+			want  string
+		}{
+			{"hyphen field", "token-a", "token-a"},
+			{"multipart value", []string{"token-b"}, "token-b"},
+			{"JSON array", []any{"token-c"}, "token-c"},
+			{"bytes", []byte("token-d"), "token-d"},
+			{"empty", "", ""},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				payload := map[string]any{"cf-turnstile-response": test.value, "name": "Ada"}
+				token, found := extractCaptchaToken(payload)
+				assert.Equal(t, test.want, token)
+				assert.Equal(t, test.want != "", found)
+				assert.NotContains(t, payload, "cf-turnstile-response")
+			})
 		}
 
-		token, ok := extractCaptchaToken(payload)
-
-		assert.True(t, ok)
-		assert.Equal(t, "test-token-123", token)
-		assert.NotContains(t, payload, "cf-turnstile-response", "should remove token from payload")
-	})
-
-	t.Run("extracts cf_turnstile_response (underscore variant)", func(t *testing.T) {
 		payload := map[string]any{
-			"email":                 "test@example.com",
-			"cf_turnstile_response": "underscore-token",
+			"cf-turnstile-response": "first", "cf_turnstile_response": "second",
 		}
-
-		token, ok := extractCaptchaToken(payload)
-
-		assert.True(t, ok)
-		assert.Equal(t, "underscore-token", token)
-		assert.NotContains(t, payload, "cf_turnstile_response")
-	})
-
-	t.Run("returns false when no token present", func(t *testing.T) {
-		payload := map[string]any{
-			"name":  "John",
-			"email": "john@example.com",
-		}
-
-		token, ok := extractCaptchaToken(payload)
-
-		assert.False(t, ok)
+		token, found := extractCaptchaToken(payload)
+		assert.True(t, found)
+		assert.Equal(t, "first", token)
+		assert.Empty(t, payload)
+		token, found = extractCaptchaToken(nil)
+		assert.False(t, found)
 		assert.Empty(t, token)
 	})
 
-	t.Run("returns false for empty token", func(t *testing.T) {
-		payload := map[string]any{
-			"cf-turnstile-response": "",
+	t.Run("normalizes request origins", func(t *testing.T) {
+		cases := map[string]string{
+			"https://EXAMPLE.COM":                   "example.com",
+			"http://example.com:8080/path?q=1#part": "example.com",
+			"https://sub.example.com/path":          "sub.example.com",
+			"example.com":                           "example.com",
+			"[2001:db8::1]:8443":                    "2001:db8::1",
+			"":                                      "",
 		}
-
-		token, ok := extractCaptchaToken(payload)
-
-		assert.False(t, ok)
-		assert.Empty(t, token)
-	})
-
-	t.Run("returns false for nil payload", func(t *testing.T) {
-		token, ok := extractCaptchaToken(nil)
-
-		assert.False(t, ok)
-		assert.Empty(t, token)
-	})
-
-	t.Run("handles string array (form multipart)", func(t *testing.T) {
-		payload := map[string]any{
-			"cf-turnstile-response": []string{"array-token"},
+		for input, expected := range cases {
+			assert.Equal(t, expected, extractDomain(input), input)
 		}
-
-		token, ok := extractCaptchaToken(payload)
-
-		assert.True(t, ok)
-		assert.Equal(t, "array-token", token)
 	})
-}
 
-func TestExtractDomain(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "https URL",
-			input:    "https://example.com",
-			expected: "example.com",
-		},
-		{
-			name:     "http URL",
-			input:    "http://example.com",
-			expected: "example.com",
-		},
-		{
-			name:     "URL with path",
-			input:    "https://example.com/path/to/page",
-			expected: "example.com",
-		},
-		{
-			name:     "URL with query",
-			input:    "https://example.com?foo=bar",
-			expected: "example.com",
-		},
-		{
-			name:     "URL with port",
-			input:    "https://example.com:8080",
-			expected: "example.com",
-		},
-		{
-			name:     "URL with port and path",
-			input:    "https://example.com:8080/path",
-			expected: "example.com",
-		},
-		{
-			name:     "subdomain",
-			input:    "https://sub.example.com",
-			expected: "sub.example.com",
-		},
-		{
-			name:     "mixed case normalized to lowercase",
-			input:    "https://EXAMPLE.COM",
-			expected: "example.com",
-		},
-		{
-			name:     "URL with fragment",
-			input:    "https://example.com#section",
-			expected: "example.com",
-		},
-		{
-			name:     "bare domain",
-			input:    "example.com",
-			expected: "example.com",
-		},
-	}
+	t.Run("keeps repeated form values", func(t *testing.T) {
+		payload := map[string]any{}
+		appendFormValue(payload, "tag", "one")
+		appendFormValue(payload, "tag", "two")
+		appendFormValue(payload, "tag", "three")
+		assert.Equal(t, []string{"one", "two", "three"}, payload["tag"])
+		setFormValues(payload, "single", []string{"value"})
+		assert.Equal(t, "value", payload["single"])
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := extractDomain(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
+	t.Run("validates Turnstile action and hostname", func(t *testing.T) {
+		form := &forms.Form{AllowedOrigins: "example.com,*.trusted.test"}
+		settings := integrations.CaptchaSettings{Required: true, Action: "contact"}
+
+		assert.Empty(t, turnstileResultFailure(form, settings, &integrations.TurnstileResult{
+			Success: true, Hostname: "forms.example.com", Action: "contact",
+		}))
+		assert.Equal(t, "action mismatch", turnstileResultFailure(form, settings, &integrations.TurnstileResult{
+			Success: true, Hostname: "forms.example.com", Action: "login",
+		}))
+		assert.Equal(t, "hostname mismatch", turnstileResultFailure(form, settings, &integrations.TurnstileResult{
+			Success: true, Action: "contact",
+		}))
+		assert.Equal(t, "hostname mismatch", turnstileResultFailure(form, settings, &integrations.TurnstileResult{
+			Success: true, Hostname: "attacker.test", Action: "contact",
+		}))
+
+		form.AllowedOrigins = "*"
+		assert.Empty(t, turnstileResultFailure(form, settings, &integrations.TurnstileResult{
+			Success: true, Action: "contact",
+		}))
+	})
 }

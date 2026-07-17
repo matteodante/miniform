@@ -92,6 +92,35 @@ func TestManagement(t *testing.T) {
 		assert.True(t, os.IsNotExist(err))
 	})
 
+	t.Run("keeps a submission retryable when deleting its files fails", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		dataDir := t.TempDir()
+		outsideDir := t.TempDir()
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Retry", Slug: "retry", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		submission, err := forms.CreateSubmission(logger, db, form, map[string]any{"ok": true}, "test")
+		require.NoError(t, err)
+
+		formDirectory := strconv.FormatUint(uint64(form.ID), 10)
+		require.NoError(t, os.MkdirAll(filepath.Join(dataDir, "uploads"), 0o700))
+		linkPath := filepath.Join(dataDir, "uploads", formDirectory)
+		require.NoError(t, os.Symlink(outsideDir, linkPath))
+		outsideFile := filepath.Join(outsideDir, "keep.txt")
+		require.NoError(t, os.WriteFile(outsideFile, []byte("keep"), 0o600))
+
+		err = forms.DeleteSubmission(logger, db, dataDir, submission.ID)
+
+		assert.Error(t, err)
+		_, err = forms.GetSubmissionByID(db, submission.ID)
+		assert.NoError(t, err)
+		assert.FileExists(t, outsideFile)
+
+		require.NoError(t, os.Remove(linkPath))
+		require.NoError(t, forms.DeleteSubmission(logger, db, dataDir, submission.ID))
+		_, err = forms.GetSubmissionByID(db, submission.ID)
+		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	})
+
 	t.Run("deletes a form and all owned records", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Disposable", Slug: "disposable", AllowedOrigins: "*"})

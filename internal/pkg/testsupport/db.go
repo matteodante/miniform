@@ -4,41 +4,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matteodante/miniform/internal/accounts"
-	"github.com/matteodante/miniform/internal/forms"
-	"github.com/matteodante/miniform/internal/integrations"
+	"github.com/matteodante/miniform/internal/database"
 
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
-// SetupTestDB creates an in-memory SQLite database for testing
-// with all models migrated. This is useful for integration tests
-// that need a real database without external dependencies.
 func SetupTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
 		NowFunc: func() time.Time { return time.Now().UTC() },
 	})
-	require.NoError(t, err, "failed to open test database")
-
-	// Migrate all models
-	err = db.AutoMigrate(
-		// Accounts
-		&accounts.User{},
-		// Forms
-		&forms.Form{},
-		&forms.Submission{},
-		&forms.EmailDelivery{},
-		&forms.WebhookDelivery{},
-		&forms.WebhookEvent{},
-		&forms.EmailEvent{},
-		&forms.SubmissionFile{},
-		// Integrations
-		&integrations.MailerProfile{},
-		&integrations.CaptchaProfile{},
-	)
-	require.NoError(t, err, "failed to migrate test database")
+	require.NoError(t, err)
+	require.NoError(t, database.Migrate(db))
 
 	return db
 }

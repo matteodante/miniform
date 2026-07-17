@@ -1,57 +1,76 @@
-// Package server provides miniform-specific server configuration.
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/matteodante/miniform/internal/config"
 )
 
-// Build info set at compile time via ldflags
-var buildCommit = "dev"
+var (
+	buildCommit           = "dev"
+	developmentAssetStamp = time.Now().UTC().Format("20060102150405")
+)
 
-// TemplateFuncs returns miniform-specific template functions.
 func TemplateFuncs() map[string]any {
 	return map[string]any{
-		"truncateJSON": truncateJSON,
-		"timeRFC3339":  timeRFC3339,
-		"formatUTC":    formatUTC,
-		"assetVersion": func() string {
-			if buildCommit == "dev" {
-				return time.Now().UTC().Format("20060102150405")
+		"truncateJSON": compactPreview,
+		"timeRFC3339": func(value any) string {
+			if timestamp, ok := asUTC(value); ok {
+				return timestamp.Format(time.RFC3339Nano)
 			}
-			if len(buildCommit) > 8 {
-				return buildCommit[:8]
-			}
-			return buildCommit
+			return ""
 		},
+		"formatUTC": func(value any, layout string) string {
+			if timestamp, ok := asUTC(value); ok {
+				return timestamp.Format(layout)
+			}
+			return ""
+		},
+		"assetVersion": assetVersion,
 	}
 }
 
-func timeRFC3339(value any) string {
-	timestamp, ok := utcTime(value)
-	if !ok {
-		return ""
+func ErrorHandler(logger *slog.Logger, cfg *config.Config) fiber.ErrorHandler {
+	return func(ctx *fiber.Ctx, failure error) error {
+		status, message := publicError(failure, cfg.IsDevelopment())
+		logger.Error("HTTP request failed",
+			slog.Int("status", status), slog.String("method", ctx.Method()),
+			slog.String("path", ctx.Path()), slog.Any("error", failure),
+		)
+		if ctx.Accepts(fiber.MIMEApplicationJSON) == fiber.MIMEApplicationJSON {
+			return ctx.Status(status).JSON(fiber.Map{"error": http.StatusText(status), "message": message})
+		}
+		if status == fiber.StatusInternalServerError {
+			return ctx.Status(status).Render("layouts/base", fiber.Map{
+				"Title": "500 - Internal Server Error", "ContentView": "errors/500/content",
+				"DevMode": cfg.IsDevelopment(), "ErrorMessage": message, "HideHeaderActions": true,
+			}, "")
+		}
+		return ctx.Status(status).SendString(fmt.Sprintf("Error: %d - %s", status, message))
 	}
-	return timestamp.Format(time.RFC3339Nano)
 }
 
-func formatUTC(value any, layout string) string {
-	timestamp, ok := utcTime(value)
-	if !ok {
-		return ""
+func publicError(err error, development bool) (int, string) {
+	var fiberError *fiber.Error
+	if errors.As(err, &fiberError) {
+		return fiberError.Code, fiberError.Message
 	}
-	return timestamp.Format(layout)
+	if development {
+		return fiber.StatusInternalServerError, err.Error()
+	}
+	return fiber.StatusInternalServerError, fiber.ErrInternalServerError.Message
 }
 
-func utcTime(value any) (time.Time, bool) {
+func asUTC(value any) (time.Time, bool) {
 	switch timestamp := value.(type) {
 	case time.Time:
 		return timestamp.UTC(), true
@@ -63,62 +82,23 @@ func utcTime(value any) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// ErrorHandler returns miniform-specific error handler.
-func ErrorHandler(log *slog.Logger, cfg *config.Config) fiber.ErrorHandler {
-	return func(c *fiber.Ctx, err error) error {
-		code := fiber.StatusInternalServerError
-		publicMessage := fiber.ErrInternalServerError.Message
-		var fiberError *fiber.Error
-		if errors.As(err, &fiberError) {
-			code = fiberError.Code
-			publicMessage = fiberError.Message
-		} else if cfg.IsDevelopment() {
-			publicMessage = err.Error()
-		}
-
-		log.Error("request failed",
-			slog.Any("error", err),
-			slog.String("path", c.Path()),
-			slog.String("method", c.Method()),
-			slog.Int("status", code),
-		)
-
-		// JSON error response for API requests
-		if c.Accepts(fiber.MIMEApplicationJSON) == fiber.MIMEApplicationJSON {
-			return c.Status(code).JSON(fiber.Map{
-				"error":   http.StatusText(code),
-				"message": publicMessage,
-			})
-		}
-
-		// HTML error page for browser requests
-		if code == fiber.StatusInternalServerError {
-			return c.Status(code).Render("layouts/base", fiber.Map{
-				"Title":             "500 - Internal Server Error",
-				"ContentView":       "errors/500/content",
-				"DevMode":           cfg.IsDevelopment(),
-				"ErrorMessage":      publicMessage,
-				"HideHeaderActions": true,
-			}, "")
-		}
-
-		return c.Status(code).SendString(fmt.Sprintf("Error: %d - %s", code, publicMessage))
+func assetVersion() string {
+	if buildCommit == "dev" {
+		return developmentAssetStamp
 	}
+	if len(buildCommit) > 8 {
+		return buildCommit[:8]
+	}
+	return buildCommit
 }
 
-func truncateJSON(raw string) string {
-	if raw == "" {
-		return ""
+func compactPreview(raw string) string {
+	var compact bytes.Buffer
+	if json.Compact(&compact, []byte(raw)) == nil {
+		raw = compact.String()
 	}
-	var payload any
-	if err := json.Unmarshal([]byte(raw), &payload); err == nil {
-		if canonical, err := json.Marshal(payload); err == nil {
-			raw = string(canonical)
-		}
-	}
-	const limit = 80
-	if len(raw) <= limit {
+	if utf8.RuneCountInString(raw) <= 80 {
 		return raw
 	}
-	return raw[:limit] + "..."
+	return string([]rune(raw)[:80]) + "..."
 }

@@ -1,10 +1,13 @@
 package forms
 
 import (
+	"fmt"
+	htmlstd "html"
 	"strings"
 )
 
-// FormTemplate represents a pre-configured form template.
+const formActionPlaceholder = "{{FORM_ACTION}}"
+
 type FormTemplate struct {
 	ID              string
 	Name            string
@@ -19,484 +22,192 @@ type FormTemplate struct {
 	EmailDelivery   EmailDelivery
 }
 
-// GetFormTemplates returns all available form templates.
-func GetFormTemplates() []FormTemplate {
-	return []FormTemplate{
-		{
-			ID:          "contact",
-			Name:        "Contact Form",
-			Description: "Simple contact form with name, email, and message fields",
-			Slug:        "contact",
-			Icon:        "💬",
-			Color:       "blue",
-			HTML:        contactTemplateHTML,
-			EmailDelivery: EmailDelivery{
-				Enabled: true,
-			},
-		},
-		{
-			ID:          "feedback",
-			Name:        "Feedback Form",
-			Description: "Collect user feedback and feature requests",
-			Slug:        "feedback",
-			Icon:        "💡",
-			Color:       "purple",
-			HTML:        feedbackTemplateHTML,
-			EmailDelivery: EmailDelivery{
-				Enabled: true,
-			},
-		},
-		{
-			ID:          "bug-report",
-			Name:        "Bug Report",
-			Description: "Help users report bugs and technical issues",
-			Slug:        "bug-report",
-			Icon:        "🐛",
-			Color:       "red",
-			HTML:        bugTemplateHTML,
-			EmailDelivery: EmailDelivery{
-				Enabled: true,
-			},
-		},
-		{
-			ID:          "newsletter",
-			Name:        "Newsletter Signup",
-			Description: "Collect email addresses for your newsletter",
-			Slug:        "newsletter",
-			Icon:        "📧",
-			Color:       "green",
-			HTML:        newsletterTemplateHTML,
-			EmailDelivery: EmailDelivery{
-				Enabled: true,
-			},
-		},
-		{
-			ID:          "waitlist",
-			Name:        "Waitlist",
-			Description: "Build a waitlist for your product launch",
-			Slug:        "waitlist",
-			Icon:        "⏳",
-			Color:       "yellow",
-			HTML:        waitlistTemplateHTML,
-			EmailDelivery: EmailDelivery{
-				Enabled: true,
-			},
-		},
-		{
-			ID:              "blank",
-			Name:            "Blank Form",
-			Description:     "Start from scratch with an empty form",
-			Slug:            "",
-			Icon:            "📝",
-			Color:           "gray",
-			HTML:            blankTemplateHTML,
-			EmailDelivery:   EmailDelivery{},
-			WebhookDelivery: WebhookDelivery{},
-		},
-	}
+type templateDefinition struct {
+	ID, Name, Description, Slug, Icon, Color string
+	Eyebrow, Title, Introduction, Submit     string
+	Fields                                   []templateField
+	ForwardsEmail                            bool
 }
 
-// GetTemplateByID returns a specific template by ID.
+type templateField struct {
+	Name, Label, Kind, Placeholder, Helper string
+	Options                                []string
+	Required                               bool
+}
+
+func GetFormTemplates() []FormTemplate {
+	templates := make([]FormTemplate, 0, len(templateCatalog))
+	for _, definition := range templateCatalog {
+		templates = append(templates, FormTemplate{
+			ID: definition.ID, Name: definition.Name, Description: definition.Description,
+			Slug: definition.Slug, Icon: definition.Icon, Color: definition.Color,
+			HTML: renderTemplate(definition), EmailDelivery: EmailDelivery{Enabled: definition.ForwardsEmail},
+		})
+	}
+	return templates
+}
+
 func GetTemplateByID(id string) *FormTemplate {
-	templates := GetFormTemplates()
-	for _, t := range templates {
-		if t.ID == id {
-			template := t // copy to avoid referencing loop variable
+	for _, template := range GetFormTemplates() {
+		if template.ID == id {
 			return &template
 		}
 	}
 	return nil
 }
 
-// RenderHTML returns the template HTML with the form action placeholder replaced.
-func (t *FormTemplate) RenderHTML(action string) string {
-	if t == nil || strings.TrimSpace(t.HTML) == "" {
+func (template *FormTemplate) RenderHTML(action string) string {
+	if template == nil || strings.TrimSpace(template.HTML) == "" {
 		return ""
 	}
-
 	if strings.TrimSpace(action) == "" {
 		action = "/forms/your-form/submit?token=YOUR_FORM_TOKEN"
 	}
-
-	return strings.ReplaceAll(t.HTML, "{{FORM_ACTION}}", action)
+	return strings.ReplaceAll(template.HTML, formActionPlaceholder, htmlstd.EscapeString(action))
 }
 
-const sharedTemplateStyles = `
-<style>
-	.miniform-shell {
-		max-width: 520px;
-		margin: 24px auto;
-		background: #fffefa;
-		border-radius: 4px;
-		padding: 32px;
-		border: 1px solid #d4cbbb;
-		box-shadow: 0 18px 50px rgba(36, 40, 32, 0.08);
-		font-family: 'Avenir Next', Avenir, 'Segoe UI', sans-serif;
-		color: #242820;
+func renderTemplate(definition templateDefinition) string {
+	var output strings.Builder
+	fmt.Fprintf(&output, `<section class="mf-template" data-template="%s">
+  <header class="mf-template__header">
+    <p class="mf-template__eyebrow">%s</p>
+    <h2>%s</h2>
+    <p>%s</p>
+  </header>
+  <form class="mf-template__form" action="%s" method="POST">
+`, escape(definition.ID), escape(definition.Eyebrow), escape(definition.Title), escape(definition.Introduction), formActionPlaceholder)
+	for _, field := range definition.Fields {
+		renderField(&output, field)
+	}
+	fmt.Fprintf(&output, "    <button type=\"submit\">%s</button>\n  </form>\n</section>\n%s", escape(definition.Submit), templateStyles)
+	return output.String()
+}
+
+func renderField(output *strings.Builder, field templateField) {
+	required := ""
+	if field.Required {
+		required = " required"
+	}
+	if field.Kind == "checkbox" {
+		fmt.Fprintf(output, "    <label class=\"mf-template__check\"><input type=\"checkbox\" name=\"%s\"%s> <span>%s</span></label>\n", escape(field.Name), required, escape(field.Label))
+		return
 	}
 
-	.miniform-eyebrow {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		padding: 0 0 4px;
-		border-bottom: 1px solid #4e6653;
-		font-size: 12px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.16em;
-		color: #4e6653;
+	fmt.Fprintf(output, "    <label class=\"mf-template__field\"><span>%s</span>\n      ", escape(field.Label))
+	switch field.Kind {
+	case "textarea":
+		fmt.Fprintf(output, "<textarea name=\"%s\" placeholder=\"%s\"%s></textarea>", escape(field.Name), escape(field.Placeholder), required)
+	case "select":
+		fmt.Fprintf(output, "<select name=\"%s\"%s>", escape(field.Name), required)
+		for _, option := range field.Options {
+			if option == "" {
+				output.WriteString(`<option value="">Select</option>`)
+				continue
+			}
+			fmt.Fprintf(output, "<option>%s</option>", escape(option))
+		}
+		output.WriteString("</select>")
+	default:
+		fmt.Fprintf(output, "<input type=\"%s\" name=\"%s\" placeholder=\"%s\"%s>", escape(field.Kind), escape(field.Name), escape(field.Placeholder), required)
 	}
-
-	.miniform-shell h2 {
-		font-size: 1.6rem;
-		margin: 0.85rem 0 0.4rem;
-		font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
-		letter-spacing: -0.025em;
+	if field.Helper != "" {
+		fmt.Fprintf(output, "\n      <small>%s</small>", escape(field.Helper))
 	}
+	output.WriteString("\n    </label>\n")
+}
 
-	.miniform-shell p {
-		margin: 0;
-		color: #6e756b;
-		font-size: 0.95rem;
-	}
+func escape(value string) string {
+	return htmlstd.EscapeString(value)
+}
 
-	.miniform-stack {
-		display: flex;
-		flex-direction: column;
-		gap: 18px;
-		margin-top: 1.5rem;
-	}
+var templateCatalog = []templateDefinition{
+	{
+		ID: "contact", Name: "Contact Form", Description: "Simple contact form with name, email, and message fields",
+		Slug: "contact", Icon: "💬", Color: "blue", Eyebrow: "Contact", Title: "Contact our team",
+		Introduction: "Tell us how we can help and someone will reply within one business day.", Submit: "Send message", ForwardsEmail: true,
+		Fields: []templateField{
+			{Name: "name", Label: "Full name", Kind: "text", Placeholder: "Alex Rivers", Required: true},
+			{Name: "company", Label: "Company", Kind: "text", Placeholder: "Acme Inc."},
+			{Name: "email", Label: "Email address", Kind: "email", Placeholder: "you@example.com", Required: true},
+			{Name: "topic", Label: "Topic", Kind: "select", Options: []string{"", "Product question", "Billing", "Partnership", "Something else"}, Required: true},
+			{Name: "message", Label: "How can we help?", Kind: "textarea", Placeholder: "Share details about your request", Required: true},
+			{Name: "consent", Label: "I agree to be contacted about this request.", Kind: "checkbox", Required: true},
+		},
+	},
+	{
+		ID: "feedback", Name: "Feedback Form", Description: "Collect user feedback and feature requests",
+		Slug: "feedback", Icon: "💡", Color: "purple", Eyebrow: "Feedback", Title: "Share your feedback",
+		Introduction: "Help us build the roadmap. Tell us what’s working and what could be better.", Submit: "Send feedback", ForwardsEmail: true,
+		Fields: []templateField{
+			{Name: "name", Label: "Name", Kind: "text", Placeholder: "Taylor", Required: true},
+			{Name: "email", Label: "Email", Kind: "email", Placeholder: "you@example.com"},
+			{Name: "satisfaction", Label: "How satisfied are you?", Kind: "select", Options: []string{"", "Very satisfied", "Satisfied", "Neutral", "Unsatisfied"}, Required: true},
+			{Name: "feature", Label: "Feature or area", Kind: "text", Placeholder: "Exports, notifications, ..."},
+			{Name: "comments", Label: "Comments", Kind: "textarea", Placeholder: "What should we improve?", Required: true},
+		},
+	},
+	{
+		ID: "bug-report", Name: "Bug Report", Description: "Help users report bugs and technical issues",
+		Slug: "bug-report", Icon: "🐛", Color: "red", Eyebrow: "Bug report", Title: "Report an issue",
+		Introduction: "Found something off? Share the details and we’ll investigate within a few hours.", Submit: "Submit bug", ForwardsEmail: true,
+		Fields: []templateField{
+			{Name: "reporter", Label: "Name", Kind: "text", Placeholder: "Jordan", Required: true},
+			{Name: "email", Label: "Email", Kind: "email", Placeholder: "you@example.com", Required: true},
+			{Name: "severity", Label: "Severity", Kind: "select", Options: []string{"", "Low", "Medium", "High", "Critical"}, Required: true},
+			{Name: "area", Label: "Area of the product", Kind: "text", Placeholder: "Account settings"},
+			{Name: "steps", Label: "Steps to reproduce", Kind: "textarea", Placeholder: "1. Go to..., 2. Click...", Helper: "Include as much detail as possible.", Required: true},
+			{Name: "expected", Label: "Expected vs. actual behavior", Kind: "textarea", Placeholder: "Expected X but saw Y"},
+		},
+	},
+	{
+		ID: "newsletter", Name: "Newsletter Signup", Description: "Collect email addresses for your newsletter",
+		Slug: "newsletter", Icon: "📧", Color: "green", Eyebrow: "Newsletter", Title: "Join the newsletter",
+		Introduction: "Receive product updates, launch notes, and best practices twice a month.", Submit: "Subscribe", ForwardsEmail: true,
+		Fields: []templateField{
+			{Name: "email", Label: "Email address", Kind: "email", Placeholder: "you@company.com", Required: true},
+			{Name: "first_name", Label: "First name", Kind: "text", Placeholder: "Jamie", Required: true},
+			{Name: "interest", Label: "What would you like to hear about?", Kind: "select", Options: []string{"Product updates", "Growth stories", "Weekly tips"}},
+			{Name: "consent", Label: "I agree to receive occasional product emails.", Kind: "checkbox", Required: true},
+		},
+	},
+	{
+		ID: "waitlist", Name: "Waitlist", Description: "Build a waitlist for your product launch",
+		Slug: "waitlist", Icon: "⏳", Color: "yellow", Eyebrow: "Waitlist", Title: "Join the early access list",
+		Introduction: "We’re releasing limited invites. Tell us a bit about your team and we’ll keep you posted.", Submit: "Request invite", ForwardsEmail: true,
+		Fields: []templateField{
+			{Name: "name", Label: "Full name", Kind: "text", Placeholder: "Morgan Lee", Required: true},
+			{Name: "company", Label: "Company", Kind: "text", Placeholder: "Northwind"},
+			{Name: "email", Label: "Work email", Kind: "email", Placeholder: "you@company.com", Required: true},
+			{Name: "team_size", Label: "Team size", Kind: "select", Options: []string{"", "1-5 people", "6-25 people", "26-100 people", "100+ people"}},
+			{Name: "use_case", Label: "What will you use us for?", Kind: "textarea", Placeholder: "Share how your team would use the product", Required: true},
+		},
+	},
+	{
+		ID: "blank", Name: "Blank Form", Description: "Start from scratch with an empty form",
+		Icon: "📝", Color: "gray", Eyebrow: "Simple form", Title: "Let’s collect data",
+		Introduction: "Use this lightweight template as a starting point.", Submit: "Submit",
+		Fields: []templateField{
+			{Name: "field_one", Label: "Field label", Kind: "text", Placeholder: "Text input"},
+			{Name: "field_two", Label: "Message", Kind: "textarea", Placeholder: "Textarea input"},
+		},
+	},
+}
 
-	.miniform-row {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 16px;
-	}
-
-	.miniform-field {
-		flex: 1;
-		min-width: 160px;
-	}
-
-	.miniform-field span {
-		display: block;
-		font-size: 0.85rem;
-		font-weight: 600;
-		color: #3d443c;
-		margin-bottom: 6px;
-	}
-
-	.miniform-field input,
-	.miniform-field select,
-	.miniform-field textarea {
-		width: 100%;
-		border: 1px solid #d4cbbb;
-		border-radius: 3px;
-		padding: 12px 14px;
-		font-size: 0.95rem;
-		transition: border 0.2s ease, box-shadow 0.2s ease;
-		background: #f5f1e8;
-	}
-
-	.miniform-field textarea {
-		min-height: 120px;
-		resize: vertical;
-	}
-
-	.miniform-field input:focus,
-	.miniform-field textarea:focus,
-	.miniform-field select:focus {
-		outline: none;
-		border-color: #4e6653;
-		box-shadow: 0 0 0 3px rgba(78, 102, 83, 0.15);
-		background: #fffefa;
-	}
-
-	.miniform-helper {
-		font-size: 0.8rem;
-		color: #6e756b;
-		margin-top: 4px;
-	}
-
-	.miniform-button {
-		width: 100%;
-		border: none;
-		border-radius: 4px;
-		padding: 14px 18px;
-		font-size: 1rem;
-		font-weight: 600;
-		color: #fffefa;
-		background: #4e6653;
-		cursor: pointer;
-		transition: transform 0.2s ease, background 0.2s ease;
-	}
-
-	.miniform-button:hover {
-		transform: translateY(-1px);
-		background: #34473a;
-	}
-
-	.miniform-checkbox {
-		display: flex;
-		align-items: flex-start;
-		gap: 12px;
-		font-size: 0.9rem;
-		color: #3d443c;
-	}
-
-	.miniform-checkbox input {
-		width: 18px;
-		height: 18px;
-		margin-top: 3px;
-	}
-</style>
-`
-
-const contactTemplateHTML = `
-<div class="miniform-shell">
-	<div class="miniform-eyebrow">Contact</div>
-	<h2>Contact our team</h2>
-	<p>Tell us how we can help and someone will reply within one business day.</p>
-
-	<form action="{{FORM_ACTION}}" method="POST" class="miniform-stack">
-		<div class="miniform-row">
-			<label class="miniform-field">
-				<span>Full name</span>
-				<input type="text" name="name" placeholder="Alex Rivers" required>
-			</label>
-			<label class="miniform-field">
-				<span>Company</span>
-				<input type="text" name="company" placeholder="Acme Inc.">
-			</label>
-		</div>
-
-		<div class="miniform-row">
-			<label class="miniform-field">
-				<span>Email address</span>
-				<input type="email" name="email" placeholder="you@example.com" required>
-			</label>
-			<label class="miniform-field">
-				<span>Topic</span>
-				<select name="topic" required>
-					<option value="">Choose a topic</option>
-					<option>Product question</option>
-					<option>Billing</option>
-					<option>Partnership</option>
-					<option>Something else</option>
-				</select>
-			</label>
-		</div>
-
-		<label class="miniform-field">
-			<span>How can we help?</span>
-			<textarea name="message" placeholder="Share details about your request" required></textarea>
-		</label>
-
-		<label class="miniform-checkbox">
-			<input type="checkbox" name="consent" required>
-			<span>I agree to be contacted about this request.</span>
-		</label>
-
-		<button type="submit" class="miniform-button">Send message</button>
-	</form>
-</div>
-` + sharedTemplateStyles
-
-const newsletterTemplateHTML = `
-<div class="miniform-shell">
-	<div class="miniform-eyebrow">Newsletter</div>
-	<h2>Join the newsletter</h2>
-	<p>Receive product updates, launch notes, and best practices twice a month.</p>
-
-	<form action="{{FORM_ACTION}}" method="POST" class="miniform-stack">
-		<label class="miniform-field">
-			<span>Email address</span>
-			<input type="email" name="email" placeholder="you@company.com" required>
-		</label>
-
-		<label class="miniform-field">
-			<span>First name</span>
-			<input type="text" name="first_name" placeholder="Jamie" required>
-		</label>
-
-		<label class="miniform-field">
-			<span>What would you like to hear about?</span>
-			<select name="interest">
-				<option>Product updates</option>
-				<option>Growth stories</option>
-				<option>Weekly tips</option>
-			</select>
-		</label>
-
-		<label class="miniform-checkbox">
-			<input type="checkbox" name="consent" required>
-			<span>I agree to receive occasional product emails.</span>
-		</label>
-
-		<button type="submit" class="miniform-button">Subscribe</button>
-	</form>
-</div>
-` + sharedTemplateStyles
-
-const waitlistTemplateHTML = `
-<div class="miniform-shell">
-	<div class="miniform-eyebrow">Waitlist</div>
-	<h2>Join the early access list</h2>
-	<p>We’re releasing limited invites. Tell us a bit about your team and we’ll keep you posted.</p>
-
-	<form action="{{FORM_ACTION}}" method="POST" class="miniform-stack">
-		<div class="miniform-row">
-			<label class="miniform-field">
-				<span>Full name</span>
-				<input type="text" name="name" placeholder="Morgan Lee" required>
-			</label>
-			<label class="miniform-field">
-				<span>Company</span>
-				<input type="text" name="company" placeholder="Northwind">
-			</label>
-		</div>
-
-		<div class="miniform-row">
-			<label class="miniform-field">
-				<span>Work email</span>
-				<input type="email" name="email" placeholder="you@company.com" required>
-			</label>
-			<label class="miniform-field">
-				<span>Team size</span>
-				<select name="team_size">
-					<option value="">Select</option>
-					<option>1-5 people</option>
-					<option>6-25 people</option>
-					<option>26-100 people</option>
-					<option>100+ people</option>
-				</select>
-			</label>
-		</div>
-
-		<label class="miniform-field">
-			<span>What will you use us for?</span>
-			<textarea name="use_case" placeholder="Share how your team would use the product" required></textarea>
-		</label>
-
-		<button type="submit" class="miniform-button">Request invite</button>
-	</form>
-</div>
-` + sharedTemplateStyles
-
-const feedbackTemplateHTML = `
-<div class="miniform-shell">
-	<div class="miniform-eyebrow">Feedback</div>
-	<h2>Share your feedback</h2>
-	<p>Help us build the roadmap. Tell us what’s working and what could be better.</p>
-
-	<form action="{{FORM_ACTION}}" method="POST" class="miniform-stack">
-		<div class="miniform-row">
-			<label class="miniform-field">
-				<span>Name</span>
-				<input type="text" name="name" placeholder="Taylor" required>
-			</label>
-			<label class="miniform-field">
-				<span>Email</span>
-				<input type="email" name="email" placeholder="you@example.com">
-			</label>
-		</div>
-
-		<label class="miniform-field">
-			<span>How satisfied are you?</span>
-			<select name="satisfaction" required>
-				<option value="">Choose a score</option>
-				<option>Very satisfied</option>
-				<option>Satisfied</option>
-				<option>Neutral</option>
-				<option>Unsatisfied</option>
-			</select>
-		</label>
-
-		<label class="miniform-field">
-			<span>Feature or area</span>
-			<input type="text" name="feature" placeholder="Exports, notifications, ...">
-		</label>
-
-		<label class="miniform-field">
-			<span>Comments</span>
-			<textarea name="comments" placeholder="What should we improve?" required></textarea>
-		</label>
-
-		<button type="submit" class="miniform-button">Send feedback</button>
-	</form>
-</div>
-` + sharedTemplateStyles
-
-const bugTemplateHTML = `
-<div class="miniform-shell">
-	<div class="miniform-eyebrow">Bug report</div>
-	<h2>Report an issue</h2>
-	<p>Found something off? Share the details and we’ll investigate within a few hours.</p>
-
-	<form action="{{FORM_ACTION}}" method="POST" class="miniform-stack">
-		<div class="miniform-row">
-			<label class="miniform-field">
-				<span>Name</span>
-				<input type="text" name="reporter" placeholder="Jordan" required>
-			</label>
-			<label class="miniform-field">
-				<span>Email</span>
-				<input type="email" name="email" placeholder="you@example.com" required>
-			</label>
-		</div>
-
-		<div class="miniform-row">
-			<label class="miniform-field">
-				<span>Severity</span>
-				<select name="severity" required>
-					<option value="">Select severity</option>
-					<option>Low</option>
-					<option>Medium</option>
-					<option>High</option>
-					<option>Critical</option>
-				</select>
-			</label>
-			<label class="miniform-field">
-				<span>Area of the product</span>
-				<input type="text" name="area" placeholder="Account settings">
-			</label>
-		</div>
-
-		<label class="miniform-field">
-			<span>Steps to reproduce</span>
-			<textarea name="steps" placeholder="1. Go to..., 2. Click..." required></textarea>
-			<div class="miniform-helper">Include as much detail as possible.</div>
-		</label>
-
-		<label class="miniform-field">
-			<span>Expected vs. actual behavior</span>
-			<textarea name="expected" placeholder="Expected X but saw Y"></textarea>
-		</label>
-
-		<button type="submit" class="miniform-button">Submit bug</button>
-	</form>
-</div>
-` + sharedTemplateStyles
-
-const blankTemplateHTML = `
-<div class="miniform-shell">
-	<div class="miniform-eyebrow">Simple form</div>
-	<h2>Let’s collect data</h2>
-	<p>Use this lightweight template as a starting point.</p>
-
-	<form action="{{FORM_ACTION}}" method="POST" class="miniform-stack">
-		<label class="miniform-field">
-			<span>Field label</span>
-			<input type="text" name="field_one" placeholder="Text input">
-		</label>
-
-		<label class="miniform-field">
-			<span>Message</span>
-			<textarea name="field_two" placeholder="Textarea input"></textarea>
-		</label>
-
-		<button type="submit" class="miniform-button">Submit</button>
-	</form>
-</div>
-` + sharedTemplateStyles
+const templateStyles = `<style>
+  .mf-template { box-sizing: border-box; max-width: 38rem; margin: 1.5rem auto; padding: clamp(1.25rem, 4vw, 2.5rem); border: 1px solid #d8d2c7; background: #fffdf8; color: #20231f; font-family: ui-sans-serif, system-ui, sans-serif; }
+  .mf-template *, .mf-template *::before, .mf-template *::after { box-sizing: inherit; }
+  .mf-template__header { margin-bottom: 1.75rem; }
+  .mf-template__eyebrow { margin: 0 0 .65rem; color: #48604d; font: 700 .72rem/1.2 ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
+  .mf-template h2 { margin: 0; font: 700 clamp(1.65rem, 5vw, 2.25rem)/1.05 Georgia, serif; }
+  .mf-template__header > p:last-child { margin: .8rem 0 0; color: #666d64; line-height: 1.55; }
+  .mf-template__form { display: grid; gap: 1rem; }
+  .mf-template__field { display: grid; gap: .4rem; color: #30352f; font-size: .9rem; font-weight: 650; }
+  .mf-template input, .mf-template select, .mf-template textarea { width: 100%; border: 1px solid #c9c2b6; border-radius: .3rem; background: #f7f3eb; padding: .8rem .9rem; color: inherit; font: inherit; }
+  .mf-template textarea { min-height: 7.5rem; resize: vertical; }
+  .mf-template input:focus, .mf-template select:focus, .mf-template textarea:focus { outline: 3px solid #cad9cc; border-color: #48604d; background: #fff; }
+  .mf-template small { color: #737a71; font-weight: 400; }
+  .mf-template__check { display: flex; gap: .65rem; align-items: flex-start; color: #4f554e; font-size: .9rem; }
+  .mf-template__check input { width: 1rem; margin-top: .15rem; }
+  .mf-template button { border: 0; border-radius: .3rem; background: #334c39; padding: .9rem 1.1rem; color: #fff; font: 700 .9rem/1 ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
+  .mf-template button:hover { background: #25392a; }
+</style>`

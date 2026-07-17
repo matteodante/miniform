@@ -4,10 +4,8 @@ import (
 	"crypto/rand"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
-
-	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 
 	"github.com/karloscodes/cartridge"
 
@@ -15,113 +13,69 @@ import (
 	"github.com/matteodante/miniform/internal/config"
 	"github.com/matteodante/miniform/internal/database"
 	"github.com/matteodante/miniform/internal/jobs"
-	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 	"github.com/matteodante/miniform/internal/server"
 	"github.com/matteodante/miniform/web"
 )
 
-// App wraps the cartridge app with miniform-specific config.
 type App struct {
 	*cartridge.App
 	Config *config.Config
 }
 
-// NewApp creates the miniform application.
 func NewApp() (*App, error) {
-	cfg := config.Get()
-
-	app, err := cartridge.NewSSRApp("miniform",
+	cfg, err := config.Get()
+	if err != nil {
+		return nil, fmt.Errorf("load miniform configuration: %w", err)
+	}
+	application, err := cartridge.NewSSRApp("miniform",
 		cartridge.WithConfig(cfg.Config),
 		cartridge.WithAssets(web.Templates, web.Static),
 		cartridge.WithTemplateFuncs(server.TemplateFuncs()),
 		cartridge.WithErrorHandler(server.ErrorHandler(slog.Default(), cfg)),
 		cartridge.WithSession("/admin/login"),
-		cartridge.WithJobs(2*time.Minute,
-			jobs.NewWebhookDispatcher(cfg),
-			jobs.NewEmailDispatcher(cfg),
-		),
-		cartridge.WithRoutes(func(s *cartridge.Server) {
-			MountRoutes(s, cfg)
-		}),
+		cartridge.WithJobs(2*time.Minute, jobs.NewWebhookDispatcher(cfg), jobs.NewEmailDispatcher(cfg)),
+		cartridge.WithRoutes(func(router *cartridge.Server) { MountRoutes(router, cfg) }),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create miniform application: %w", err)
 	}
-
-	return &App{App: app, Config: cfg}, nil
+	return &App{App: application, Config: cfg}, nil
 }
 
-// RunMigrations runs database migrations and ensures admin user exists.
 func RunMigrations(app *App) error {
 	db, err := app.DBManager.Connect()
 	if err != nil {
-		return fmt.Errorf("connect database: %w", err)
+		return fmt.Errorf("connect application database: %w", err)
 	}
-
 	if err := database.Migrate(db); err != nil {
-		return fmt.Errorf("migrate database: %w", err)
-	}
-
-	if err := ensureAdminUser(db, app.Config, app.Logger); err != nil {
-		return fmt.Errorf("ensure admin user: %w", err)
-	}
-
-	if err := app.DBManager.CheckpointWAL("FULL"); err != nil {
-		app.Logger.Warn("failed to checkpoint WAL after migration", slog.Any("error", err))
-	}
-
-	return nil
-}
-
-func ensureAdminUser(db *gorm.DB, cfg *config.Config, logger *slog.Logger) error {
-	var count int64
-	if err := db.Model(&accounts.User{}).Count(&count).Error; err != nil {
 		return err
 	}
 
-	if count > 0 {
-		return nil
+	password := rand.Text()
+	loggedIn := false
+	if app.Config.IsTest() {
+		password = "miniform"
+		loggedIn = true
 	}
-
-	defaultEmail := accounts.DefaultAdminEmail
-	temporaryPassword := rand.Text()
-	if cfg.IsTest() {
-		temporaryPassword = "miniform"
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(temporaryPassword), bcrypt.DefaultCost)
+	created, err := accounts.EnsureAdmin(app.Logger, db, password, loggedIn)
 	if err != nil {
-		return fmt.Errorf("hash password: %w", err)
+		return fmt.Errorf("initialize admin account: %w", err)
 	}
-
-	admin := &accounts.User{
-		Email:        defaultEmail,
-		PasswordHash: string(hash),
-		LastLoginAt:  nil,
+	if created && !app.Config.IsTest() {
+		if err := printInitialCredentials(password); err != nil {
+			return err
+		}
 	}
-
-	if cfg.IsTest() {
-		now := time.Now().UTC()
-		admin.LastLoginAt = &now
+	if err := app.DBManager.CheckpointWAL("FULL"); err != nil {
+		app.Logger.Warn("checkpoint database after migration", slog.Any("error", err))
 	}
-
-	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		return tx.Create(admin).Error
-	}); err != nil {
-		logger.Error("failed to create default admin user", slog.Any("error", err))
-		return err
-	}
-
-	fmt.Printf("\n🔐 Initial admin user created:\n")
-	fmt.Printf("   Email: %s\n", defaultEmail)
-	fmt.Printf("   Temporary password: %s\n", temporaryPassword)
-	fmt.Printf("   ⚠️  Save this now and change it after signing in. It will not be shown again.\n\n")
-
 	return nil
 }
 
-// GetDB returns the database instance.
-func (a *App) GetDB() *gorm.DB {
-	db, _ := a.DBManager.Connect()
-	return db
+func printInitialCredentials(password string) error {
+	_, err := fmt.Fprintf(os.Stdout,
+		"\nInitial admin credentials\n  Email: %s\n  Temporary password: %s\nChange the password after signing in.\n\n",
+		accounts.DefaultAdminEmail, password,
+	)
+	return err
 }

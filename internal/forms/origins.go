@@ -2,141 +2,98 @@ package forms
 
 import (
 	"errors"
+	"net"
 	"net/url"
 	"strings"
 )
 
-// ErrOriginNotConfigured is returned when AllowedOrigins is empty
-var ErrOriginNotConfigured = errors.New("allowed origins not configured")
+var (
+	ErrRedirectNotAllowed = errors.New("redirect URL not in allowed origins")
+	errInvalidRedirect    = errors.New("invalid redirect URL")
+	errOriginsRequired    = errors.New("absolute redirects not allowed without configured origins")
+)
 
-// ErrOriginNotAllowed is returned when the origin doesn't match any allowed origin
-var ErrOriginNotAllowed = errors.New("origin not allowed")
-
-// ErrRedirectNotAllowed is returned when the redirect URL is not in allowed origins
-var ErrRedirectNotAllowed = errors.New("redirect URL not in allowed origins")
-
-// IsOriginAllowed checks if the given domain is allowed for this form.
-// The domain parameter should be an already-extracted domain (e.g., "example.com").
-// Returns true if:
-// - AllowedOrigins is "*" (wildcard)
-// - Domain matches an allowed domain exactly
-// - Domain is a subdomain of an allowed domain
-// - Domain matches a wildcard pattern (*.example.com)
-//
-// Returns false if AllowedOrigins is empty or domain doesn't match.
-func (f *Form) IsOriginAllowed(domain string) bool {
-	allowedOrigins := strings.TrimSpace(f.AllowedOrigins)
-
-	// Reject if no origins configured
+func (form *Form) IsOriginAllowed(host string) bool {
+	allowedOrigins := strings.TrimSpace(form.AllowedOrigins)
 	if allowedOrigins == "" {
 		return false
 	}
-
-	// Wildcard allows all origins
-	if allowedOrigins == "*" {
-		return true
+	entries := strings.Split(allowedOrigins, ",")
+	for _, entry := range entries {
+		if strings.TrimSpace(entry) == "*" {
+			return true
+		}
 	}
 
-	// Empty domain with configured restrictions = reject
-	if domain == "" {
+	host = normalizedHost(host)
+	if host == "" {
 		return false
 	}
-
-	// Normalize domain to lowercase
-	domain = strings.ToLower(domain)
-
-	// Check against allowed origins (comma-separated list)
-	return matchesDomainList(domain, allowedOrigins)
-}
-
-// ValidateRedirectURL checks if the redirect URL is allowed for this form.
-// - Empty URL is always allowed (no redirect)
-// - Relative URLs are always allowed
-// - Absolute URLs must match AllowedOrigins
-func (f *Form) ValidateRedirectURL(redirectURL string) error {
-	if redirectURL == "" {
-		return nil // No redirect is fine
-	}
-
-	parsed, err := url.Parse(redirectURL)
-	if err != nil {
-		return errors.New("invalid redirect URL")
-	}
-
-	// Allow relative URLs (no host)
-	if parsed.Host == "" {
-		return nil
-	}
-
-	// Check against allowed origins for this form
-	if strings.TrimSpace(f.AllowedOrigins) == "" {
-		return errors.New("absolute redirects not allowed without configured origins")
-	}
-
-	// Extract domain from redirect URL (without port)
-	redirectDomain := strings.ToLower(parsed.Host)
-	if idx := strings.LastIndex(redirectDomain, ":"); idx >= 0 {
-		redirectDomain = redirectDomain[:idx]
-	}
-
-	if matchesDomainList(redirectDomain, f.AllowedOrigins) {
-		return nil
-	}
-
-	return ErrRedirectNotAllowed
-}
-
-// matchesDomainList checks if a domain matches any entry in a comma-separated list.
-// Entries in the list can be plain domains or full URLs - they will be normalized.
-func matchesDomainList(domain, allowedList string) bool {
-	for _, allowed := range strings.Split(allowedList, ",") {
-		allowed = strings.TrimSpace(allowed)
-		if allowed == "" {
-			continue
-		}
-
-		// Wildcard allows all
-		if allowed == "*" {
-			return true
-		}
-
-		// Support wildcard patterns like *.example.com
-		if strings.HasPrefix(allowed, "*.") {
-			baseDomain := strings.ToLower(strings.TrimPrefix(allowed, "*."))
-			if domain == baseDomain || strings.HasSuffix(domain, "."+baseDomain) {
-				return true
-			}
-			continue
-		}
-
-		// Normalize allowed origin to plain domain
-		allowedDomain := normalizeToDomain(allowed)
-
-		// Exact match or subdomain match
-		if domain == allowedDomain || strings.HasSuffix(domain, "."+allowedDomain) {
+	for _, entry := range entries {
+		if originMatches(host, entry) {
 			return true
 		}
 	}
-
 	return false
 }
 
-// normalizeToDomain extracts just the domain from an allowed origin entry.
-// Handles plain domains (example.com) and full URLs (https://example.com/path).
-func normalizeToDomain(s string) string {
-	// Remove protocol
-	s = strings.TrimPrefix(s, "https://")
-	s = strings.TrimPrefix(s, "http://")
-
-	// Remove path, query and fragment
-	if idx := strings.IndexAny(s, "/?#"); idx >= 0 {
-		s = s[:idx]
+func (form *Form) ValidateRedirectURL(target string) error {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return nil
+	}
+	if strings.HasPrefix(target, "//") || strings.Contains(target, `\`) {
+		return ErrRedirectNotAllowed
 	}
 
-	// Remove port
-	if idx := strings.LastIndex(s, ":"); idx >= 0 {
-		s = s[:idx]
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return errInvalidRedirect
+	}
+	if !parsed.IsAbs() && parsed.Host == "" {
+		return nil
+	}
+	if strings.TrimSpace(form.AllowedOrigins) == "" {
+		return errOriginsRequired
+	}
+	if parsed.Scheme != "" && !strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https") {
+		return ErrRedirectNotAllowed
+	}
+	if parsed.Hostname() == "" {
+		return ErrRedirectNotAllowed
+	}
+	if form.IsOriginAllowed(parsed.Hostname()) {
+		return nil
+	}
+	return ErrRedirectNotAllowed
+}
+
+func originMatches(host, entry string) bool {
+	entry = strings.TrimSpace(entry)
+	if entry == "*" {
+		return true
+	}
+	entry = strings.TrimPrefix(entry, "*.")
+	allowedHost := normalizedHost(entry)
+	return allowedHost != "" && (host == allowedHost || strings.HasSuffix(host, "."+allowedHost))
+}
+
+func normalizedHost(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if net.ParseIP(value) != nil {
+		return strings.ToLower(value)
 	}
 
-	return strings.ToLower(s)
+	parsed, err := url.Parse(value)
+	if err == nil && parsed.Hostname() != "" {
+		return strings.ToLower(parsed.Hostname())
+	}
+	parsed, err = url.Parse("//" + value)
+	if err == nil {
+		return strings.ToLower(parsed.Hostname())
+	}
+	return ""
 }

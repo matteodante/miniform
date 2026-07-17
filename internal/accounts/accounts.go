@@ -2,15 +2,23 @@ package accounts
 
 import (
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/mail"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
-	"log/slog"
 
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
+	"github.com/matteodante/miniform/internal/pkg/sqliteerr"
+)
+
+const (
+	DefaultAdminEmail     = "admin@miniform.local"
+	minimumPasswordLength = 8
+	timingEqualizerHash   = "$2y$10$GHFFo8zcQOUi53r/u8jJ9.vZ/yz0zvsGz89xg1lmNRW0cFrwvSY.e"
 )
 
 var (
@@ -23,208 +31,193 @@ var (
 	ErrInvalidEmail       = errors.New("email is not valid")
 )
 
-// DefaultAdminEmail is used for the initial operator account on an empty install.
-const DefaultAdminEmail = "admin@miniform.local"
-
-// timingEqualizerHash is a valid bcrypt digest compared against when the
-// supplied email doesn't exist, so Authenticate takes constant time regardless
-// of whether the account exists (email-enumeration defense). It is the digest
-// of a random string; no real password matches it.
-const timingEqualizerHash = "$2a$10$Q1pg.L2uyfJ2QportzoH9.UPdkdy2skSFqtGaRfOXpO0SBGCQ1qIW"
-
-// IsFirstLoginPending reports whether the initial operator has not signed in yet.
-func IsFirstLoginPending(db *gorm.DB) bool {
-	user, err := FindByEmail(db, DefaultAdminEmail)
-	if err != nil {
-		return false
-	}
-	return user.LastLoginAt == nil
-}
-
-// User represents the single admin user for the MVP.
 type User struct {
 	ID           uint       `gorm:"primaryKey"`
 	Email        string     `gorm:"size:255;uniqueIndex;not null"`
 	PasswordHash string     `gorm:"size:255;not null"`
-	LastLoginAt  *time.Time `gorm:"index"` // nil = first login required, force password change
+	LastLoginAt  *time.Time `gorm:"index"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
 
-// Settings stores global application configuration as key-value pairs.
-type Settings struct {
-	ID        uint      `gorm:"primaryKey"`
-	Key       string    `gorm:"uniqueIndex;not null"`
-	Value     string    `gorm:"not null"`
-	CreatedAt time.Time `gorm:"not null;autoCreateTime:milli"`
-	UpdatedAt time.Time `gorm:"not null;autoUpdateTime:milli"`
-}
-
-// AuthenticationResult contains the result of a successful authentication
 type AuthenticationResult struct {
 	User         *User
 	IsFirstLogin bool
 }
 
-// FindByEmail retrieves a user by email address
+func IsFirstLoginPending(db *gorm.DB) bool {
+	admin, err := FindByEmail(db, DefaultAdminEmail)
+	return err == nil && admin.LastLoginAt == nil
+}
+
 func FindByEmail(db *gorm.DB, email string) (*User, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
-	var user User
-	if err := db.Where("email = ?", email).First(&user).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, ErrUserNotFound
-		}
-		return nil, err
-	}
-	return &user, nil
+	return loadUser(db.Where("email = ?", normalizeEmail(email)))
 }
 
-// FindByID retrieves a user by ID
 func FindByID(db *gorm.DB, id uint) (*User, error) {
-	var user User
-	if err := db.Where("id = ?", id).First(&user).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, ErrUserNotFound
-		}
-		return nil, err
-	}
-	return &user, nil
+	return loadUser(db.Where("id = ?", id))
 }
 
-// Authenticate verifies credentials and updates last login timestamp
-func Authenticate(logger *slog.Logger, db *gorm.DB, email, password string) (*AuthenticationResult, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+func GetAdmin(db *gorm.DB) (*User, error) {
+	return loadUser(db.Order("id ASC"))
+}
 
+func EnsureAdmin(logger *slog.Logger, db *gorm.DB, password string, markLoggedIn bool) (bool, error) {
+	var users int64
+	if err := db.Model(&User{}).Count(&users).Error; err != nil {
+		return false, fmt.Errorf("count accounts: %w", err)
+	}
+	if users != 0 {
+		return false, nil
+	}
+	if len(password) < minimumPasswordLength {
+		return false, ErrWeakPassword
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return false, fmt.Errorf("hash initial password: %w", err)
+	}
+	admin := &User{Email: DefaultAdminEmail, PasswordHash: string(hash)}
+	if markLoggedIn {
+		now := time.Now().UTC()
+		admin.LastLoginAt = &now
+	}
+	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error { return tx.Create(admin).Error }); err != nil {
+		if isUniqueViolation(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("create initial admin: %w", err)
+	}
+	return true, nil
+}
+
+func Authenticate(logger *slog.Logger, db *gorm.DB, email, password string) (*AuthenticationResult, error) {
+	email = normalizeEmail(email)
 	if email == "" || password == "" {
 		return nil, ErrMissingFields
 	}
 
-	var user User
-	err := db.Where("email = ?", email).First(&user).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		logger.Error("database query failed during authentication", slog.Any("error", err), slog.String("email", email))
-		return nil, err
+	user, lookupErr := FindByEmail(db, email)
+	hash := timingEqualizerHash
+	if lookupErr == nil {
+		hash = user.PasswordHash
+	} else if !errors.Is(lookupErr, ErrUserNotFound) {
+		return nil, fmt.Errorf("authenticate account: %w", lookupErr)
 	}
 
-	// Always run bcrypt — against the real hash, or a dummy when the email
-	// doesn't exist — so response time can't reveal whether an account exists.
-	hash := user.PasswordHash
-	if err == gorm.ErrRecordNotFound {
-		hash = timingEqualizerHash
-	}
-	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil || err == gorm.ErrRecordNotFound {
+	passwordOK := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+	if lookupErr != nil || !passwordOK {
 		return nil, ErrInvalidCredentials
 	}
 
-	// Check if this is the first login
-	isFirstLogin := user.LastLoginAt == nil
-
-	// Update last login timestamp
+	firstLogin := user.LastLoginAt == nil
 	now := time.Now().UTC()
+	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		return tx.Model(&User{}).Where("id = ?", user.ID).Update("last_login_at", now).Error
+	}); err != nil {
+		return nil, fmt.Errorf("record account login: %w", err)
+	}
 	user.LastLoginAt = &now
 
-	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		return tx.Save(&user).Error
-	}); err != nil {
-		logger.Error("failed to update last login timestamp", slog.Any("error", err), slog.String("email", email))
-		return nil, err
-	}
-
-	return &AuthenticationResult{
-		User:         &user,
-		IsFirstLogin: isFirstLogin,
-	}, nil
+	return &AuthenticationResult{User: user, IsFirstLogin: firstLogin}, nil
 }
 
-// ChangeEmail updates a user's email after verifying the current password.
-// The new email is lowercased and trimmed. A request to "change" to the same
-// email (after normalization) is a no-op and returns nil.
 func ChangeEmail(logger *slog.Logger, db *gorm.DB, currentEmail, newEmail, currentPassword string) error {
-	currentEmail = strings.ToLower(strings.TrimSpace(currentEmail))
-	newEmail = strings.ToLower(strings.TrimSpace(newEmail))
-
-	if newEmail == "" {
-		return ErrInvalidEmail
-	}
-	if _, err := mail.ParseAddress(newEmail); err != nil {
+	currentEmail = normalizeEmail(currentEmail)
+	newEmail = normalizeEmail(newEmail)
+	if !isMailbox(newEmail) {
 		return ErrInvalidEmail
 	}
 
-	var user User
-	if err := db.Where("email = ?", currentEmail).First(&user).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return ErrUserNotFound
-		}
-		logger.Error("database query failed during email change", slog.Any("error", err), slog.String("email", currentEmail))
+	user, err := FindByEmail(db, currentEmail)
+	if err != nil {
 		return err
 	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+	if !passwordMatches(user.PasswordHash, currentPassword) {
 		return ErrPasswordMismatch
 	}
-
-	if newEmail == currentEmail {
+	if currentEmail == newEmail {
 		return nil
 	}
 
-	var conflict User
-	err := db.Where("email = ?", newEmail).First(&conflict).Error
-	if err == nil {
+	err = dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		return tx.Model(&User{}).Where("id = ?", user.ID).Update("email", newEmail).Error
+	})
+	if isUniqueViolation(err) {
 		return ErrDuplicateEmail
 	}
-	if err != gorm.ErrRecordNotFound {
-		logger.Error("database query failed during email uniqueness check", slog.Any("error", err), slog.String("email", newEmail))
-		return err
+	if err != nil {
+		return fmt.Errorf("change account email: %w", err)
 	}
-
-	user.Email = newEmail
-
-	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		return tx.Save(&user).Error
-	}); err != nil {
-		logger.Error("failed to update email", slog.Any("error", err), slog.String("email", currentEmail))
-		return err
-	}
-
 	return nil
 }
 
-// ChangePassword validates and updates user password
 func ChangePassword(logger *slog.Logger, db *gorm.DB, email, currentPassword, newPassword string) error {
-	if len(newPassword) < 8 {
+	if len(newPassword) < minimumPasswordLength {
 		return ErrWeakPassword
 	}
 
-	var user User
-	if err := db.Where("email = ?", email).First(&user).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return ErrUserNotFound
-		}
-		logger.Error("database query failed during password change", slog.Any("error", err), slog.String("email", email))
+	user, err := FindByEmail(db, email)
+	if err != nil {
 		return err
 	}
-
-	// Verify current password
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+	if !passwordMatches(user.PasswordHash, currentPassword) {
 		return ErrPasswordMismatch
 	}
-
-	// Generate new password hash
-	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
-	if err != nil {
-		logger.Error("failed to generate password hash", slog.Any("error", err))
-		return err
+	if err := storePassword(logger, db, user.ID, newPassword); err != nil {
+		return fmt.Errorf("change account password: %w", err)
 	}
-
-	// Update user password
-	user.PasswordHash = string(hash)
-
-	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		return tx.Save(&user).Error
-	}); err != nil {
-		logger.Error("failed to update password", slog.Any("error", err), slog.String("email", email))
-		return err
-	}
-
 	return nil
+}
+
+func ResetPassword(logger *slog.Logger, db *gorm.DB, email, newPassword string) error {
+	if len(newPassword) < minimumPasswordLength {
+		return ErrWeakPassword
+	}
+	user, err := FindByEmail(db, email)
+	if err != nil {
+		return err
+	}
+	if err := storePassword(logger, db, user.ID, newPassword); err != nil {
+		return fmt.Errorf("reset account password: %w", err)
+	}
+	return nil
+}
+
+func loadUser(query *gorm.DB) (*User, error) {
+	var user User
+	if err := query.First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("load account: %w", err)
+	}
+	return &user, nil
+}
+
+func storePassword(logger *slog.Logger, db *gorm.DB, userID uint, password string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		return tx.Model(&User{}).Where("id = ?", userID).Update("password_hash", string(hash)).Error
+	})
+}
+
+func passwordMatches(hash, password string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+}
+
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func isMailbox(email string) bool {
+	address, err := mail.ParseAddress(email)
+	return err == nil && address.Address == email
+}
+
+func isUniqueViolation(err error) bool {
+	return sqliteerr.IsUniqueConstraint(err)
 }

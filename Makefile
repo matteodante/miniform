@@ -3,7 +3,8 @@ BIN_DIR ?= $(CURDIR)/bin
 APP      = miniform
 TAILWIND = $(BIN_DIR)/tailwindcss
 GO_IMAGE ?= golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651
-ALPINE_IMAGE ?= alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
+ALPINE_AMD64_IMAGE ?= alpine:3.23@sha256:1beb0dc0a51de7ff38e3b5274078a2e0b81113ba5c7535e1a03d5913a5edbda3
+ALPINE_ARM64_IMAGE ?= alpine:3.23@sha256:d858bb5442632a31bd4bca6c5e601dbe6b536fd7942092ea6a08a0a95805693c
 INSTALLER_BINARY ?= $(BIN_DIR)/miniform-linux
 INSTALLER_BINARY_DIR = $(abspath $(dir $(INSTALLER_BINARY)))
 INSTALLER_BINARY_NAME = $(notdir $(INSTALLER_BINARY))
@@ -160,7 +161,7 @@ test-integration: installer-binary
 	BINARY_PATH=$(INSTALLER_BINARY) MINIFORM_ENV=test MINIFORM_RUN_INSTALLATION_TEST=1 go test -v -timeout 15m ./tests/integration/...
 
 test-release-binaries:
-	@./scripts/test-release-binaries.sh dist/artifacts.json "$(ALPINE_IMAGE)"
+	@./scripts/test-release-binaries.sh dist/artifacts.json "$(ALPINE_AMD64_IMAGE)" "$(ALPINE_ARM64_IMAGE)"
 
 tidy: deps
 	GOCACHE=$(GOCACHE) go mod tidy

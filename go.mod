@@ -4,6 +4,7 @@ go 1.26.5
 
 require (
 	github.com/gofiber/fiber/v2 v2.52.14
+	github.com/joho/godotenv v1.5.1
 	github.com/karloscodes/cartridge v0.15.0
 	github.com/karloscodes/matcha v0.12.18
 	github.com/mattn/go-sqlite3 v1.14.48

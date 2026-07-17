@@ -26,6 +26,7 @@ Requirements: Go 1.26.5, a C compiler, Node.js 20 or newer, and `make`.
 ```bash
 git clone https://github.com/matteodante/miniform.git
 cd miniform
+cp .env.example .env
 make bootstrap
 make run
 ```

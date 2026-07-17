@@ -1,6 +1,8 @@
 # Configuration
 
-User configuration uses `MINIFORM_*` process environment variables. Development defaults work without a configuration file. The built-in Matcha installer supplies its generated `PRIVATE_KEY` directly as the session secret when `MINIFORM_SESSION_SECRET` is absent; this is an internal deployment contract, not an additional user setting.
+Miniform loads an optional `.env` file from its working directory, then reads `MINIFORM_*` variables. Values already present in the process environment take precedence. Copy [`.env.example`](../.env.example) for local use; `.env` is ignored by Git.
+
+Development defaults also work without a configuration file. The built-in Matcha installer supplies its generated `PRIVATE_KEY` directly as the session secret when `MINIFORM_SESSION_SECRET` is absent; this is an internal deployment contract, not an additional user setting.
 
 ## Core settings
 
@@ -29,6 +31,14 @@ openssl rand -hex 32
 Changing the session secret signs out every user.
 
 ## Example production environment
+
+For a local environment file:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`, or provide the same values through the process manager:
 
 ```bash
 export MINIFORM_ENV=production

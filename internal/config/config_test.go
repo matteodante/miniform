@@ -76,13 +76,23 @@ func TestConfig(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("ignores dotenv files", func(t *testing.T) {
+	t.Run("loads dotenv without overriding the process environment", func(t *testing.T) {
 		cleanEnvironment(t)
-		require.NoError(t, os.WriteFile(".env", []byte("MINIFORM_PORT=9999\n"), 0o600))
+		require.NoError(t, os.WriteFile(".env", []byte("MINIFORM_PORT=9999\nMINIFORM_DATA_DIR=dotenv-data\n"), 0o600))
+		t.Setenv("MINIFORM_PORT", "3000")
 
 		cfg, err := Load()
 		require.NoError(t, err)
-		assert.Equal(t, "8080", cfg.Port)
+		assert.Equal(t, "3000", cfg.Port)
+		assert.Equal(t, "dotenv-data", cfg.DataDirectory)
+	})
+
+	t.Run("rejects malformed dotenv files", func(t *testing.T) {
+		cleanEnvironment(t)
+		require.NoError(t, os.WriteFile(".env", []byte("MINIFORM_PORT='unterminated\n"), 0o600))
+
+		_, err := Load()
+		assert.ErrorContains(t, err, "load .env")
 	})
 
 	t.Run("creates runtime directories only when requested", func(t *testing.T) {

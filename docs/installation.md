@@ -39,12 +39,13 @@ Install Go 1.26.5, a C compiler, Node.js 20 or newer, and `make`:
 ```bash
 git clone https://github.com/matteodante/miniform.git
 cd miniform
+cp .env.example .env
 make bootstrap
 make build
-MINIFORM_ENV=production \
-MINIFORM_SESSION_SECRET='replace-with-a-secret-manager-value' \
 ./bin/miniform
 ```
+
+Edit `.env` before a production start, set `MINIFORM_ENV=production`, and provide a stable `MINIFORM_SESSION_SECRET`. Variables supplied by the process manager override `.env`.
 
 The SQLite driver requires CGO. Do not build release binaries with `CGO_ENABLED=0`.
 

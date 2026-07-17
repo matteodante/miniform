@@ -2,12 +2,14 @@ package config
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/joho/godotenv"
 	cartridgeconfig "github.com/karloscodes/cartridge/config"
 )
 
@@ -26,6 +28,10 @@ type WebhookConfig struct {
 }
 
 func Load() (*Config, error) {
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("load .env: %w", err)
+	}
+
 	environment := envOr("MINIFORM_ENV", cartridgeconfig.Development)
 	if environment != cartridgeconfig.Development && environment != cartridgeconfig.Production && environment != cartridgeconfig.Test {
 		return nil, fmt.Errorf("invalid MINIFORM_ENV value %q", environment)

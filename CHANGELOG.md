@@ -18,7 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Rebranded the application and source tree as Miniform
 - Removed commercial licensing gates while preserving self-hosted functionality
 - Standardized transactional email delivery on SMTP
-- Simplified configuration, email recipients, and Turnstile profiles by removing generic settings, JSON overrides, dotenv mutation, and legacy compatibility paths
+- Simplified configuration, email recipients, and Turnstile profiles by removing generic settings, JSON overrides, configuration mutation commands, and legacy compatibility paths
 
 ### Security
 

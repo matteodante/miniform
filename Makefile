@@ -2,8 +2,11 @@ GOCACHE ?= $(CURDIR)/.gocache
 BIN_DIR ?= $(CURDIR)/bin
 APP      = miniform
 TAILWIND = $(BIN_DIR)/tailwindcss
-GO_IMAGE ?= golang:1.26.5-bookworm
+GO_IMAGE ?= golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651
+ALPINE_IMAGE ?= alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
 INSTALLER_BINARY ?= $(BIN_DIR)/miniform-linux
+INSTALLER_BINARY_DIR = $(abspath $(dir $(INSTALLER_BINARY)))
+INSTALLER_BINARY_NAME = $(notdir $(INSTALLER_BINARY))
 E2E_BINARY ?= $(BIN_DIR)/miniform-e2e
 APPLE_CONTAINER_IMAGE ?= miniform:local
 APPLE_CONTAINER_NAME ?= miniform
@@ -26,7 +29,7 @@ GOLANGCI_LINT_STAMP = $(TOOLS_DIR)/.golangci-lint-$(GOLANGCI_LINT_VERSION)
 DEADCODE_STAMP = $(TOOLS_DIR)/.deadcode-$(DEADCODE_VERSION)
 SHELLCHECK_STAMP = $(TOOLS_DIR)/.shellcheck-$(SHELLCHECK_VERSION)
 
-.PHONY: help bootstrap build installer-binary run seed dev demo test test-unit test-race test-e2e test-e2e-setup test-integration tidy fmt fmt-check lint shell-lint workflow-lint check audit audit-secrets audit-licenses licenses audit-node audit-security verify-generated clean deps release release-check vendor css css-watch container-build container-test apple-container-start apple-container-build apple-container-run apple-container-health apple-container-stop
+.PHONY: help bootstrap build installer-binary run seed dev demo test test-unit test-race test-e2e test-e2e-setup test-integration test-release-binaries tidy fmt fmt-check lint shell-lint workflow-lint check audit audit-secrets audit-licenses licenses audit-node audit-security verify-generated clean deps release release-check vendor css css-watch container-build container-test apple-container-start apple-container-build apple-container-run apple-container-health apple-container-stop
 
 help:
 	@echo "Available targets:"
@@ -45,6 +48,7 @@ help:
 	@echo "  test-e2e     - run Playwright end-to-end tests in e2e/"
 	@echo "  test-e2e-setup - install Playwright dependencies"
 	@echo "  test-integration - run VM-based installer integration tests (requires OrbStack)"
+	@echo "  test-release-binaries - run GoReleaser binaries on pinned Alpine"
 	@echo "  check        - run formatting, modules, generated files, lint, and Go tests"
 	@echo "  workflow-lint - validate GitHub Actions workflows"
 	@echo "  shell-lint   - analyze shell scripts with ShellCheck"
@@ -86,12 +90,18 @@ build: deps
 
 installer-binary: deps
 	@echo ">> building CGO-enabled Linux installer binary"
+	@mkdir -p "$(INSTALLER_BINARY_DIR)"
 	docker run --rm \
-		--volume "$(CURDIR):/src" \
+		--user "$$(id -u):$$(id -g)" \
+		--volume "$(CURDIR):/src:ro" \
+		--volume "$(INSTALLER_BINARY_DIR):/out" \
 		--workdir /src \
 		--env CGO_ENABLED=1 \
+		--env GOCACHE=/tmp/go-build \
+		--env GOMODCACHE=/tmp/go-mod \
+		--env HOME=/tmp \
 		$(GO_IMAGE) \
-		go build -trimpath -o /src/$(patsubst $(CURDIR)/%,%,$(INSTALLER_BINARY)) ./cmd/$(APP)
+		go build -trimpath -o /out/$(INSTALLER_BINARY_NAME) ./cmd/$(APP)
 
 run: deps
 	MINIFORM_ENV=development GOCACHE=$(GOCACHE) go run ./cmd/$(APP)
@@ -149,6 +159,9 @@ test-integration: installer-binary
 	@echo "   (requires OrbStack and the orb CLI)"
 	BINARY_PATH=$(INSTALLER_BINARY) MINIFORM_ENV=test MINIFORM_RUN_INSTALLATION_TEST=1 go test -v -timeout 15m ./tests/integration/...
 
+test-release-binaries:
+	@./scripts/test-release-binaries.sh dist/artifacts.json "$(ALPINE_IMAGE)"
+
 tidy: deps
 	GOCACHE=$(GOCACHE) go mod tidy
 
@@ -161,9 +174,8 @@ fmt-check:
 	@test -z "$$(gofmt -l $$(find . -name '*.go' -not -path './.gocache/*' -not -path './.tools/*'))" || \
 		(echo "Go files need formatting; run 'make fmt'"; gofmt -l $$(find . -name '*.go' -not -path './.gocache/*' -not -path './.tools/*'); exit 1)
 
-$(GOLANGCI_LINT_STAMP): | deps
-	curl -sSfL "https://raw.githubusercontent.com/golangci/golangci-lint/$(GOLANGCI_LINT_VERSION)/install.sh" | \
-		sh -s -- -b "$(TOOLS_DIR)" "$(GOLANGCI_LINT_VERSION)"
+$(GOLANGCI_LINT_STAMP): scripts/install-golangci-lint.sh | deps
+	@./scripts/install-golangci-lint.sh "$(GOLANGCI_LINT_VERSION)" "$(TOOLS_DIR)"
 	@test "$$($(TOOLS_DIR)/golangci-lint version --short)" = "$(patsubst v%,%,$(GOLANGCI_LINT_VERSION))"
 	@touch "$@"
 
@@ -188,10 +200,11 @@ shell-lint: $(SHELLCHECK_STAMP)
 	@echo ">> analyzing shell scripts"
 	@$(TOOLS_DIR)/shellcheck -x docker-entrypoint.sh install.sh scripts/*.sh
 
-workflow-lint: | deps
+workflow-lint: $(SHELLCHECK_STAMP) | deps
 	@echo ">> validating GitHub Actions workflows"
+	@./scripts/ci-policy_test.sh
 	@GOBIN=$(TOOLS_DIR) go install github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
-	@$(TOOLS_DIR)/actionlint .github/workflows/*.yml
+	@$(TOOLS_DIR)/actionlint -shellcheck=$(TOOLS_DIR)/shellcheck .github/workflows/*.yml
 
 verify-generated: vendor
 	@echo ">> checking generated and vendored assets"
@@ -243,7 +256,8 @@ audit: audit-secrets audit-licenses audit-node audit-security
 
 clean:
 	@echo ">> removing build artifacts"
-	rm -f $(BIN_DIR)/$(APP)
+	rm -f $(BIN_DIR)/$(APP) $(INSTALLER_BINARY) $(E2E_BINARY)
+	rm -rf "$(CURDIR)/dist"
 
 container-build:
 	docker build --pull --tag miniform:local .
@@ -311,8 +325,9 @@ release:
 		echo "Usage: make release v=3.0.5"; \
 		exit 1; \
 	fi
+	@./scripts/validate-release-tag.sh "v$(v)"
+	@test -z "$$(git status --porcelain)" || (echo "Error: Uncommitted changes. Commit first." && exit 1)
 	@echo "Creating release v$(v)..."
-	@git diff --quiet && git diff --cached --quiet || (echo "Error: Uncommitted changes. Commit first." && exit 1)
 	@$(MAKE) check
 	git tag -a "v$(v)" -m "Release v$(v)"
 	git push origin "v$(v)"

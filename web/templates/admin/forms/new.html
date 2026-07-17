@@ -69,7 +69,10 @@
             <div class="p-6">
                 <div id="embed-panel-preview" role="tabpanel" aria-labelledby="embed-tab-preview"><iframe id="formEmbedPreviewFrame" title="Starter HTML preview" class="min-h-[26rem] w-full rounded-xl border border-rule bg-white" sandbox></iframe></div>
                 <div id="embed-panel-code" role="tabpanel" aria-labelledby="embed-tab-code" hidden>
-                    <div class="mb-3 flex justify-end"><button class="mf-button-secondary !px-3 !py-1.5 text-xs" id="copyEmbedCodeBtn" type="button">Copy source</button></div>
+                    <div class="mb-3 flex items-center justify-end gap-3">
+                        <span id="copyEmbedCodeStatus" role="status" aria-atomic="true" class="text-xs text-ink-muted"></span>
+                        <button class="mf-button-secondary !px-3 !py-1.5 text-xs" id="copyEmbedCodeBtn" type="button">Copy source</button>
+                    </div>
                     <pre class="max-h-[38rem] overflow-auto rounded-xl bg-gray-900 p-4 font-mono text-xs text-gray-100"><code id="formEmbedCode"></code></pre>
                 </div>
             </div>
@@ -163,8 +166,16 @@
         });
     });
 
+    const copyStatus = document.getElementById("copyEmbedCodeStatus");
     document.getElementById("copyEmbedCodeBtn").addEventListener("click", async () => {
-        await navigator.clipboard.writeText(source);
+        copyStatus.textContent = "";
+        try {
+            if (typeof navigator.clipboard?.writeText !== "function") throw new Error("Clipboard API unavailable");
+            await navigator.clipboard.writeText(source);
+            copyStatus.textContent = "Source copied.";
+        } catch {
+            copyStatus.textContent = "Copy failed. Select the source and copy it manually.";
+        }
     });
 })();
 </script>

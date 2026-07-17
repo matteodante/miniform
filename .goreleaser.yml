@@ -16,9 +16,12 @@ builds:
       - CC=gcc
     flags:
       - -trimpath
+    tags:
+      - netgo
+      - osusergo
     mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
-      - -s -w
+      - -s -w -linkmode external -extldflags "-static"
       - -X main.version={{ .Version }}
       - -X main.commit={{ .FullCommit }}
       - -X github.com/matteodante/miniform/internal/server.buildCommit={{ .FullCommit }}
@@ -33,9 +36,12 @@ builds:
       - CC=aarch64-linux-gnu-gcc
     flags:
       - -trimpath
+    tags:
+      - netgo
+      - osusergo
     mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
-      - -s -w
+      - -s -w -linkmode external -extldflags "-static"
       - -X main.version={{ .Version }}
       - -X main.commit={{ .FullCommit }}
       - -X github.com/matteodante/miniform/internal/server.buildCommit={{ .FullCommit }}

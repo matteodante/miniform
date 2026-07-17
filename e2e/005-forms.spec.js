@@ -57,6 +57,38 @@ test.describe("endpoint management", () => {
     await expect(page.getByRole("tabpanel", { name: "Preview" })).toBeVisible();
   });
 
+  test("reports whether copying source succeeds or fails", async ({ page, admin }) => {
+    const endpoint = await admin.createForm("Copy sample", uniqueName("copy"));
+    await admin.open(`/admin/forms/${endpoint.id}`);
+
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: async (text) => { window.__copiedSource = text; } },
+      });
+    });
+    await page.getByRole("button", { name: "Copy source" }).click();
+    await expect(page.getByRole("status")).toHaveText("Source copied.");
+    expect(await page.evaluate(() => window.__copiedSource)).toContain(endpoint.token);
+
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    });
+    await page.getByRole("button", { name: "Copy source" }).click();
+    await expect(page.getByRole("status")).toHaveText("Copy failed. Select the source and copy it manually.");
+
+    await admin.open("/admin/forms/new?template=contact");
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: async () => { throw new DOMException("Denied", "NotAllowedError"); } },
+      });
+    });
+    await page.getByRole("tab", { name: "Source" }).click();
+    await page.getByRole("button", { name: "Copy source" }).click();
+    await expect(page.getByRole("status")).toHaveText("Copy failed. Select the source and copy it manually.");
+  });
+
   test("shows a local Turnstile placeholder in the sandboxed preview", async ({ page, admin }) => {
     const captchaProfileID = await admin.createCaptcha(uniqueName("preview-captcha"));
     const endpoint = await admin.createForm("Protected preview", uniqueName("preview"), { captchaProfileID });

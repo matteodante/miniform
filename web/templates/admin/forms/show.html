@@ -52,7 +52,10 @@
         </div>
         <div class="p-6">
             <div id="panel-source" role="tabpanel" aria-labelledby="tab-source">
-                <div class="mb-3 flex justify-end"><button class="mf-button-secondary !px-3 !py-1.5 text-xs" id="copyFormCode" type="button">Copy source</button></div>
+                <div class="mb-3 flex items-center justify-end gap-3">
+                    <span id="copyFormCodeStatus" role="status" aria-atomic="true" class="text-xs text-ink-muted"></span>
+                    <button class="mf-button-secondary !px-3 !py-1.5 text-xs" id="copyFormCode" type="button">Copy source</button>
+                </div>
                 <pre class="max-h-[38rem] overflow-auto rounded-xl bg-gray-900 p-4 font-mono text-xs"><code id="form-code" class="language-html text-gray-100">{{ .FormCode }}</code></pre>
             </div>
             <div id="panel-preview" role="tabpanel" aria-labelledby="tab-preview" hidden>
@@ -172,7 +175,17 @@
                 tabs[nextIndex].focus();
             });
         });
-        document.getElementById("copyFormCode").addEventListener("click", () => navigator.clipboard.writeText(code.textContent));
+        const copyStatus = document.getElementById("copyFormCodeStatus");
+        document.getElementById("copyFormCode").addEventListener("click", async () => {
+            copyStatus.textContent = "";
+            try {
+                if (typeof navigator.clipboard?.writeText !== "function") throw new Error("Clipboard API unavailable");
+                await navigator.clipboard.writeText(code.textContent);
+                copyStatus.textContent = "Source copied.";
+            } catch {
+                copyStatus.textContent = "Copy failed. Select the source and copy it manually.";
+            }
+        });
     };
 
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initialize, { once: true });

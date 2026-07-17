@@ -69,24 +69,26 @@ func TestPublicHelpers(t *testing.T) {
 
 	t.Run("validates Turnstile action and hostname", func(t *testing.T) {
 		form := &forms.Form{AllowedOrigins: "example.com,*.trusted.test"}
-		settings := integrations.CaptchaSettings{Required: true, Action: "contact"}
 
-		assert.Empty(t, turnstileResultFailure(form, settings, &integrations.TurnstileResult{
-			Success: true, Hostname: "forms.example.com", Action: "contact",
+		assert.Empty(t, turnstileResultFailure(form, &integrations.TurnstileResult{
+			Success: true, Hostname: "forms.example.com", Action: integrations.TurnstileAction,
 		}))
-		assert.Equal(t, "action mismatch", turnstileResultFailure(form, settings, &integrations.TurnstileResult{
+		assert.Equal(t, "action mismatch", turnstileResultFailure(form, &integrations.TurnstileResult{
 			Success: true, Hostname: "forms.example.com", Action: "login",
 		}))
-		assert.Equal(t, "hostname mismatch", turnstileResultFailure(form, settings, &integrations.TurnstileResult{
-			Success: true, Action: "contact",
+		assert.Equal(t, "hostname mismatch", turnstileResultFailure(form, &integrations.TurnstileResult{
+			Success: true, Action: integrations.TurnstileAction,
 		}))
-		assert.Equal(t, "hostname mismatch", turnstileResultFailure(form, settings, &integrations.TurnstileResult{
-			Success: true, Hostname: "attacker.test", Action: "contact",
+		assert.Equal(t, "hostname mismatch", turnstileResultFailure(form, &integrations.TurnstileResult{
+			Success: true, Hostname: "attacker.test", Action: integrations.TurnstileAction,
 		}))
 
 		form.AllowedOrigins = "*"
-		assert.Empty(t, turnstileResultFailure(form, settings, &integrations.TurnstileResult{
-			Success: true, Action: "contact",
+		assert.Equal(t, "hostname mismatch", turnstileResultFailure(form, &integrations.TurnstileResult{
+			Success: true, Action: integrations.TurnstileAction,
+		}))
+		assert.Empty(t, turnstileResultFailure(form, &integrations.TurnstileResult{
+			Success: true, Hostname: "any-host.example", Action: integrations.TurnstileAction,
 		}))
 	})
 }

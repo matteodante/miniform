@@ -132,52 +132,8 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, "smtp-secret", profiles[0].SMTPPassword)
 	})
 
-	t.Run("config set writes secrets from stdin and config unset preserves other lines", func(t *testing.T) {
-		envPath := filepath.Join(t.TempDir(), ".env")
-		require.NoError(t, os.WriteFile(envPath, []byte("# keep\nMINIFORM_PORT=9000\n"), 0o644))
-		runner, _, _ := newTestRunner(t, nil, "new-session-secret\n")
-
-		exitCode := runner.Run([]string{
-			"config", "set", "--key", "MINIFORM_SESSION_SECRET", "--value-file", "-", "--env-file", envPath,
-		})
-		assert.Equal(t, ExitSuccess, exitCode)
-
-		content, err := os.ReadFile(envPath)
-		require.NoError(t, err)
-		assert.Contains(t, string(content), "# keep")
-		assert.Contains(t, string(content), "MINIFORM_PORT=9000")
-		assert.Contains(t, string(content), "MINIFORM_SESSION_SECRET=new-session-secret")
-		info, err := os.Stat(envPath)
-		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
-
-		runner, _, _ = newTestRunner(t, nil, "")
-		exitCode = runner.Run([]string{"config", "unset", "--key", "MINIFORM_PORT", "--env-file", envPath})
-		assert.Equal(t, ExitSuccess, exitCode)
-		content, err = os.ReadFile(envPath)
-		require.NoError(t, err)
-		assert.NotContains(t, string(content), "MINIFORM_PORT")
-		assert.Contains(t, string(content), "MINIFORM_SESSION_SECRET")
-	})
-
-	t.Run("config set creates private parent directories", func(t *testing.T) {
-		directory := filepath.Join(t.TempDir(), "config")
-		envPath := filepath.Join(directory, ".env")
-		runner, _, _ := newTestRunner(t, nil, "")
-
-		exitCode := runner.Run([]string{
-			"config", "set", "--key", "MINIFORM_PORT", "--value", "9000", "--env-file", envPath,
-		})
-
-		assert.Equal(t, ExitSuccess, exitCode)
-		info, err := os.Stat(directory)
-		require.NoError(t, err)
-		assert.Zero(t, info.Mode().Perm()&0o027)
-	})
-
 	t.Run("account reset hashes the replacement password", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
-		require.NoError(t, db.AutoMigrate(&accounts.Settings{}))
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 		user := createCLIUser(t, logger, db)
 		runner, _, _ := newTestRunner(t, db, "replacement-password\n")

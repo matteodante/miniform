@@ -81,13 +81,7 @@ func emailSettings(delivery *forms.EmailDelivery) (*integrations.MailerProfile, 
 	}
 	fromAddress.Name = strings.TrimSpace(profile.DefaultFromName)
 
-	var overrides struct {
-		To string `json:"to"`
-	}
-	if err := json.Unmarshal([]byte(delivery.OverridesJSON), &overrides); err != nil {
-		return nil, "", "", fmt.Errorf("email recipient configuration invalid")
-	}
-	to := strings.TrimSpace(overrides.To)
+	to := strings.TrimSpace(delivery.Recipient)
 	if to == "" {
 		return nil, "", "", fmt.Errorf("email recipient missing")
 	}

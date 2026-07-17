@@ -15,7 +15,7 @@ Miniform accepts submissions and file uploads from any HTML form, stores them in
 - Private, searchable inbox for submissions and files
 - Independent forms with tokens and allowed-origin policies
 - Retried webhook and email delivery with visible history
-- Honeypot, rate limiting, origin checks, and optional Turnstile
+- Honeypot, rate limiting, origin checks, and per-endpoint Turnstile
 - Embedded web UI and SQLite persistence in a single process
 - Standard HTML forms first; the small JavaScript helper is optional
 
@@ -26,7 +26,6 @@ Requirements: Go 1.26.5, a C compiler, Node.js 20 or newer, and `make`.
 ```bash
 git clone https://github.com/matteodante/miniform.git
 cd miniform
-cp .env.example .env
 make bootstrap
 make run
 ```

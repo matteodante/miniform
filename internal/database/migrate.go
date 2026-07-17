@@ -19,7 +19,7 @@ func Migrate(db *gorm.DB) error {
 
 func Models() []any {
 	return []any{
-		&accounts.User{}, &accounts.Settings{},
+		&accounts.User{},
 		&integrations.MailerProfile{}, &integrations.CaptchaProfile{},
 		&forms.Form{}, &forms.EmailDelivery{}, &forms.WebhookDelivery{},
 		&forms.Submission{}, &forms.SubmissionFile{},

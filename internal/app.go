@@ -23,9 +23,12 @@ type App struct {
 }
 
 func NewApp() (*App, error) {
-	cfg, err := config.Get()
+	cfg, err := config.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load miniform configuration: %w", err)
+	}
+	if err := cfg.EnsureDirectories(); err != nil {
+		return nil, fmt.Errorf("prepare miniform storage: %w", err)
 	}
 	application, err := cartridge.NewSSRApp("miniform",
 		cartridge.WithConfig(cfg.Config),

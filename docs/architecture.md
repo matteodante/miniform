@@ -13,16 +13,14 @@ Operator browser -> authenticated admin routes -> inbox and configuration
 
 ## Domain ownership
 
-- `internal/accounts`: users, authentication rules, and account settings
+- `internal/accounts`: operator identity and authentication rules
 - `internal/forms`: form definitions, origins, files, and submissions
-- `internal/integrations`: mailer and captcha configuration
+- `internal/integrations`: SMTP mailer profiles and Turnstile credentials
 - `internal/jobs`: asynchronous webhook and email delivery
-- `internal/http`: transport parsing and response rendering
-- `internal/auth`: session helpers
+- `internal/http`: transport parsing, authentication handlers, and response rendering
 - `internal/config`: application configuration
 - `internal/database`: connection setup, migrations, and development seed data
-- `internal/middleware`: cross-cutting HTTP controls
-- `internal/server`: server-specific rendering and error behavior
+- `internal/server`: server setup, middleware, rendering, and error behavior
 - `internal/pkg`: shared code with demonstrated cross-domain reuse
 
 Handlers parse transport input, call the owning domain package, and map results to HTTP. A domain must not reach into another domain's tables when an explicit domain API can own the operation.

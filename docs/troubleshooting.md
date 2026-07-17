@@ -26,7 +26,11 @@ The unique temporary password appears once in application output. For a containe
 docker logs miniform
 ```
 
-If it is unavailable, use the installed `miniform change-admin-password` management command rather than deleting the database.
+If it is unavailable, reset it inside the container without deleting the database:
+
+```bash
+printf '%s' "$NEW_PASSWORD" | docker exec -i miniform miniform account reset-password --new-password-file -
+```
 
 ## SQLite busy or locked errors
 

@@ -4,7 +4,7 @@
     <div>
       <p class="mf-kicker">Safeguards</p>
       <h1 class="mf-title mt-3">Keep noise out.</h1>
-      <p class="mt-4 max-w-xl text-sm leading-6 text-ink-muted">Turnstile keys and policies shared across your public endpoints.</p>
+      <p class="mt-4 max-w-xl text-sm leading-6 text-ink-muted">Cloudflare Turnstile credentials shared across public endpoints.</p>
     </div>
     <a href="/admin/settings/captcha/new" class="mf-button">New safeguard</a>
   </header>
@@ -19,18 +19,14 @@
   {{ if .Profiles }}
   <section class="border-t border-rule" aria-label="Safeguard profiles">
     {{ range .Profiles }}
-    <article class="grid gap-5 border-b border-rule px-2 py-6 md:grid-cols-[minmax(14rem,1fr)_minmax(10rem,0.6fr)_minmax(10rem,0.6fr)_auto] md:items-center">
+    <article class="grid gap-5 border-b border-rule px-2 py-6 md:grid-cols-[minmax(14rem,1fr)_minmax(16rem,1fr)_auto] md:items-center">
       <div>
         <p class="font-display text-2xl tracking-[-0.025em] text-ink">{{ .Name }}</p>
-        <p class="mt-1 font-mono text-[0.625rem] uppercase tracking-[0.14em] text-moss">bot policy</p>
+        <p class="mt-1 font-mono text-[0.625rem] uppercase tracking-[0.14em] text-moss">Turnstile</p>
       </div>
       <div>
-        <p class="font-mono text-[0.625rem] uppercase tracking-[0.12em] text-ink-muted">Provider</p>
-        <p class="mt-1 text-sm font-semibold text-ink">{{ .Provider }}</p>
-      </div>
-      <div>
-        <p class="font-mono text-[0.625rem] uppercase tracking-[0.12em] text-ink-muted">Site keys</p>
-        <p class="mt-1 font-mono text-sm tabular-nums text-ink">{{ .SiteKeyCount }}</p>
+        <p class="font-mono text-[0.625rem] uppercase tracking-[0.12em] text-ink-muted">Site key</p>
+        <p class="mt-1 truncate font-mono text-sm text-ink">{{ .SiteKey }}</p>
       </div>
       <div class="flex gap-4 md:justify-end">
         <a href="/admin/settings/captcha/{{ .ID }}" class="font-mono text-xs font-semibold text-ink underline decoration-rule underline-offset-4 hover:decoration-moss">View</a>
@@ -43,7 +39,7 @@
   <section class="border-y border-rule py-16">
     <p class="mf-kicker">No safeguards</p>
     <h2 class="mt-3 font-display text-3xl tracking-[-0.03em] text-ink">Add protection only where it is needed.</h2>
-    <p class="mt-4 max-w-lg text-sm leading-6 text-ink-muted">Create a Turnstile policy, then assign it to one or more endpoints.</p>
+    <p class="mt-4 max-w-lg text-sm leading-6 text-ink-muted">Add Turnstile credentials, then assign the safeguard to one or more endpoints.</p>
     <a href="/admin/settings/captcha/new" class="mf-button mt-7">Create a safeguard</a>
   </section>
   {{ end }}

@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -245,12 +244,8 @@ func updateFormDraft(form *forms.Form, params forms.UpdateParams) *forms.Form {
 }
 
 func setDraftDeliveries(form *forms.Form, emailEnabled bool, mailerID *uint, recipient string, webhookEnabled bool, webhookURL, webhookSecret, webhookHeaders string) {
-	overrides, err := json.Marshal(map[string]string{"to": recipient})
-	if err != nil {
-		overrides = nil
-	}
 	form.EmailDelivery = &forms.EmailDelivery{
-		Enabled: emailEnabled, MailerProfileID: mailerID, OverridesJSON: string(overrides),
+		Enabled: emailEnabled, MailerProfileID: mailerID, Recipient: recipient,
 	}
 	form.WebhookDelivery = &forms.WebhookDelivery{
 		Enabled: webhookEnabled, URL: webhookURL, Secret: webhookSecret, HeadersJSON: webhookHeaders,
@@ -261,11 +256,7 @@ func deliveryRecipient(delivery *forms.EmailDelivery) string {
 	if delivery == nil {
 		return ""
 	}
-	var overrides struct {
-		To string `json:"to"`
-	}
-	_ = json.Unmarshal([]byte(delivery.OverridesJSON), &overrides)
-	return overrides.To
+	return delivery.Recipient
 }
 
 func requestedForm(ctx *cartridge.Context) (*forms.Form, error) {

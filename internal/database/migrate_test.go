@@ -53,5 +53,13 @@ func TestMigrate(t *testing.T) {
 				require.False(t, db.Migrator().HasIndex(index.model, index.name))
 			})
 		}
+
+		t.Run("omits removed generic fields and tables", func(t *testing.T) {
+			require.True(t, db.Migrator().HasColumn(&forms.EmailDelivery{}, "recipient"))
+			require.False(t, db.Migrator().HasColumn(&forms.EmailDelivery{}, "overrides_json"))
+			require.False(t, db.Migrator().HasColumn(&forms.Form{}, "captcha_overrides_json"))
+			require.False(t, db.Migrator().HasColumn(&forms.Submission{}, "ip_hash"))
+			require.False(t, db.Migrator().HasTable("settings"))
+		})
 	})
 }

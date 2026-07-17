@@ -1,9 +1,9 @@
 package http
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/karloscodes/cartridge"
@@ -13,26 +13,12 @@ import (
 	"github.com/matteodante/miniform/internal/integrations"
 )
 
-type siteKeyEntry struct {
-	HostPattern string `json:"host_pattern"`
-	SiteKey     string `json:"site_key"`
-}
-
-type captchaSummary struct {
-	integrations.CaptchaProfile
-	SiteKeyCount int
-}
-
 func CaptchaProfileList(ctx *cartridge.Context) error {
 	profiles, err := integrations.ListCaptchaProfiles(ctx.DB())
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
-	summaries := make([]captchaSummary, len(profiles))
-	for i := range profiles {
-		summaries[i] = captchaSummary{CaptchaProfile: profiles[i], SiteKeyCount: len(decodeSiteKeys(profiles[i].SiteKeysJSON))}
-	}
-	return renderPage(ctx, "Safeguards", "admin/captcha/index/content", fiber.Map{"Profiles": summaries})
+	return renderPage(ctx, "Safeguards", "admin/captcha/index/content", fiber.Map{"Profiles": profiles})
 }
 
 func CaptchaProfileNew(ctx *cartridge.Context) error {
@@ -62,7 +48,7 @@ func CaptchaProfileShow(ctx *cartridge.Context) error {
 		return fiber.ErrInternalServerError
 	}
 	return renderPage(ctx, "Safeguard: "+profile.Name, "admin/captcha/show/content", fiber.Map{
-		"Profile": profile, "SiteKeys": decodeSiteKeys(profile.SiteKeysJSON), "UsageCount": usage,
+		"Profile": profile, "UsageCount": usage,
 	})
 }
 
@@ -79,7 +65,17 @@ func CaptchaProfileUpdate(ctx *cartridge.Context) error {
 	if err != nil {
 		return err
 	}
+	current, err := integrations.GetCaptchaProfileByID(ctx.DB(), id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return fiber.ErrNotFound
+	}
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
 	params := captchaParams(ctx)
+	if strings.TrimSpace(params.SecretKey) == "" {
+		params.SecretKey = current.SecretKey
+	}
 	profile, err := integrations.UpdateCaptchaProfile(ctx.Logger, ctx.DB(), id, params)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -87,11 +83,6 @@ func CaptchaProfileUpdate(ctx *cartridge.Context) error {
 		}
 		var validation *integrations.ValidationError
 		if errors.As(err, &validation) {
-			if _, loadErr := integrations.GetCaptchaProfileByID(ctx.DB(), id); errors.Is(loadErr, gorm.ErrRecordNotFound) {
-				return fiber.ErrNotFound
-			} else if loadErr != nil {
-				return fiber.ErrInternalServerError
-			}
 			return renderCaptchaEditor(ctx, captchaProfileDraft(id, params), integrationMessage(err))
 		}
 		return fiber.ErrInternalServerError
@@ -122,8 +113,7 @@ func CaptchaProfileDelete(ctx *cartridge.Context) error {
 
 func captchaParams(ctx *cartridge.Context) integrations.CaptchaProfileParams {
 	return integrations.CaptchaProfileParams{
-		Name: ctx.FormValue("name"), Provider: ctx.FormValue("provider"), SecretKey: ctx.FormValue("secret_key"),
-		SiteKeysJSON: ctx.FormValue("site_keys_json"), PolicyJSON: ctx.FormValue("policy_json"),
+		Name: ctx.FormValue("name"), SiteKey: ctx.FormValue("site_key"), SecretKey: ctx.FormValue("secret_key"),
 	}
 }
 
@@ -155,13 +145,6 @@ func renderCaptchaEditor(ctx *cartridge.Context, profile *integrations.CaptchaPr
 
 func captchaProfileDraft(id uint, params integrations.CaptchaProfileParams) *integrations.CaptchaProfile {
 	return &integrations.CaptchaProfile{
-		ID: id, Name: params.Name, Provider: params.Provider, SecretKey: params.SecretKey,
-		SiteKeysJSON: params.SiteKeysJSON, PolicyJSON: params.PolicyJSON,
+		ID: id, Name: params.Name, SiteKey: params.SiteKey,
 	}
-}
-
-func decodeSiteKeys(raw string) []siteKeyEntry {
-	var entries []siteKeyEntry
-	_ = json.Unmarshal([]byte(raw), &entries)
-	return entries
 }

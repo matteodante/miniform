@@ -11,7 +11,7 @@ Miniform is a self-hosted form inbox written in Go. It uses small domain package
 Code is organized into contexts (bounded domains):
 - **accounts** — User management
 - **forms** — Form definitions and submissions
-- **integrations** — External services (webhooks, SMTP)
+- **integrations** — External services (SMTP, Turnstile)
 - **jobs** — Background processing
 - **http** — HTTP handlers
 
@@ -19,16 +19,7 @@ Each context owns its domain logic and data access. Avoid cross-context direct d
 
 ### Cartridge Context Pattern
 
-We use `internal/pkg/cartridge.Context` for request-scoped dependency injection:
-
-```go
-type Context struct {
-    *fiber.Ctx
-    Logger    *zap.Logger
-    Config    *config.Config
-    DBManager *database.Manager
-}
-```
+Handlers receive `cartridge.Context`, which embeds the Fiber context and exposes the logger, configuration, database manager, and session manager.
 
 **Important:** Access dependencies via fields, not `fiber.Ctx.Locals()`. Use `ctx.DB()` for database access.
 
@@ -53,7 +44,7 @@ This handles:
 
 ## Code Style
 
-- Use structured logging with `zap.Logger`
+- Use structured logging with `slog.Logger`
 - Return errors, don't panic
 - Prefer explicit over clever
 - Comment only when clarification is needed
@@ -163,14 +154,12 @@ err := dbtxn.WithRetry(ctx.Logger, db, func(tx *gorm.DB) error {
 
 ```go
 func HandleSomething(ctx *cartridge.Context) error {
-    db, err := ctx.DB()
+    result, err := forms.List(ctx.DB())
     if err != nil {
         return err
     }
-    
-    // Business logic...
-    
-    return ctx.JSON(fiber.Map{"success": true})
+
+    return ctx.JSON(result)
 }
 ```
 
@@ -181,26 +170,27 @@ Register in `internal/routes.go`.
 ```
 internal/
 ├── accounts/        # User context
-├── auth/           # Authentication
+├── cli/             # Administrative CLI
 ├── config/         # Configuration
-├── database/       # DB manager & migrations
+├── database/       # Migrations and seed data
 ├── forms/          # Forms context
 ├── http/           # HTTP handlers
 ├── integrations/   # External services
 ├── jobs/           # Background jobs
+├── server/          # Server bootstrap and rendering
 └── pkg/
-    ├── cartridge/  # Framework wrapper
     ├── dbtxn/      # Transaction helpers
-    └── logger/     # Logging setup
+    ├── sqliteerr/  # SQLite error classification
+    └── testsupport/ # Shared test setup
 ```
 
 ## Key Files
 
 - `internal/app.go` — Application bootstrap
 - `internal/routes.go` — Route definitions
-- `internal/database/manager.go` — Database connection pooling
+- `internal/database/migrate.go` — Database schema
 - `internal/pkg/dbtxn/retry.go` — Write retry logic
-- `internal/pkg/cartridge/context.go` — Request context
+- `internal/server/server.go` — Server setup
 
 ## License
 

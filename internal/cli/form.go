@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
 
@@ -10,29 +9,27 @@ import (
 )
 
 type formView struct {
-	ID                   uint                 `json:"id"`
-	PublicID             string               `json:"public_id"`
-	Name                 string               `json:"name"`
-	Slug                 string               `json:"slug"`
-	Token                string               `json:"token"`
-	Endpoint             string               `json:"endpoint"`
-	AllowedOrigins       string               `json:"allowed_origins"`
-	UseSDK               bool                 `json:"use_sdk"`
-	HasGeneratedHTML     bool                 `json:"has_generated_html"`
-	GeneratedHTML        string               `json:"generated_html,omitempty"`
-	CaptchaProfileID     *uint                `json:"captcha_profile_id,omitempty"`
-	CaptchaOverridesJSON string               `json:"captcha_overrides_json,omitempty"`
-	EmailDelivery        *emailDeliveryView   `json:"email_delivery,omitempty"`
-	WebhookDelivery      *webhookDeliveryView `json:"webhook_delivery,omitempty"`
-	CreatedAt            time.Time            `json:"created_at"`
-	UpdatedAt            time.Time            `json:"updated_at"`
+	ID               uint                 `json:"id"`
+	PublicID         string               `json:"public_id"`
+	Name             string               `json:"name"`
+	Slug             string               `json:"slug"`
+	Token            string               `json:"token"`
+	Endpoint         string               `json:"endpoint"`
+	AllowedOrigins   string               `json:"allowed_origins"`
+	UseSDK           bool                 `json:"use_sdk"`
+	HasGeneratedHTML bool                 `json:"has_generated_html"`
+	GeneratedHTML    string               `json:"generated_html,omitempty"`
+	CaptchaProfileID *uint                `json:"captcha_profile_id,omitempty"`
+	EmailDelivery    *emailDeliveryView   `json:"email_delivery,omitempty"`
+	WebhookDelivery  *webhookDeliveryView `json:"webhook_delivery,omitempty"`
+	CreatedAt        time.Time            `json:"created_at"`
+	UpdatedAt        time.Time            `json:"updated_at"`
 }
 
 type emailDeliveryView struct {
 	Enabled         bool   `json:"enabled"`
 	MailerProfileID *uint  `json:"mailer_profile_id,omitempty"`
 	Recipient       string `json:"recipient,omitempty"`
-	OverridesJSON   string `json:"overrides_json,omitempty"`
 }
 
 type webhookDeliveryView struct {
@@ -193,7 +190,6 @@ func (r *Runner) formCreate(args []string) (any, error) {
 	generatedHTMLFile := set.String("generated-html-file", "", "path containing generated form HTML")
 	mailerID := set.Uint("mailer-profile-id", 0, "mailer profile id")
 	captchaID := set.Uint("captcha-profile-id", 0, "captcha profile id")
-	captchaOverridesFile := set.String("captcha-overrides-file", "", "path containing captcha overrides JSON")
 	emailEnabled := set.Bool("email-enabled", false, "enable email forwarding")
 	emailRecipient := set.String("email-recipient", "", "email forwarding recipient")
 	webhookEnabled := set.Bool("webhook-enabled", false, "enable webhook forwarding")
@@ -238,26 +234,20 @@ func (r *Runner) formCreate(args []string) (any, error) {
 	if err != nil {
 		return nil, validationError(err.Error())
 	}
-	captchaOverrides, err := readContentFile(*captchaOverridesFile)
-	if err != nil {
-		return nil, validationError(err.Error())
-	}
-
 	form, err := forms.Create(r.Logger, r.DB, forms.CreateParams{
-		Name:                 *name,
-		Slug:                 *slug,
-		AllowedOrigins:       *origins,
-		UseSDK:               *useSDK,
-		GeneratedHTML:        generatedHTML,
-		MailerProfileID:      optionalUint(*mailerID),
-		CaptchaProfileID:     optionalUint(*captchaID),
-		CaptchaOverridesJSON: captchaOverrides,
-		EmailRecipient:       *emailRecipient,
-		EmailEnabled:         *emailEnabled,
-		WebhookEnabled:       *webhookEnabled,
-		WebhookURL:           *webhookURL,
-		WebhookSecret:        webhookSecret,
-		WebhookHeadersJSON:   webhookHeaders,
+		Name:               *name,
+		Slug:               *slug,
+		AllowedOrigins:     *origins,
+		UseSDK:             *useSDK,
+		GeneratedHTML:      generatedHTML,
+		MailerProfileID:    optionalUint(*mailerID),
+		CaptchaProfileID:   optionalUint(*captchaID),
+		EmailRecipient:     *emailRecipient,
+		EmailEnabled:       *emailEnabled,
+		WebhookEnabled:     *webhookEnabled,
+		WebhookURL:         *webhookURL,
+		WebhookSecret:      webhookSecret,
+		WebhookHeadersJSON: webhookHeaders,
 	})
 	if err != nil {
 		return nil, err
@@ -286,8 +276,6 @@ func (r *Runner) formUpdate(args []string) (any, error) {
 	clearMailer := set.Bool("clear-mailer-profile", false, "remove mailer profile assignment")
 	captchaID := set.Uint("captcha-profile-id", 0, "captcha profile id")
 	clearCaptcha := set.Bool("clear-captcha-profile", false, "remove captcha profile assignment")
-	captchaOverridesFile := set.String("captcha-overrides-file", "", "path containing captcha overrides JSON")
-	clearCaptchaOverrides := set.Bool("clear-captcha-overrides", false, "clear captcha overrides JSON")
 	emailEnabled := set.Bool("email-enabled", false, "enable email forwarding")
 	emailRecipient := set.String("email-recipient", "", "email forwarding recipient")
 	webhookEnabled := set.Bool("webhook-enabled", false, "enable webhook forwarding")
@@ -310,9 +298,6 @@ func (r *Runner) formUpdate(args []string) (any, error) {
 	}
 	if *clearGeneratedHTML && *generatedHTMLFile != "" {
 		return nil, usageError("--clear-generated-html conflicts with --generated-html-file")
-	}
-	if *clearCaptchaOverrides && *captchaOverridesFile != "" {
-		return nil, usageError("--clear-captcha-overrides conflicts with --captcha-overrides-file")
 	}
 	if *clearWebhookSecret && *webhookSecretFile != "" {
 		return nil, usageError("--clear-webhook-secret conflicts with --webhook-secret-file")
@@ -360,17 +345,6 @@ func (r *Runner) formUpdate(args []string) (any, error) {
 	}
 	if *clearCaptcha {
 		params.CaptchaProfileID = nil
-	}
-	if *clearCaptchaOverrides {
-		params.CaptchaOverridesJSON = ""
-		params.UpdateCaptchaOverrides = true
-	}
-	if *captchaOverridesFile != "" {
-		params.CaptchaOverridesJSON, err = readContentFile(*captchaOverridesFile)
-		if err != nil {
-			return nil, validationError(err.Error())
-		}
-		params.UpdateCaptchaOverrides = true
 	}
 	if flagWasSet(set, "email-enabled") {
 		params.EmailEnabled = *emailEnabled
@@ -485,19 +459,18 @@ func (r *Runner) formTemplateGet(args []string) (any, error) {
 
 func updateParamsFromForm(form *forms.Form) forms.UpdateParams {
 	params := forms.UpdateParams{
-		ID:                   form.ID,
-		Name:                 form.Name,
-		Slug:                 form.Slug,
-		AllowedOrigins:       form.AllowedOrigins,
-		UseSDK:               form.UseSDK,
-		GeneratedHTML:        form.GeneratedHTML,
-		CaptchaProfileID:     form.CaptchaProfileID,
-		CaptchaOverridesJSON: form.CaptchaOverridesJSON,
+		ID:               form.ID,
+		Name:             form.Name,
+		Slug:             form.Slug,
+		AllowedOrigins:   form.AllowedOrigins,
+		UseSDK:           form.UseSDK,
+		GeneratedHTML:    form.GeneratedHTML,
+		CaptchaProfileID: form.CaptchaProfileID,
 	}
 	if form.EmailDelivery != nil {
 		params.EmailEnabled = form.EmailDelivery.Enabled
 		params.MailerProfileID = form.EmailDelivery.MailerProfileID
-		params.EmailRecipient = emailRecipient(form.EmailDelivery.OverridesJSON)
+		params.EmailRecipient = form.EmailDelivery.Recipient
 	}
 	if form.WebhookDelivery != nil {
 		params.WebhookEnabled = form.WebhookDelivery.Enabled
@@ -510,19 +483,18 @@ func updateParamsFromForm(form *forms.Form) forms.UpdateParams {
 
 func newFormView(form *forms.Form, showSecrets bool) formView {
 	view := formView{
-		ID:                   form.ID,
-		PublicID:             form.PublicID,
-		Name:                 form.Name,
-		Slug:                 form.Slug,
-		Token:                redact(form.Token, showSecrets),
-		Endpoint:             "/forms/" + form.Slug + "/submit",
-		AllowedOrigins:       form.AllowedOrigins,
-		UseSDK:               form.UseSDK,
-		HasGeneratedHTML:     strings.TrimSpace(form.GeneratedHTML) != "",
-		CaptchaProfileID:     form.CaptchaProfileID,
-		CaptchaOverridesJSON: form.CaptchaOverridesJSON,
-		CreatedAt:            form.CreatedAt,
-		UpdatedAt:            form.UpdatedAt,
+		ID:               form.ID,
+		PublicID:         form.PublicID,
+		Name:             form.Name,
+		Slug:             form.Slug,
+		Token:            redact(form.Token, showSecrets),
+		Endpoint:         "/forms/" + form.Slug + "/submit",
+		AllowedOrigins:   form.AllowedOrigins,
+		UseSDK:           form.UseSDK,
+		HasGeneratedHTML: strings.TrimSpace(form.GeneratedHTML) != "",
+		CaptchaProfileID: form.CaptchaProfileID,
+		CreatedAt:        form.CreatedAt,
+		UpdatedAt:        form.UpdatedAt,
 	}
 	if showSecrets {
 		view.GeneratedHTML = form.GeneratedHTML
@@ -531,8 +503,7 @@ func newFormView(form *forms.Form, showSecrets bool) formView {
 		view.EmailDelivery = &emailDeliveryView{
 			Enabled:         form.EmailDelivery.Enabled,
 			MailerProfileID: form.EmailDelivery.MailerProfileID,
-			Recipient:       emailRecipient(form.EmailDelivery.OverridesJSON),
-			OverridesJSON:   form.EmailDelivery.OverridesJSON,
+			Recipient:       form.EmailDelivery.Recipient,
 		}
 	}
 	if form.WebhookDelivery != nil {
@@ -544,15 +515,6 @@ func newFormView(form *forms.Form, showSecrets bool) formView {
 		}
 	}
 	return view
-}
-
-func emailRecipient(raw string) string {
-	var overrides map[string]any
-	if json.Unmarshal([]byte(raw), &overrides) != nil {
-		return ""
-	}
-	recipient, _ := overrides["to"].(string)
-	return recipient
 }
 
 func newFormTemplateView(template *forms.FormTemplate, action string, includeHTML bool) formTemplateView {

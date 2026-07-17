@@ -66,7 +66,7 @@ func NewRunner(deps Dependencies) *Runner {
 // IsCommand reports whether a top-level argument belongs to the data CLI.
 func IsCommand(name string) bool {
 	switch name {
-	case "account", "captcha", "commands", "config", "event", "form", "help", "mailer", "setting", "submission":
+	case "account", "captcha", "commands", "config", "event", "form", "help", "mailer", "submission":
 		return true
 	default:
 		return false
@@ -170,8 +170,6 @@ func (r *Runner) dispatch(args []string) (any, error) {
 		return r.runAccount(args[1:])
 	case "config":
 		return r.runConfig(args[1:])
-	case "setting":
-		return r.runSetting(args[1:])
 	case "form":
 		return r.runForm(args[1:])
 	case "mailer":

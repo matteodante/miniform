@@ -39,9 +39,10 @@ Install Go 1.26.5, a C compiler, Node.js 20 or newer, and `make`:
 ```bash
 git clone https://github.com/matteodante/miniform.git
 cd miniform
-cp .env.example .env
 make bootstrap
 make build
+MINIFORM_ENV=production \
+MINIFORM_SESSION_SECRET='replace-with-a-secret-manager-value' \
 ./bin/miniform
 ```
 
@@ -74,10 +75,12 @@ Sign in immediately and change both the email address and password. The temporar
 1. Read [CHANGELOG.md](../CHANGELOG.md) and the release notes.
 2. Back up the database and uploaded files.
 3. Pull or download the exact target version.
-4. Replace the process or container while preserving storage and configuration.
+4. Replace the process or container while preserving storage and its environment configuration.
 5. Confirm `/_health`, sign-in, a test submission, and configured deliveries.
 
 Database migrations run automatically at startup. Do not skip versions when release notes include an explicit staged migration.
+
+Before the first public release, development schemas are not preserved: recreate development storage when `main` changes its schema.
 
 ## Backups
 

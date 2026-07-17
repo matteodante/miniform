@@ -2,7 +2,6 @@ package cli
 
 import (
 	"flag"
-	"strings"
 	"time"
 
 	"github.com/matteodante/miniform/internal/forms"
@@ -10,23 +9,19 @@ import (
 )
 
 type captchaView struct {
-	ID           uint      `json:"id"`
-	Name         string    `json:"name"`
-	Provider     string    `json:"provider"`
-	SecretKey    string    `json:"secret_key,omitempty"`
-	SiteKeysJSON string    `json:"site_keys_json,omitempty"`
-	PolicyJSON   string    `json:"policy_json,omitempty"`
-	UsageCount   int64     `json:"usage_count"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID         uint      `json:"id"`
+	Name       string    `json:"name"`
+	SiteKey    string    `json:"site_key"`
+	SecretKey  string    `json:"secret_key,omitempty"`
+	UsageCount int64     `json:"usage_count"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type captchaFlags struct {
 	name          *string
-	provider      *string
+	siteKey       *string
 	secretKeyFile *string
-	siteKeysFile  *string
-	policyFile    *string
 }
 
 func (r *Runner) runCaptcha(args []string) (any, error) {
@@ -98,11 +93,8 @@ func (r *Runner) captchaCreate(args []string) (any, error) {
 	if err := requireString(*flags.name, "name"); err != nil {
 		return nil, err
 	}
-	params, err := r.captchaParams(set, flags, integrations.CaptchaProfileParams{Provider: "turnstile"})
+	params, err := r.captchaParams(set, flags, integrations.CaptchaProfileParams{})
 	if err != nil {
-		return nil, err
-	}
-	if err := validateCaptchaParams(params); err != nil {
 		return nil, err
 	}
 	profile, err := integrations.CreateCaptchaProfile(r.Logger, r.DB, params)
@@ -116,43 +108,18 @@ func (r *Runner) captchaUpdate(args []string) (any, error) {
 	set := newFlagSet("captcha.update")
 	id := set.Uint("id", 0, "captcha profile id")
 	flags := defineCaptchaFlags(set)
-	clearSecret := set.Bool("clear-secret-key", false, "clear provider secret key")
-	clearSiteKeys := set.Bool("clear-site-keys", false, "clear site keys JSON")
-	clearPolicy := set.Bool("clear-policy", false, "clear policy JSON")
 	if err := r.parseFlags(set, "captcha.update", args); err != nil {
 		return nil, err
 	}
 	if err := requireUint(*id, "id"); err != nil {
 		return nil, err
 	}
-	if *clearSecret && *flags.secretKeyFile != "" {
-		return nil, usageError("--clear-secret-key conflicts with --secret-key-file")
-	}
-	if *clearSiteKeys && *flags.siteKeysFile != "" {
-		return nil, usageError("--clear-site-keys conflicts with --site-keys-file")
-	}
-	if *clearPolicy && *flags.policyFile != "" {
-		return nil, usageError("--clear-policy conflicts with --policy-file")
-	}
-
 	current, err := integrations.GetCaptchaProfileByID(r.DB, *id)
 	if err != nil {
 		return nil, err
 	}
 	params, err := r.captchaParams(set, flags, captchaParamsFromProfile(current))
 	if err != nil {
-		return nil, err
-	}
-	if *clearSecret {
-		params.SecretKey = ""
-	}
-	if *clearSiteKeys {
-		params.SiteKeysJSON = ""
-	}
-	if *clearPolicy {
-		params.PolicyJSON = ""
-	}
-	if err := validateCaptchaParams(params); err != nil {
 		return nil, err
 	}
 	profile, err := integrations.UpdateCaptchaProfile(r.Logger, r.DB, *id, params)
@@ -194,53 +161,30 @@ func (r *Runner) captchaDelete(args []string) (any, error) {
 func defineCaptchaFlags(set *flag.FlagSet) captchaFlags {
 	return captchaFlags{
 		name:          set.String("name", "", "profile name"),
-		provider:      set.String("provider", "", "captcha provider"),
-		secretKeyFile: set.String("secret-key-file", "", "path containing provider secret key, or - for stdin"),
-		siteKeysFile:  set.String("site-keys-file", "", "path containing site keys JSON"),
-		policyFile:    set.String("policy-file", "", "path containing policy JSON"),
+		siteKey:       set.String("site-key", "", "Turnstile site key"),
+		secretKeyFile: set.String("secret-key-file", "", "path containing the Turnstile secret key, or - for stdin"),
 	}
 }
 
 func (r *Runner) captchaParams(set *flag.FlagSet, flags captchaFlags, params integrations.CaptchaProfileParams) (integrations.CaptchaProfileParams, error) {
 	applyStringFlag(set, "name", flags.name, &params.Name)
-	applyStringFlag(set, "provider", flags.provider, &params.Provider)
+	applyStringFlag(set, "site-key", flags.siteKey, &params.SiteKey)
 
-	var err error
 	if *flags.secretKeyFile != "" {
-		params.SecretKey, err = readFileValue(*flags.secretKeyFile, r.Stdin)
+		secretKey, err := readFileValue(*flags.secretKeyFile, r.Stdin)
 		if err != nil {
 			return params, validationError(err.Error())
 		}
-	}
-	if *flags.siteKeysFile != "" {
-		params.SiteKeysJSON, err = readContentFile(*flags.siteKeysFile)
-		if err != nil {
-			return params, validationError(err.Error())
-		}
-	}
-	if *flags.policyFile != "" {
-		params.PolicyJSON, err = readContentFile(*flags.policyFile)
-		if err != nil {
-			return params, validationError(err.Error())
-		}
+		params.SecretKey = secretKey
 	}
 	return params, nil
 }
 
-func validateCaptchaParams(params integrations.CaptchaProfileParams) error {
-	if strings.ToLower(strings.TrimSpace(params.Provider)) != "turnstile" {
-		return validationError("provider must be turnstile")
-	}
-	return nil
-}
-
 func captchaParamsFromProfile(profile *integrations.CaptchaProfile) integrations.CaptchaProfileParams {
 	return integrations.CaptchaProfileParams{
-		Name:         profile.Name,
-		Provider:     profile.Provider,
-		SecretKey:    profile.SecretKey,
-		SiteKeysJSON: profile.SiteKeysJSON,
-		PolicyJSON:   profile.PolicyJSON,
+		Name:      profile.Name,
+		SiteKey:   profile.SiteKey,
+		SecretKey: profile.SecretKey,
 	}
 }
 
@@ -250,14 +194,12 @@ func (r *Runner) newCaptchaView(profile *integrations.CaptchaProfile) (captchaVi
 		return captchaView{}, err
 	}
 	return captchaView{
-		ID:           profile.ID,
-		Name:         profile.Name,
-		Provider:     profile.Provider,
-		SecretKey:    redact(profile.SecretKey, r.ShowSecrets),
-		SiteKeysJSON: profile.SiteKeysJSON,
-		PolicyJSON:   profile.PolicyJSON,
-		UsageCount:   usage,
-		CreatedAt:    profile.CreatedAt,
-		UpdatedAt:    profile.UpdatedAt,
+		ID:         profile.ID,
+		Name:       profile.Name,
+		SiteKey:    profile.SiteKey,
+		SecretKey:  redact(profile.SecretKey, r.ShowSecrets),
+		UsageCount: usage,
+		CreatedAt:  profile.CreatedAt,
+		UpdatedAt:  profile.UpdatedAt,
 	}, nil
 }

@@ -35,10 +35,10 @@ Proof points:
 | Entries | Submissions |
 | Endpoints | Forms |
 | Delivery | Integrations |
-| Safeguards | Captcha settings |
+| Safeguards | Turnstile credentials |
 | Workspace | General settings |
 
-Code and public HTTP paths may retain domain terms when changing them would break compatibility.
+Code and public HTTP paths use precise domain terms when product language would be ambiguous.
 
 ## Voice
 
@@ -110,4 +110,3 @@ Display type is reserved for product name and page headings. Counts, tokens and 
 - Every page has a visible title, active navigation state and keyboard focus.
 - Empty states explain the next concrete action.
 - No gradients, decorative shadows, debug logging or filler illustrations.
-

@@ -34,7 +34,7 @@ miniform --json help form
 ```
 
 `commands --json` returns each command name, flags, mutation status, database requirement, examples, and safety notes.
-Its `supports_json` field distinguishes deterministic resource commands from legacy deployment commands such as `install`, `update`, and `reload`, which retain their existing human-oriented output.
+Its `supports_json` field distinguishes deterministic resource commands from deployment commands such as `install`, `update`, and `reload`, which use human-oriented output.
 
 ## Output contract
 
@@ -77,8 +77,7 @@ One command can consume only one secret from stdin. Store additional secrets in 
 - form token, generated HTML, webhook secret, and webhook headers;
 - SMTP password;
 - captcha secret key;
-- database-backed setting values;
-- session secret and anonymization salt.
+- session secret.
 
 Treat `--show-secrets` output as sensitive. Do not send it to logs, tickets, or model prompts that do not need the values.
 
@@ -110,53 +109,7 @@ Inspect the effective process configuration:
 miniform --json config show
 ```
 
-For source and standalone-binary deployments, `config set` and `config unset` update a dotenv file atomically. Restart Miniform after either command.
-
-```bash
-miniform config set --key MINIFORM_PORT --value 9000
-
-printf '%s' "$SESSION_SECRET" | miniform config set \
-  --key MINIFORM_SESSION_SECRET \
-  --value-file -
-
-miniform config unset --key MINIFORM_DEBUG
-```
-
-Pass `--env-file PATH` to edit a file other than `.env`. Secret keys require `--value-file`.
-
-Supported keys:
-
-```text
-MINIFORM_ENV
-MINIFORM_PORT
-MINIFORM_SESSION_SECRET
-MINIFORM_ANON_SALT
-MINIFORM_LOG_LEVEL
-MINIFORM_DATA_DIR
-MINIFORM_DATABASE_FILENAME
-MINIFORM_DATABASE_PATH
-MINIFORM_LOGS_DIR
-MINIFORM_SESSION_TIMEOUT_SECONDS
-MINIFORM_DEBUG
-MINIFORM_MAX_INPUT_FIELDS
-MINIFORM_WEBHOOK_SIGNATURE_HEADER
-MINIFORM_WEBHOOK_RETRY_LIMIT
-MINIFORM_WEBHOOK_BACKOFF_SCHEDULE
-```
-
-Container platforms normally inject environment variables outside the container. Update the container definition instead of writing an ephemeral `.env` inside the image.
-
-## Database-backed settings
-
-```bash
-miniform --json setting list
-miniform --json --show-secrets setting get --key example.key
-miniform setting set --key example.key --value example-value
-miniform setting set --key secret.key --value-file ./secret-value
-miniform setting delete --key example.key --yes
-```
-
-These commands manage the generic `settings` table. Mailer, captcha, form, and account values use their dedicated resources.
+The command is read-only. Change `MINIFORM_*` variables in the process manager or container environment, then restart Miniform.
 
 ## Forms
 
@@ -201,8 +154,9 @@ Email forwarding requires `--email-enabled`, `--mailer-profile-id`, and `--email
 Complex form values come from files:
 
 - `--generated-html-file`: HTML stored for the embed view;
-- `--webhook-headers-file`: JSON object whose values are strings;
-- `--captcha-overrides-file`: JSON object that overrides the assigned captcha policy.
+- `--webhook-headers-file`: JSON object whose values are strings.
+
+Assigning `--captcha-profile-id` makes Turnstile mandatory for every public submission to that form. Use `--clear-captcha-profile` to disable it.
 
 Built-in templates are discoverable without SQLite:
 
@@ -245,25 +199,14 @@ miniform --json captcha get --id 1
 
 miniform captcha create \
   --name production-turnstile \
-  --provider turnstile \
-  --secret-key-file ./turnstile-secret \
-  --site-keys-file ./site-keys.json \
-  --policy-file ./captcha-policy.json
+  --site-key PUBLIC_SITE_KEY \
+  --secret-key-file ./turnstile-secret
 
-miniform captcha update --id 1 --policy-file ./captcha-policy.json
+miniform captcha update --id 1 --site-key NEW_PUBLIC_SITE_KEY
 miniform captcha delete --id 1 --yes
 ```
 
-`site-keys.json` uses this shape:
-
-```json
-[
-  {"host_pattern":"example.com","site_key":"PUBLIC_SITE_KEY"},
-  {"host_pattern":"*.example.org","site_key":"PUBLIC_SITE_KEY_2"}
-]
-```
-
-`captcha-policy.json` accepts the policy fields used by the Web UI, including `required`, `action`, `widget`, `theme`, `language`, `size`, and `site_key`. Updates preserve omitted fields. Clear stored fields with `--clear-secret-key`, `--clear-site-keys`, or `--clear-policy`.
+A profile is exactly a name, one Turnstile site key, and one secret key. Updates preserve omitted fields. The fixed Turnstile action is `submit`; assigning the profile to a form enables mandatory server-side validation.
 
 ## Submissions and files
 
@@ -326,7 +269,6 @@ Retry resets the attempt counter and schedules the selected event for the backgr
 The following commands require `--yes` and never prompt:
 
 ```text
-setting delete
 form delete
 form rotate-token
 mailer delete

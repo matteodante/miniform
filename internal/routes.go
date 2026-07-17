@@ -100,7 +100,6 @@ func mountAdmin(server *cartridge.Server, cfg *config.Config) {
 		{false, "/admin/settings", handlers.AdminSettingsPage},
 		{true, "/admin/settings/password", handlers.AdminSettingsUpdatePassword},
 		{true, "/admin/settings/email", handlers.AdminSettingsUpdateEmail},
-		{true, "/admin/settings/turnstile", handlers.AdminSettingsUpdateTurnstile},
 		{false, "/admin/settings/mailers", handlers.MailerProfileList},
 		{false, "/admin/settings/mailers/new", handlers.MailerProfileNew},
 		{true, "/admin/settings/mailers", handlers.MailerProfileCreate},

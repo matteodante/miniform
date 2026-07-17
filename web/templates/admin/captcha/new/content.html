@@ -3,7 +3,7 @@
     <header>
         <p class="mf-kicker">Safeguards</p>
         <h1 class="mt-2 text-3xl font-bold text-ink">{{ if .IsEdit }}Edit safeguard{{ else }}New safeguard{{ end }}</h1>
-        <p class="mt-2 text-sm text-ink-muted">Map public form domains to Cloudflare Turnstile keys and policy.</p>
+        <p class="mt-2 text-sm text-ink-muted">Configure one Cloudflare Turnstile widget.</p>
     </header>
 
     {{ if .Error }}
@@ -12,48 +12,23 @@
 
     <form method="POST" action="{{ if .IsEdit }}/admin/settings/captcha/{{ .Profile.ID }}{{ else }}/admin/settings/captcha{{ end }}" class="space-y-5">
         <section class="mf-panel p-6">
-            <div class="mb-5">
-                <h2 class="text-lg font-semibold text-ink">Profile</h2>
-                <p class="text-sm text-ink-muted">Use a recognizable name; Turnstile is the supported provider.</p>
-            </div>
-            <div class="grid gap-5 sm:grid-cols-2">
+            <div class="grid gap-5">
                 <label class="grid gap-2 text-sm font-medium text-ink" for="name">
                     Profile name
                     <input class="mf-input w-full" id="name" name="name" type="text" required
                         value="{{ if .Profile }}{{ .Profile.Name }}{{ end }}" placeholder="Public forms">
                 </label>
-                <label class="grid gap-2 text-sm font-medium text-ink" for="provider">
-                    Provider
-                    <select class="mf-input w-full" id="provider" name="provider" required>
-                        <option value="turnstile" {{ if and .Profile (eq .Profile.Provider "turnstile") }}selected{{ end }}>Cloudflare Turnstile</option>
-                    </select>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="site_key">
+                    Site key
+                    <input class="mf-input w-full font-mono text-sm" id="site_key" name="site_key" type="text" required
+                        value="{{ if .Profile }}{{ .Profile.SiteKey }}{{ end }}" placeholder="0x4A...">
+                    <span class="text-xs font-normal text-ink-muted">Public key rendered in protected forms.</span>
                 </label>
-            </div>
-        </section>
-
-        <section class="mf-panel p-6">
-            <h2 class="text-lg font-semibold text-ink">Server credential</h2>
-            <label class="mt-5 grid gap-2 text-sm font-medium text-ink" for="secret_key">
-                Secret key
-                <input class="mf-input w-full font-mono text-sm" id="secret_key" name="secret_key" type="password"
-                    value="{{ if .Profile }}{{ .Profile.SecretKey }}{{ end }}" placeholder="0x4A...">
-                <span class="text-xs font-normal text-ink-muted">Used only by Miniform for server-side verification.</span>
-            </label>
-        </section>
-
-        <section class="mf-panel p-6">
-            <div class="grid gap-6 lg:grid-cols-2">
-                <label class="grid content-start gap-2 text-sm font-medium text-ink" for="site_keys_json">
-                    Site keys <span class="font-mono text-xs font-normal text-ink-muted">JSON array · required</span>
-                    <textarea class="mf-input min-h-64 w-full font-mono text-sm" id="site_keys_json" name="site_keys_json" required
-                        placeholder='[{"host_pattern":"example.com","site_key":"0x4A..."}]'>{{ if .Profile }}{{ .Profile.SiteKeysJSON }}{{ end }}</textarea>
-                    <span class="text-xs font-normal leading-5 text-ink-muted">Each item needs <code>host_pattern</code> and <code>site_key</code>. Wildcards such as <code>*.example.com</code> are accepted.</span>
-                </label>
-                <label class="grid content-start gap-2 text-sm font-medium text-ink" for="policy_json">
-                    Default policy <span class="font-mono text-xs font-normal text-ink-muted">JSON object · optional</span>
-                    <textarea class="mf-input min-h-64 w-full font-mono text-sm" id="policy_json" name="policy_json"
-                        placeholder='{"required":true,"action":"form_submit","theme":"auto"}'>{{ if .Profile }}{{ .Profile.PolicyJSON }}{{ end }}</textarea>
-                    <span class="text-xs font-normal leading-5 text-ink-muted">Supported values include <code>required</code>, <code>action</code>, and a <code>light</code>, <code>dark</code>, or <code>auto</code> theme.</span>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="secret_key">
+                    Secret key
+                    <input class="mf-input w-full font-mono text-sm" id="secret_key" name="secret_key" type="password"
+                        {{ if not .IsEdit }}required{{ end }} placeholder="0x4A...">
+                    <span class="text-xs font-normal text-ink-muted">Used only for server-side verification.{{ if .IsEdit }} Leave blank to keep the current key.{{ end }}</span>
                 </label>
             </div>
         </section>

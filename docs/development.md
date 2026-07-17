@@ -20,11 +20,10 @@ cc --version
 ## Bootstrap
 
 ```bash
-cp .env.example .env
 make bootstrap
 ```
 
-`make bootstrap` downloads pinned frontend tooling, builds CSS, and installs Playwright dependencies. `.env`, caches, binaries, databases, and browser output are ignored.
+`make bootstrap` downloads pinned frontend tooling, builds CSS, and installs Playwright dependencies. Caches, binaries, databases, and browser output are ignored. Set `MINIFORM_*` environment variables in the process that starts Miniform only when overriding the development defaults.
 
 ## Common commands
 

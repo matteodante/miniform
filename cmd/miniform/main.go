@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,7 +18,6 @@ import (
 
 	cartridgesqlite "github.com/karloscodes/cartridge/sqlite"
 	"github.com/karloscodes/matcha"
-	"golang.org/x/term"
 )
 
 var (
@@ -54,12 +52,11 @@ func execute(args []string) int {
 
 	manager := newMatcha()
 	commands := map[string]func() error{
-		"install":               manager.Install,
-		"update":                manager.Update,
-		"reload":                manager.Reload,
-		"restore-db":            manager.RestoreDB,
-		"change-admin-password": func() error { return changeAdminPassword(manager) },
-		"check":                 matcha.Check,
+		"install":    manager.Install,
+		"update":     manager.Update,
+		"reload":     manager.Reload,
+		"restore-db": manager.RestoreDB,
+		"check":      matcha.Check,
 	}
 	command, found := commands[args[0]]
 	if !found {
@@ -102,6 +99,9 @@ func runDataCLI(args []string) int {
 	dependencies := cli.Dependencies{Config: cfg}
 
 	if cli.RequiresDatabase(args) {
+		if err := cfg.EnsureDirectories(); err != nil {
+			return cli.WriteStartupFailure(args, os.Stderr, "prepare storage")
+		}
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 		manager := cartridgesqlite.NewManager(cartridgesqlite.Config{
 			Path: cfg.DatabasePath, MaxOpenConns: cfg.GetMaxOpenConns(), MaxIdleConns: cfg.GetMaxIdleConns(), Logger: logger,
@@ -182,83 +182,6 @@ func seedDatabase(app *internal.App) error {
 	return nil
 }
 
-func changeAdminPassword(manager *matcha.Matcha) error {
-	reader := bufio.NewReader(os.Stdin)
-	email, err := readLine(reader, os.Stdout, "Admin email: ")
-	if err != nil {
-		return fmt.Errorf("read email: %w", err)
-	}
-	if email == "" {
-		return errors.New("email cannot be empty")
-	}
-	password, err := readConfirmedPassword(os.Stdout)
-	if err != nil {
-		return err
-	}
-
-	if err := writeLine(os.Stdout, "Changing password..."); err != nil {
-		return err
-	}
-	if err := manager.Exec("/app/fnctl", "change-admin-password", email, password); err != nil {
-		return fmt.Errorf("change password: %w", err)
-	}
-	return writeLine(os.Stdout, "Password changed successfully.")
-}
-
-func readLine(reader *bufio.Reader, writer io.Writer, prompt string) (string, error) {
-	if _, err := fmt.Fprint(writer, prompt); err != nil {
-		return "", fmt.Errorf("write prompt: %w", err)
-	}
-	value, err := reader.ReadString('\n')
-	return strings.TrimSpace(value), err
-}
-
-func readConfirmedPassword(writer io.Writer) (string, error) {
-	for {
-		password, err := readHidden(writer, "New password (minimum 8 characters): ")
-		if err != nil {
-			return "", err
-		}
-		if len(password) < 8 {
-			if err := writeLine(writer, "Password must be at least 8 characters."); err != nil {
-				return "", err
-			}
-			continue
-		}
-		confirmation, err := readHidden(writer, "Confirm password: ")
-		if err != nil {
-			return "", err
-		}
-		if password == confirmation {
-			return password, nil
-		}
-		if err := writeLine(writer, "Passwords do not match; try again."); err != nil {
-			return "", err
-		}
-	}
-}
-
-func readHidden(writer io.Writer, prompt string) (string, error) {
-	if _, err := fmt.Fprint(writer, prompt); err != nil {
-		return "", fmt.Errorf("write prompt: %w", err)
-	}
-	value, readErr := term.ReadPassword(int(os.Stdin.Fd()))
-	if err := writeLine(writer, ""); err != nil {
-		return "", err
-	}
-	if readErr != nil {
-		return "", fmt.Errorf("read password: %w", readErr)
-	}
-	return strings.TrimSpace(string(value)), nil
-}
-
-func writeLine(writer io.Writer, text string) error {
-	if _, err := fmt.Fprintln(writer, text); err != nil {
-		return fmt.Errorf("write output: %w", err)
-	}
-	return nil
-}
-
 func printVersion(writer io.Writer) error {
 	_, err := fmt.Fprintf(writer, "Miniform %s\n  Commit:     %s\n  Build Time: %s\n", version, commit, buildTime)
 	return err
@@ -277,11 +200,10 @@ Deployment:
   update                      Update the installation
   reload                      Reload containers
   restore-db                  Restore a database backup
-  change-admin-password       Change the remote admin password
   check                       Check server security
 
 Data:
-  account | config | setting | form | mailer | captcha
+  account | config | form | mailer | captcha
   submission | event | commands
   Run "miniform help <resource>" for actions and flags.
 

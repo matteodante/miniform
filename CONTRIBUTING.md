@@ -16,12 +16,11 @@ Documentation fixes and narrowly scoped bug fixes may go directly to a pull requ
 Follow [docs/development.md](docs/development.md). The short version is:
 
 ```bash
-cp .env.example .env
 make bootstrap
 make check
 ```
 
-Do not commit `.env`, databases, logs, browser artifacts, binaries, or credentials.
+Do not commit local environment files, databases, logs, browser artifacts, binaries, or credentials.
 
 ## Architecture and code
 

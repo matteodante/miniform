@@ -28,7 +28,6 @@ node_modules
 # Local configuration and secrets
 .env
 .env.*
-!.env.example
 
 *.db*
 

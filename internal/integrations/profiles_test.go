@@ -80,38 +80,29 @@ func TestProfiles(t *testing.T) {
 		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
 	})
 
-	t.Run("captcha lifecycle validates both JSON documents", func(t *testing.T) {
+	t.Run("captcha lifecycle stores explicit Turnstile credentials", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		created, err := integrations.CreateCaptchaProfile(logger, db, integrations.CaptchaProfileParams{
-			Name: "Turnstile", Provider: "turnstile", SecretKey: "secret",
-			SiteKeysJSON: `[{"host_pattern":"*.example.com","site_key":"public"}]`,
-			PolicyJSON:   `{"required":true,"action":"submit"}`,
+			Name: "Turnstile", SiteKey: "public", SecretKey: "secret",
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "turnstile", created.Provider)
+		assert.Equal(t, "public", created.SiteKey)
+		assert.Equal(t, "secret", created.SecretKey)
 
 		updated, err := integrations.UpdateCaptchaProfile(logger, db, created.ID, integrations.CaptchaProfileParams{
-			Name: "Turnstile Production", Provider: "turnstile", SecretKey: "rotated",
-			SiteKeysJSON: `[]`, PolicyJSON: `{}`,
+			Name: "Turnstile Production", SiteKey: "rotated-public", SecretKey: "rotated-secret",
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "rotated", updated.SecretKey)
+		assert.Equal(t, "rotated-public", updated.SiteKey)
+		assert.Equal(t, "rotated-secret", updated.SecretKey)
 
 		for _, test := range []struct {
 			name, field string
 			params      integrations.CaptchaProfileParams
 		}{
 			{"missing name", "name", integrations.CaptchaProfileParams{}},
-			{"bad site keys", "site_keys_json", integrations.CaptchaProfileParams{Name: "Bad keys", SiteKeysJSON: `{`}},
-			{"site keys object", "site_keys_json", integrations.CaptchaProfileParams{Name: "Object keys", SiteKeysJSON: `{}`}},
-			{"incomplete site key", "site_keys_json", integrations.CaptchaProfileParams{Name: "Incomplete key", SiteKeysJSON: `[{"host_pattern":"*"}]`}},
-			{"bad policy", "policy_json", integrations.CaptchaProfileParams{Name: "Bad policy", PolicyJSON: `[`}},
-			{"policy array", "policy_json", integrations.CaptchaProfileParams{Name: "Array policy", PolicyJSON: `[]`}},
-			{"policy value type", "policy_json", integrations.CaptchaProfileParams{Name: "Typed policy", PolicyJSON: `{"required":"yes"}`}},
-			{"invalid action", "policy_json", integrations.CaptchaProfileParams{Name: "Bad action", PolicyJSON: `{"action":"not allowed"}`}},
-			{"invalid theme", "policy_json", integrations.CaptchaProfileParams{Name: "Bad theme", PolicyJSON: `{"theme":"sepia"}`}},
-			{"invalid size", "policy_json", integrations.CaptchaProfileParams{Name: "Bad size", PolicyJSON: `{"size":"invisible"}`}},
-			{"unknown provider", "provider", integrations.CaptchaProfileParams{Name: "Other provider", Provider: "recaptcha"}},
+			{"missing site key", "site_key", integrations.CaptchaProfileParams{Name: "Missing site key", SecretKey: "secret"}},
+			{"missing secret key", "secret_key", integrations.CaptchaProfileParams{Name: "Missing secret key", SiteKey: "public"}},
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				_, err := integrations.CreateCaptchaProfile(logger, db, test.params)
@@ -119,6 +110,32 @@ func TestProfiles(t *testing.T) {
 			})
 		}
 		require.NoError(t, integrations.DeleteCaptchaProfile(logger, db, created.ID))
+	})
+
+	t.Run("captcha schema contains only explicit Turnstile credentials", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		assert.True(t, db.Migrator().HasColumn(&integrations.CaptchaProfile{}, "site_key"))
+		for _, column := range []string{"provider", "site_keys_json", "policy_json"} {
+			assert.False(t, db.Migrator().HasColumn(&integrations.CaptchaProfile{}, column), column)
+		}
+	})
+
+	t.Run("captcha validation rejects duplicate names", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		params := integrations.CaptchaProfileParams{Name: "Unique", SiteKey: "public", SecretKey: "secret"}
+		_, err := integrations.CreateCaptchaProfile(logger, db, params)
+		require.NoError(t, err)
+		_, err = integrations.CreateCaptchaProfile(logger, db, params)
+		assertValidation(t, err, "name")
+
+		second, err := integrations.CreateCaptchaProfile(logger, db, integrations.CaptchaProfileParams{
+			Name: "Second", SiteKey: "other-public", SecretKey: "other-secret",
+		})
+		require.NoError(t, err)
+		_, err = integrations.UpdateCaptchaProfile(logger, db, second.ID, params)
+		assertValidation(t, err, "name")
+		_, err = integrations.UpdateCaptchaProfile(logger, db, 9999, params)
+		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
 	})
 
 	t.Run("lists profiles alphabetically", func(t *testing.T) {
@@ -133,30 +150,13 @@ func TestProfiles(t *testing.T) {
 
 		for _, name := range []string{"Guard B", "Guard A"} {
 			_, err := integrations.CreateCaptchaProfile(logger, db, integrations.CaptchaProfileParams{
-				Name: name, SiteKeysJSON: `[]`,
+				Name: name, SiteKey: "public", SecretKey: "secret",
 			})
 			require.NoError(t, err)
 		}
 		captchas, err := integrations.ListCaptchaProfiles(db)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"Guard A", "Guard B"}, []string{captchas[0].Name, captchas[1].Name})
-	})
-
-	t.Run("captcha settings merge policy and endpoint overrides", func(t *testing.T) {
-		settings := integrations.ResolveCaptchaSettings(
-			`{"required":false,"action":"contact","theme":"dark"}`,
-			`{"required":true,"action":"checkout","language":"it"}`,
-		)
-
-		assert.True(t, settings.Required)
-		assert.Equal(t, "checkout", settings.Action)
-		assert.Equal(t, "dark", settings.Theme)
-		assert.Equal(t, "it", settings.Language)
-
-		defaults := integrations.ResolveCaptchaSettings("", "")
-		assert.True(t, defaults.Required)
-		assert.Equal(t, "submit", defaults.Action)
-		assert.Equal(t, "auto", defaults.Theme)
 	})
 }
 

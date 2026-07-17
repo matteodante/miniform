@@ -27,14 +27,12 @@ type MailerProfile struct {
 }
 
 type CaptchaProfile struct {
-	ID           uint   `gorm:"primaryKey"`
-	Name         string `gorm:"size:255;not null;uniqueIndex"`
-	Provider     string `gorm:"size:50;not null;default:'turnstile'"`
-	SecretKey    string `gorm:"type:text"`
-	SiteKeysJSON string `gorm:"type:text"`
-	PolicyJSON   string `gorm:"type:text"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID        uint   `gorm:"primaryKey"`
+	Name      string `gorm:"size:255;not null;uniqueIndex"`
+	SiteKey   string `gorm:"type:text;not null"`
+	SecretKey string `gorm:"type:text;not null"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type ValidationError struct {

@@ -39,7 +39,11 @@
         <div class="flex flex-col gap-4 border-b border-rule p-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
                 <h2 class="text-lg font-semibold text-ink">Starter HTML</h2>
+                {{ if .FormCodeWarning }}
+                <p class="mt-2 text-sm font-medium text-rose-700" role="alert">This stored HTML is not ready to use: {{ .FormCodeWarning }}. Edit the endpoint and add a form element.</p>
+                {{ else }}
                 <p class="text-sm text-ink-muted">Copy a working form or inspect it in an isolated preview.</p>
+                {{ end }}
                 <label class="mt-3 flex items-center gap-2 text-sm font-medium text-ink" for="include-sdk">
                     <input class="h-4 w-4 rounded border-gray-300" id="include-sdk" type="checkbox" {{ if .Form.UseSDK }}checked{{ end }}>
                     Include JavaScript SDK
@@ -54,7 +58,7 @@
             <div id="panel-source" role="tabpanel" aria-labelledby="tab-source">
                 <div class="mb-3 flex items-center justify-end gap-3">
                     <span id="copyFormCodeStatus" role="status" aria-atomic="true" class="text-xs text-ink-muted"></span>
-                    <button class="mf-button-secondary !px-3 !py-1.5 text-xs" id="copyFormCode" type="button">Copy source</button>
+                    <button class="mf-button-secondary !px-3 !py-1.5 text-xs" id="copyFormCode" type="button" {{ if .FormCodeWarning }}disabled{{ end }}>Copy source</button>
                 </div>
                 <pre class="max-h-[38rem] overflow-auto rounded-xl bg-gray-900 p-4 font-mono text-xs"><code id="form-code" class="language-html text-gray-100">{{ .FormCode }}</code></pre>
             </div>
@@ -113,6 +117,7 @@
     </div>
 </div>
 
+<textarea id="form-sdk-script" hidden>{{ .SDKScriptTag }}</textarea>
 <script src="/assets/vendor/highlight.min.js"></script>
 <link rel="stylesheet" href="/assets/vendor/highlight-github-dark.min.css">
 <script>
@@ -122,7 +127,7 @@
         if (!code) return;
 
         const baseFormCode = code.textContent;
-        const sdkScript = '\n\n<!-- Miniform SDK: adds automatic retry & loading states -->\n<script src="/assets/miniform.js"><\/script>';
+        const sdkScript = "\n\n" + document.getElementById("form-sdk-script").value;
         const refreshFormCode = () => {
             code.textContent = baseFormCode + (document.getElementById("include-sdk").checked ? sdkScript : "");
             code.removeAttribute("data-highlighted");

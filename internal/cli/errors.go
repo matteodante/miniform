@@ -94,11 +94,14 @@ func classifyError(err error) *commandError {
 	switch {
 	case errors.Is(err, accounts.ErrWeakPassword),
 		errors.Is(err, accounts.ErrInvalidEmail),
-		errors.Is(err, accounts.ErrMissingFields):
+		errors.Is(err, accounts.ErrMissingFields),
+		errors.Is(err, accounts.ErrPasswordUnchanged):
 		return &commandError{Code: "validation_error", Message: err.Error(), ExitCode: ExitValidation, Cause: err}
 	case errors.Is(err, accounts.ErrPasswordMismatch), errors.Is(err, accounts.ErrInvalidCredentials):
 		return &commandError{Code: "authentication_failed", Message: err.Error(), ExitCode: ExitValidation, Cause: err}
 	case errors.Is(err, accounts.ErrDuplicateEmail):
+		return &commandError{Code: "conflict", Message: err.Error(), ExitCode: ExitConflict, Cause: err}
+	case errors.Is(err, integrations.ErrProfileInUse):
 		return &commandError{Code: "conflict", Message: err.Error(), ExitCode: ExitConflict, Cause: err}
 	}
 

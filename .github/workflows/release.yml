@@ -32,6 +32,9 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: ./scripts/validate-release-tag.sh "$RELEASE_TAG"
 
+      - name: Verify release commit is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -145,18 +148,13 @@ jobs:
       - name: Attest release files
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-path: |
-            dist/*.tar.gz
-            dist/*.spdx.json
-            dist/checksums.txt
+          subject-checksums: dist/checksums.txt
 
   image:
     name: Publish OCI image
     needs: binaries
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    outputs:
-      stable: ${{ steps.release.outputs.stable }}
     permissions:
       attestations: write
       contents: read
@@ -181,28 +179,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Classify release tag
-        id: release
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          version_without_build="${RELEASE_TAG%%+*}"
-          if [[ "$version_without_build" == *-* ]]; then
-            echo "stable=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "stable=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Compute image metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
           tags: |
             type=semver,pattern=v{{version}}
             type=semver,pattern=v{{major}}.{{minor}}
-            type=semver,pattern=v{{major}}
-            type=raw,value=latest,enable=${{ steps.release.outputs.stable }}
+            type=semver,pattern=v{{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+            type=raw,value=latest
 
       - name: Build amd64 scan candidate
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -288,10 +275,5 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
-          STABLE_RELEASE: ${{ needs.image.outputs.stable }}
         run: |
-          if [[ "$STABLE_RELEASE" == "true" ]]; then
-            gh release edit "$RELEASE_TAG" --repo "$REPOSITORY" --draft=false --latest
-          else
-            gh release edit "$RELEASE_TAG" --repo "$REPOSITORY" --draft=false
-          fi
+          gh release edit "$RELEASE_TAG" --repo "$REPOSITORY" --draft=false --latest

@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/karloscodes/cartridge"
@@ -25,49 +27,69 @@ type WebhookDispatcher struct {
 
 func NewWebhookDispatcher(cfg *config.Config) *WebhookDispatcher {
 	return &WebhookDispatcher{
-		config:  cfg,
-		client:  &http.Client{Timeout: 10 * time.Second},
+		config: cfg,
+		client: &http.Client{
+			Timeout:       10 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 		retries: newRetryPlan(cfg),
 	}
 }
 
 func (dispatcher *WebhookDispatcher) ProcessBatch(ctx *cartridge.JobContext) error {
 	var events []forms.WebhookEvent
-	query := ctx.DB.Preload("Submission.Form.WebhookDelivery")
-	if err := dueEvents(query, time.Now()).Limit(10).Find(&events).Error; err != nil {
+	now := time.Now().UTC()
+	query := ctx.DB.WithContext(ctx).Preload("Submission.Form.WebhookDelivery")
+	if err := dueEvents(query, now).Limit(10).Find(&events).Error; err != nil {
 		ctx.Logger.Error("query webhook queue", slog.Any("error", err))
 		return err
 	}
 	for i := range events {
-		dispatcher.deliver(ctx, &events[i])
+		leaseUntil, err := claimEvent(ctx, ctx.DB, &forms.WebhookEvent{}, events[i].ID, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if leaseUntil == nil {
+			continue
+		}
+		events[i].Status = forms.WebhookStatusDelivering
+		events[i].NextAttemptAt = leaseUntil
+		if err := dispatcher.deliver(ctx, &events[i]); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-func (dispatcher *WebhookDispatcher) deliver(ctx *cartridge.JobContext, event *forms.WebhookEvent) {
+func (dispatcher *WebhookDispatcher) deliver(ctx *cartridge.JobContext, event *forms.WebhookEvent) error {
 	if event.Submission == nil || event.Submission.Form == nil {
-		applyWebhookState(ctx, ctx.DB, event, finalState(forms.WebhookStatusFailed, "submission unavailable"))
-		return
+		return applyWebhookState(ctx, ctx.DB, event, finalState(forms.WebhookStatusFailed, "submission unavailable"))
 	}
 
 	delivery := event.Submission.Form.WebhookDelivery
 	if delivery == nil || !delivery.Enabled || delivery.URL == "" {
-		applyWebhookState(ctx, ctx.DB, event, finalState(forms.WebhookStatusFailed, "webhooks disabled for form"))
-		return
+		return applyWebhookState(ctx, ctx.DB, event, finalState(forms.WebhookStatusFailed, "webhooks disabled for form"))
 	}
 
 	payload, err := webhookPayload(event.Submission)
 	if err == nil {
-		err = dispatcher.post(ctx, delivery, payload)
+		err = dispatcher.post(ctx, event, delivery, payload)
 	}
 	if err != nil {
-		applyWebhookState(ctx, ctx.DB, event, retryState(event.AttemptCount, dispatcher.retries, err))
-		return
+		if stateErr := applyWebhookState(ctx, ctx.DB, event, retryState(event.AttemptCount, dispatcher.retries, err)); stateErr != nil {
+			return stateErr
+		}
+		ctx.Logger.Warn("webhook delivery failed",
+			slog.Uint64("event_id", uint64(event.ID)),
+			slog.Int("attempt", event.AttemptCount),
+			slog.String("status", event.Status),
+		)
+		return nil
 	}
-	applyWebhookState(ctx, ctx.DB, event, deliveredState(event.AttemptCount))
+	return applyWebhookState(ctx, ctx.DB, event, deliveredState(event.AttemptCount))
 }
 
-func (dispatcher *WebhookDispatcher) post(ctx *cartridge.JobContext, delivery *forms.WebhookDelivery, payload []byte) error {
+func (dispatcher *WebhookDispatcher) post(ctx *cartridge.JobContext, event *forms.WebhookEvent, delivery *forms.WebhookDelivery, payload []byte) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, delivery.URL, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("create webhook request: %w", err)
@@ -78,12 +100,17 @@ func (dispatcher *WebhookDispatcher) post(ctx *cartridge.JobContext, delivery *f
 	for key, value := range webhookHeaders(ctx.Logger, delivery) {
 		request.Header.Set(key, value)
 	}
+	request.Header.Set("Idempotency-Key", fmt.Sprintf("miniform-%s-webhook-%d", event.Submission.Form.PublicID, event.ID))
 	if delivery.Secret != "" {
 		request.Header.Set(dispatcher.config.Webhook.SignatureHeader, signWebhook(payload, delivery.Secret))
 	}
 
 	response, err := dispatcher.client.Do(request)
 	if err != nil {
+		var urlError *url.Error
+		if errors.As(err, &urlError) {
+			err = urlError.Err
+		}
 		return fmt.Errorf("send webhook: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()

@@ -1,6 +1,7 @@
 package dbtxn
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"log/slog"
@@ -41,10 +42,27 @@ func WithRetry(logger *slog.Logger, db *gorm.DB, fn func(tx *gorm.DB) error) err
 			slog.Duration("pause", pause),
 			slog.Any("error", lastErr),
 		)
-		time.Sleep(pause)
+		ctx := transactionDB.Statement.Context
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := waitForRetry(ctx, pause); err != nil {
+			return err
+		}
 	}
 
 	return fmt.Errorf("sqlite write still locked after %d attempts: %w", maxAttempts, lastErr)
+}
+
+func waitForRetry(ctx context.Context, pause time.Duration) error {
+	timer := time.NewTimer(pause)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func retryPause(attempt int) time.Duration {

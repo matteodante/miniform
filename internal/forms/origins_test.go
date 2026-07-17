@@ -22,6 +22,7 @@ func TestOrigins(t *testing.T) {
 			{"exact host", "example.com", "example.com", true},
 			{"nested subdomain", "example.com", "deep.app.example.com", true},
 			{"wildcard base domain", "*.example.com", "example.com", true},
+			{"legacy leading-dot domain", ".example.com", "app.example.com", true},
 			{"comma-separated list", "one.test, two.test", "two.test", true},
 			{"full URL", "https://example.com/path", "example.com", true},
 			{"IPv6 URL", "http://[::1]", "::1", true},

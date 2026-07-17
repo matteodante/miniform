@@ -23,3 +23,8 @@ func hasUniqueOrPrimaryCode(err error) bool {
 	return errors.As(err, &driverError) &&
 		(driverError.ExtendedCode == sqlite3.ErrConstraintUnique || driverError.ExtendedCode == sqlite3.ErrConstraintPrimaryKey)
 }
+
+func hasForeignKeyCode(err error) bool {
+	var driverError sqlite3.Error
+	return errors.As(err, &driverError) && driverError.ExtendedCode == sqlite3.ErrConstraintForeignKey
+}

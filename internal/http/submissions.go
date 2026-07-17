@@ -32,11 +32,15 @@ type submissionPreview struct {
 }
 
 func SubmissionList(ctx *cartridge.Context) error {
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
 	page, _ := strconv.Atoi(ctx.Query("page", "1"))
 	formID, _ := strconv.ParseUint(ctx.Query("form_id"), 10, 32)
 	rangeFilter := strings.TrimSpace(ctx.Query("range"))
 	search := strings.TrimSpace(ctx.Query("q"))
-	result, err := forms.ListSubmissions(ctx.DB(), forms.SubmissionFilter{
+	result, err := forms.ListSubmissions(db, forms.SubmissionFilter{
 		FormID: uint(formID), Range: rangeFilter, Query: search, Page: page, PerPage: 20,
 	})
 	if err != nil {
@@ -46,7 +50,7 @@ func SubmissionList(ctx *cartridge.Context) error {
 		}
 		return fiber.ErrInternalServerError
 	}
-	summary, err := forms.GetInboxSummary(ctx.DB(), time.Now())
+	summary, err := forms.GetInboxSummary(db, time.Now())
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
@@ -70,7 +74,11 @@ func AdminSubmissionShow(ctx *cartridge.Context) error {
 	if err != nil {
 		return err
 	}
-	submission, err := forms.GetSubmissionByID(ctx.DB(), id)
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	submission, err := forms.GetSubmissionByID(db, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return fiber.ErrNotFound
 	}
@@ -91,7 +99,11 @@ func AdminSubmissionFileDownload(ctx *cartridge.Context, cfg *config.Config) err
 	if err != nil {
 		return err
 	}
-	file, err := forms.GetSubmissionFile(ctx.DB(), submissionID, fileID)
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	file, err := forms.GetSubmissionFile(db, submissionID, fileID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return fiber.ErrNotFound
 	}

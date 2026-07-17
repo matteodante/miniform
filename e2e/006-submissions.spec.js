@@ -24,6 +24,33 @@ test.describe("inbox entries", () => {
     await expect(page.locator("body")).toContainText("Alice Smith");
   });
 
+  test("downloads an attachment without htmx intercepting the link", async ({ page, admin }) => {
+    const response = await page.request.post(`/forms/${endpoint.slug}/submit?token=${endpoint.token}`, {
+      multipart: {
+        message: "Attachment entry",
+        attachment: {
+          name: "brief.txt",
+          mimeType: "text/plain",
+          buffer: Buffer.from("downloaded attachment"),
+        },
+      },
+      headers: { Origin: "http://localhost:3000" },
+    });
+    expect(response.status()).toBe(200);
+    const submission = await response.json();
+    await admin.open(`/admin/submissions/${submission.submission_id}`);
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("link", { name: "Download" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("brief.txt");
+    const stream = await download.createReadStream();
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    expect(Buffer.concat(chunks).toString()).toBe("downloaded attachment");
+    expect(new URL(page.url()).pathname).toBe(`/admin/submissions/${submission.submission_id}`);
+  });
+
   test("renders canonical UTC timestamps in the browser timezone", async ({ page, admin }) => {
     expect((await admin.submit(endpoint.slug, endpoint.token, { email: "time@example.com" })).status()).toBe(200);
     await admin.open("/admin/submissions");

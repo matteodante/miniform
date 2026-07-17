@@ -24,9 +24,6 @@ type webhookEventView struct {
 type emailEventView webhookEventView
 
 func (r *Runner) runEvent(args []string) (any, error) {
-	if err := r.requireDatabase(); err != nil {
-		return nil, err
-	}
 	action, actionArgs, err := requireAction("event", args)
 	if err != nil {
 		return nil, err
@@ -50,8 +47,14 @@ func (r *Runner) eventList(args []string) (any, error) {
 	if err := r.parseFlags(set, "event.list", args); err != nil {
 		return nil, err
 	}
-	switch strings.ToLower(strings.TrimSpace(*eventType)) {
-	case "webhook":
+	typeName := strings.ToLower(strings.TrimSpace(*eventType))
+	if typeName != "webhook" && typeName != "email" {
+		return nil, validationError("event type must be webhook or email")
+	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
+	if typeName == "webhook" {
 		events, err := forms.ListWebhookEvents(r.DB, *formID, *status, *limit)
 		if err != nil {
 			return nil, err
@@ -61,19 +64,16 @@ func (r *Runner) eventList(args []string) (any, error) {
 			views = append(views, newWebhookEventView(&events[i]))
 		}
 		return views, nil
-	case "email":
-		events, err := forms.ListEmailEvents(r.DB, *formID, *status, *limit)
-		if err != nil {
-			return nil, err
-		}
-		views := make([]emailEventView, 0, len(events))
-		for i := range events {
-			views = append(views, newEmailEventView(&events[i]))
-		}
-		return views, nil
-	default:
-		return nil, validationError("event type must be webhook or email")
 	}
+	events, err := forms.ListEmailEvents(r.DB, *formID, *status, *limit)
+	if err != nil {
+		return nil, err
+	}
+	views := make([]emailEventView, 0, len(events))
+	for i := range events {
+		views = append(views, newEmailEventView(&events[i]))
+	}
+	return views, nil
 }
 
 func (r *Runner) eventRetry(args []string) (any, error) {
@@ -90,19 +90,23 @@ func (r *Runner) eventRetry(args []string) (any, error) {
 	if !*yes {
 		return nil, usageError("event retry requires --yes")
 	}
-	switch strings.ToLower(strings.TrimSpace(*eventType)) {
-	case "webhook":
+	typeName := strings.ToLower(strings.TrimSpace(*eventType))
+	if typeName != "webhook" && typeName != "email" {
+		return nil, validationError("event type must be webhook or email")
+	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
+	if typeName == "webhook" {
 		if err := forms.RetryWebhookEvent(r.Logger, r.DB, *id); err != nil {
 			return nil, err
 		}
-	case "email":
+	} else {
 		if err := forms.RetryEmailEvent(r.Logger, r.DB, *id); err != nil {
 			return nil, err
 		}
-	default:
-		return nil, validationError("event type must be webhook or email")
 	}
-	return map[string]any{"id": *id, "type": strings.ToLower(*eventType), "scheduled": true}, nil
+	return map[string]any{"id": *id, "type": typeName, "scheduled": true}, nil
 }
 
 func newWebhookEventView(event *forms.WebhookEvent) webhookEventView {

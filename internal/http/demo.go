@@ -12,8 +12,12 @@ import (
 )
 
 func DemoContactForm(ctx *cartridge.Context) error {
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
 	slug := strings.TrimSpace(ctx.Query("slug", "contact"))
-	form, err := forms.GetBySlug(ctx.DB(), slug)
+	form, err := forms.GetBySlug(db, slug)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ctx.Status(fiber.StatusNotFound).SendString("Demo endpoint not found. Run 'make demo' or pass an existing slug with ?slug=your-slug.")
 	}

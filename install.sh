@@ -70,8 +70,8 @@ tar --extract --gzip --file "$archive" --directory "$extract_dir"
 binary="$(find "$extract_dir" -type f -name miniform -perm -u+x -print -quit)"
 [[ -n "$binary" ]] || fail "the release archive does not contain the Miniform executable"
 
+echo "Starting the interactive Miniform system installer..."
+"$binary" install
+
 install --mode 0755 "$binary" "$INSTALL_DIR/miniform"
 echo "Installed $INSTALL_DIR/miniform"
-
-echo "Starting the interactive Miniform system installer..."
-"$INSTALL_DIR/miniform" install

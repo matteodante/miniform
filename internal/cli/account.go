@@ -15,9 +15,6 @@ type accountView struct {
 }
 
 func (r *Runner) runAccount(args []string) (any, error) {
-	if err := r.requireDatabase(); err != nil {
-		return nil, err
-	}
 	action, actionArgs, err := requireAction("account", args)
 	if err != nil {
 		return nil, err
@@ -40,6 +37,9 @@ func (r *Runner) runAccount(args []string) (any, error) {
 func (r *Runner) accountShow(args []string) (any, error) {
 	set := newFlagSet("account.show")
 	if err := r.parseFlags(set, "account.show", args); err != nil {
+		return nil, err
+	}
+	if err := r.requireDatabase(); err != nil {
 		return nil, err
 	}
 	user, err := accounts.GetAdmin(r.DB)
@@ -66,6 +66,9 @@ func (r *Runner) accountSetEmail(args []string) (any, error) {
 	password, err := readFileValue(*passwordFile, r.Stdin)
 	if err != nil {
 		return nil, validationError(err.Error())
+	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
 	}
 	user, err := accounts.GetAdmin(r.DB)
 	if err != nil {
@@ -100,6 +103,9 @@ func (r *Runner) accountChangePassword(args []string) (any, error) {
 	if err != nil {
 		return nil, validationError(err.Error())
 	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
 	user, err := accounts.GetAdmin(r.DB)
 	if err != nil {
 		return nil, err
@@ -124,6 +130,9 @@ func (r *Runner) accountResetPassword(args []string) (any, error) {
 	newPassword, err := readFileValue(*newFile, r.Stdin)
 	if err != nil {
 		return nil, validationError(err.Error())
+	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
 	}
 	if *email == "" {
 		user, err := accounts.GetAdmin(r.DB)

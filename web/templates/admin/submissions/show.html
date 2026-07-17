@@ -24,7 +24,7 @@
             {{ range .Submission.Files }}
             <li class="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div class="min-w-0"><p class="truncate font-medium text-ink">{{ .Filename }}</p><p class="mt-1 text-xs text-ink-muted">{{ .FieldName }} · {{ .Size }} bytes · {{ .ContentType }}</p></div>
-                <a class="mf-button-secondary !px-3 !py-1.5 text-xs" href="/admin/submissions/{{ .SubmissionID }}/files/{{ .ID }}">Download</a>
+                <a class="mf-button-secondary !px-3 !py-1.5 text-xs" href="/admin/submissions/{{ .SubmissionID }}/files/{{ .ID }}" hx-boost="false">Download</a>
             </li>
             {{ end }}
         </ul>

@@ -73,14 +73,21 @@ func TestFiles(t *testing.T) {
 
 	t.Run("stores private uploads and returns their metadata", func(t *testing.T) {
 		root := t.TempDir()
-		records, err := SaveFiles(root, 12, 34, []*UploadedFile{{
+		records, staged, err := stageUnassignedFiles(root, []*UploadedFile{{
 			FieldName: "attachment", Filename: "report.pdf", ContentType: "application/pdf",
 			Data: bytes.NewBufferString("test data"),
 		}})
 
 		require.NoError(t, err)
+		storageRoot, err := os.OpenRoot(root)
+		require.NoError(t, err)
+		defer func() { _ = storageRoot.Close() }()
+		for _, file := range staged.files {
+			require.NoError(t, restoreStagedUpload(storageRoot, file))
+		}
+		require.NoError(t, storageRoot.RemoveAll(staged.operation))
 		require.Len(t, records, 1)
-		assert.Equal(t, filepath.Join("uploads", "12", "34"), filepath.Dir(records[0].StoragePath))
+		assert.Equal(t, "uploads", filepath.Dir(filepath.Dir(records[0].StoragePath)))
 		assert.Equal(t, int64(9), records[0].Size)
 		source, err := OpenSubmissionFile(root, records[0])
 		require.NoError(t, err)
@@ -126,7 +133,9 @@ func TestFiles(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Dir(filePath), 0o700))
 		require.NoError(t, os.WriteFile(filePath, []byte("keep"), 0o600))
 
-		require.NoError(t, DeleteSubmissionFiles("", 12, 34))
+		staged, err := stageStoredFiles("", []*SubmissionFile{{StoragePath: filePath}})
+		assert.Nil(t, staged)
+		assert.ErrorContains(t, err, "data directory is required")
 		assert.FileExists(t, filePath)
 	})
 
@@ -140,21 +149,24 @@ func TestFiles(t *testing.T) {
 		require.NoError(t, os.WriteFile(outsideFile, []byte("keep"), 0o600))
 		require.NoError(t, os.Symlink(outsideDirectory, filepath.Join(storageDirectory, "uploads", "12")))
 
-		err := DeleteSubmissionFiles(storageDirectory, 12, 34)
+		staged, err := stageStoredFiles(storageDirectory, []*SubmissionFile{{StoragePath: filepath.Join("uploads", "12", "34", "keep.txt")}})
 
+		assert.Nil(t, staged)
 		assert.Error(t, err)
 		assert.FileExists(t, outsideFile)
 	})
 
 	t.Run("removes a partial batch after an IO failure", func(t *testing.T) {
 		root := t.TempDir()
-		_, err := SaveFiles(root, 12, 34, []*UploadedFile{
+		uploadDirectory := filepath.Join("uploads", "batch")
+		_, err := saveFilesAt(root, uploadDirectory, uploadDirectory, 0, []*UploadedFile{
 			{Filename: "first.pdf", Data: bytes.NewBufferString("saved")},
 			{Filename: "broken.pdf", Data: iotest.ErrReader(errors.New("read failed"))},
 		})
 
 		assert.Error(t, err)
-		_, statErr := os.Stat(filepath.Join(root, "uploads", "12", "34"))
+		_, statErr := os.Stat(filepath.Join(root, "uploads", "batch"))
 		assert.True(t, os.IsNotExist(statErr))
 	})
+
 }

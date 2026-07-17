@@ -26,9 +26,10 @@ func commandManifest() []CommandSpec {
 		{Name: "install", Summary: "Install the self-hosted container deployment.", Mutates: true},
 		{Name: "update", Summary: "Update the installed container deployment.", Mutates: true},
 		{Name: "reload", Summary: "Reload the installed container deployment.", Mutates: true},
+		{Name: "backup", Summary: "Create a verified deployment database backup.", Mutates: true},
 		{Name: "restore-db", Summary: "Restore the installed deployment database from backup.", Mutates: true},
 		{Name: "check", Summary: "Run deployment security checks."},
-		{Name: "version", Summary: "Print build version, commit, and timestamp."},
+		{Name: "version", Summary: "Print build version and commit."},
 		{Name: "account show", Summary: "Show the operator account without its password hash.", RequiresDatabase: true},
 		{Name: "account set-email", Summary: "Change the operator email after password verification.", Mutates: true, RequiresDatabase: true, Flags: []string{"--email STRING", "--current-password-file PATH|-"}, Examples: []string{"miniform account set-email --email admin@example.com --current-password-file -"}},
 		{Name: "account change-password", Summary: "Change the operator password after verifying the current password.", Mutates: true, RequiresDatabase: true, Flags: []string{"--current-password-file PATH|-", "--new-password-file PATH|-"}},
@@ -36,7 +37,7 @@ func commandManifest() []CommandSpec {
 		{Name: "config show", Summary: "Show effective runtime configuration with secrets redacted.", Flags: []string{"--show-secrets"}},
 		{Name: "form list", Summary: "List configured form endpoints.", RequiresDatabase: true},
 		{Name: "form get", Summary: "Get one form by id or slug.", RequiresDatabase: true, Flags: []string{"--id UINT", "--slug STRING", "--show-secrets"}},
-		{Name: "form code", Summary: "Build copyable form HTML with captcha and optional SDK.", RequiresDatabase: true, Flags: []string{"--id UINT", "--slug STRING", "--include-sdk=BOOL", "--show-secrets"}, Notes: []string{"Omitting --include-sdk uses the form setting.", "The token is replaced with YOUR_FORM_TOKEN unless --show-secrets is set."}},
+		{Name: "form code", Summary: "Build copyable form HTML with captcha and optional SDK.", RequiresDatabase: true, Flags: []string{"--id UINT", "--slug STRING", "--include-sdk=BOOL", "--base-url URL", "--show-secrets"}, Notes: []string{"Omitting --include-sdk uses the form setting.", "Set --base-url to emit deployable absolute action and SDK URLs.", "The token is replaced with YOUR_FORM_TOKEN unless --show-secrets is set."}},
 		{Name: "form create", Summary: "Create a form endpoint and its delivery policies.", Mutates: true, RequiresDatabase: true, Flags: []string{"--template STRING", "--name STRING", "--slug STRING", "--allowed-origins STRING", "--use-sdk", "--generated-html-file PATH", "--mailer-profile-id UINT", "--captcha-profile-id UINT", "--email-enabled", "--email-recipient STRING", "--webhook-enabled", "--webhook-url URL", "--webhook-secret-file PATH|-", "--webhook-headers-file PATH"}},
 		{Name: "form update", Summary: "Update form and delivery settings; omitted flags preserve current values.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--name STRING", "--slug STRING", "--allowed-origins STRING", "--use-sdk=BOOL", "--generated-html-file PATH", "--clear-generated-html", "--mailer-profile-id UINT", "--clear-mailer-profile", "--captcha-profile-id UINT", "--clear-captcha-profile", "--email-enabled=BOOL", "--email-recipient STRING", "--webhook-enabled=BOOL", "--webhook-url URL", "--webhook-secret-file PATH|-", "--clear-webhook-secret", "--webhook-headers-file PATH", "--clear-webhook-headers"}},
 		{Name: "form rotate-token", Summary: "Replace a form submission token and invalidate the old token.", Mutates: true, RequiresDatabase: true, Flags: []string{"--id UINT", "--yes", "--show-secrets"}},
@@ -130,7 +131,7 @@ func (r *Runner) writeRootHelp() {
 	fmt.Fprintln(r.Stdout, "  miniform commands --json")
 	fmt.Fprintln(r.Stdout, "  miniform help <resource> [action]")
 	fmt.Fprintln(r.Stdout)
-	fmt.Fprintln(r.Stdout, "Existing process/deployment commands remain available: serve, install, update, reload, restore-db, check, version.")
+	fmt.Fprintln(r.Stdout, "Existing process/deployment commands remain available: serve, install, update, reload, backup, restore-db, check, version.")
 }
 
 //nolint:errcheck // Help cannot recover from a closed output stream.

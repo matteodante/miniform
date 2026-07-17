@@ -1,6 +1,7 @@
 package accounts_test
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -17,20 +18,47 @@ import (
 func TestAccounts(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
+	t.Run("keeps a temporary account restricted until its password changes", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		created, err := accounts.EnsureAdmin(logger, db, "password123", false, nil)
+		require.NoError(t, err)
+		require.True(t, created)
+
+		assert.True(t, accounts.RequiresPasswordChange(db))
+		user, err := accounts.Authenticate(logger, db, "  ADMIN@MINIFORM.LOCAL ", "password123")
+		require.NoError(t, err)
+		assert.True(t, user.PasswordChangeRequired)
+		assert.NotNil(t, user.LastLoginAt)
+		assert.True(t, accounts.RequiresPasswordChange(db))
+
+		assert.ErrorIs(t,
+			accounts.ChangePassword(logger, db, user.Email, "password123", "password123"),
+			accounts.ErrPasswordUnchanged,
+		)
+		require.NoError(t, accounts.ChangePassword(logger, db, user.Email, "password123", "replacement-password"))
+		user, err = accounts.Authenticate(logger, db, accounts.DefaultAdminEmail, "replacement-password")
+		require.NoError(t, err)
+		assert.False(t, user.PasswordChangeRequired)
+		assert.False(t, accounts.RequiresPasswordChange(db))
+	})
+
 	t.Run("authenticates and records the login", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		createUser(t, db, accounts.DefaultAdminEmail, "password123")
 
-		assert.True(t, accounts.IsFirstLoginPending(db))
-		result, err := accounts.Authenticate(logger, db, "  ADMIN@MINIFORM.LOCAL ", "password123")
+		user, err := accounts.Authenticate(logger, db, accounts.DefaultAdminEmail, "password123")
 		require.NoError(t, err)
-		assert.True(t, result.IsFirstLogin)
-		assert.NotNil(t, result.User.LastLoginAt)
-		assert.False(t, accounts.IsFirstLoginPending(db))
+		assert.NotNil(t, user.LastLoginAt)
+	})
 
-		result, err = accounts.Authenticate(logger, db, accounts.DefaultAdminEmail, "password123")
+	t.Run("tracks the password requirement after an email change", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		created, err := accounts.EnsureAdmin(logger, db, "password123", false, nil)
 		require.NoError(t, err)
-		assert.False(t, result.IsFirstLogin)
+		require.True(t, created)
+
+		require.NoError(t, accounts.ChangeEmail(logger, db, accounts.DefaultAdminEmail, "operator@example.com", "password123"))
+		assert.True(t, accounts.RequiresPasswordChange(db))
 	})
 
 	t.Run("does not disclose invalid accounts", func(t *testing.T) {
@@ -81,6 +109,20 @@ func TestAccounts(t *testing.T) {
 		require.NoError(t, accounts.ResetPassword(logger, db, created.Email, "replacement-password"))
 		_, err = accounts.Authenticate(logger, db, created.Email, "replacement-password")
 		assert.NoError(t, err)
+	})
+
+	t.Run("does not persist initial credentials that could not be announced", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		announcementErr := errors.New("output unavailable")
+
+		created, err := accounts.EnsureAdmin(logger, db, "password123", false, func() error {
+			return announcementErr
+		})
+
+		assert.False(t, created)
+		assert.ErrorIs(t, err, announcementErr)
+		_, err = accounts.GetAdmin(db)
+		assert.ErrorIs(t, err, accounts.ErrUserNotFound)
 	})
 
 }

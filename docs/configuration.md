@@ -11,9 +11,9 @@ Development defaults also work without a configuration file. The built-in Matcha
 | `MINIFORM_ENV` | `development` | Set to `production`; requires HTTPS |
 | `MINIFORM_PORT` | `8080` | Bind behind a reverse proxy |
 | `MINIFORM_SESSION_SECRET` | Random value per development process | Required; stable random 32-byte value |
-| `MINIFORM_LOG_LEVEL` | `info` outside production; `error` in production | Use `info` unless diagnosing a problem |
+| `MINIFORM_LOG_LEVEL` | `info` outside production; `error` in production | `debug`, `info`, `warn`/`warning`, or `error` |
 | `MINIFORM_DATA_DIR` | `./storage` | Mount persistent, access-controlled storage |
-| `MINIFORM_DATABASE_FILENAME` | `miniform.db` | Change only before first deployment |
+| `MINIFORM_DATABASE_FILENAME` | `miniform.db` | Filename only; use `MINIFORM_DATABASE_PATH` for a path |
 | `MINIFORM_DATABASE_PATH` | Derived from data directory, environment, and filename | Use only when an explicit SQLite path is required |
 | `MINIFORM_LOGS_DIR` | Under the data directory | Keep on persistent storage if logs are retained |
 | `MINIFORM_SESSION_TIMEOUT_SECONDS` | `604800` | Set an explicit organizational policy if needed |
@@ -21,6 +21,8 @@ Development defaults also work without a configuration file. The built-in Matcha
 | `MINIFORM_WEBHOOK_SIGNATURE_HEADER` | `X-Miniform-Signature` | Header used for outbound webhook signatures |
 | `MINIFORM_WEBHOOK_RETRY_LIMIT` | `3` | Maximum configured webhook delivery attempts |
 | `MINIFORM_WEBHOOK_BACKOFF_SCHEDULE` | `1,5,15,60` | Retry delays in seconds |
+
+Miniform rejects unsupported log levels, invalid ports, non-positive limits, and malformed retry schedules at startup. It does not silently replace an invalid configured value with a default.
 
 Generate secrets with:
 

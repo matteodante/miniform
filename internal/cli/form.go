@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"net/url"
 	"strings"
 	"time"
 
@@ -40,17 +41,13 @@ type webhookDeliveryView struct {
 }
 
 type formTemplateView struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Description    string `json:"description"`
-	Slug           string `json:"slug"`
-	Icon           string `json:"icon,omitempty"`
-	Color          string `json:"color,omitempty"`
-	EmailEnabled   bool   `json:"email_enabled"`
-	WebhookEnabled bool   `json:"webhook_enabled"`
-	ComingSoon     bool   `json:"coming_soon"`
-	WIP            bool   `json:"wip"`
-	HTML           string `json:"html,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Slug        string `json:"slug"`
+	Icon        string `json:"icon,omitempty"`
+	Color       string `json:"color,omitempty"`
+	HTML        string `json:"html,omitempty"`
 }
 
 type formCodeView struct {
@@ -66,11 +63,6 @@ func (r *Runner) runForm(args []string) (any, error) {
 	action, actionArgs, err := requireAction("form", args)
 	if err != nil {
 		return nil, err
-	}
-	if action != "template-list" && action != "template-get" {
-		if err := r.requireDatabase(); err != nil {
-			return nil, err
-		}
 	}
 	switch action {
 	case "list":
@@ -101,15 +93,22 @@ func (r *Runner) formCode(args []string) (any, error) {
 	id := set.Uint("id", 0, "form id")
 	slug := set.String("slug", "", "form slug")
 	includeSDK := set.Bool("include-sdk", false, "include the optional JavaScript SDK")
+	baseURL := set.String("base-url", "", "public Miniform base URL")
 	if err := r.parseFlags(set, "form.code", args); err != nil {
 		return nil, err
 	}
 	if (*id == 0) == (strings.TrimSpace(*slug) == "") {
 		return nil, usageError("set exactly one of --id or --slug")
 	}
+	publicBaseURL, err := validatedBaseURL(*baseURL)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
 
 	var form *forms.Form
-	var err error
 	if *id > 0 {
 		form, err = forms.GetByID(r.DB, *id)
 	} else {
@@ -125,6 +124,7 @@ func (r *Runner) formCode(args []string) (any, error) {
 	result := formembed.Build(form, formembed.Options{
 		ShowToken:  r.ShowSecrets,
 		IncludeSDK: useSDK,
+		BaseURL:    publicBaseURL,
 	})
 	return formCodeView{
 		FormID:      form.ID,
@@ -136,9 +136,25 @@ func (r *Runner) formCode(args []string) (any, error) {
 	}, nil
 }
 
+func validatedBaseURL(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", validationError("base-url must be an absolute HTTP(S) URL")
+	}
+	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
 func (r *Runner) formList(args []string) (any, error) {
 	set := newFlagSet("form.list")
 	if err := r.parseFlags(set, "form.list", args); err != nil {
+		return nil, err
+	}
+	if err := r.requireDatabase(); err != nil {
 		return nil, err
 	}
 	items, err := forms.List(r.DB)
@@ -165,6 +181,9 @@ func (r *Runner) formGet(args []string) (any, error) {
 	}
 	if (*id == 0) == (strings.TrimSpace(*slug) == "") {
 		return nil, usageError("set exactly one of --id or --slug")
+	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
 	}
 
 	var form *forms.Form
@@ -234,12 +253,16 @@ func (r *Runner) formCreate(args []string) (any, error) {
 	if err != nil {
 		return nil, validationError(err.Error())
 	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
 	form, err := forms.Create(r.Logger, r.DB, forms.CreateParams{
 		Name:               *name,
 		Slug:               *slug,
 		AllowedOrigins:     *origins,
 		UseSDK:             *useSDK,
 		GeneratedHTML:      generatedHTML,
+		TemplateID:         strings.TrimSpace(*templateID),
 		MailerProfileID:    optionalUint(*mailerID),
 		CaptchaProfileID:   optionalUint(*captchaID),
 		EmailRecipient:     *emailRecipient,
@@ -251,13 +274,6 @@ func (r *Runner) formCreate(args []string) (any, error) {
 	})
 	if err != nil {
 		return nil, err
-	}
-	if template != nil && *generatedHTMLFile == "" {
-		action := "/forms/" + form.Slug + "/submit?token=" + form.Token
-		form, err = forms.SetGeneratedHTML(r.Logger, r.DB, form.ID, template.RenderHTML(action))
-		if err != nil {
-			return nil, err
-		}
 	}
 	return newFormView(form, r.ShowSecrets), nil
 }
@@ -305,6 +321,21 @@ func (r *Runner) formUpdate(args []string) (any, error) {
 	if *clearWebhookHeaders && *webhookHeadersFile != "" {
 		return nil, usageError("--clear-webhook-headers conflicts with --webhook-headers-file")
 	}
+	generatedHTML, err := readContentFile(*generatedHTMLFile)
+	if err != nil {
+		return nil, validationError(err.Error())
+	}
+	webhookSecret, err := readFileValue(*webhookSecretFile, r.Stdin)
+	if err != nil {
+		return nil, validationError(err.Error())
+	}
+	webhookHeaders, err := readContentFile(*webhookHeadersFile)
+	if err != nil {
+		return nil, validationError(err.Error())
+	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
 
 	current, err := forms.GetByID(r.DB, *id)
 	if err != nil {
@@ -328,10 +359,7 @@ func (r *Runner) formUpdate(args []string) (any, error) {
 		params.UpdateGeneratedHTML = true
 	}
 	if *generatedHTMLFile != "" {
-		params.GeneratedHTML, err = readContentFile(*generatedHTMLFile)
-		if err != nil {
-			return nil, validationError(err.Error())
-		}
+		params.GeneratedHTML = generatedHTML
 		params.UpdateGeneratedHTML = true
 	}
 	if flagWasSet(set, "mailer-profile-id") {
@@ -362,19 +390,13 @@ func (r *Runner) formUpdate(args []string) (any, error) {
 		params.WebhookSecret = ""
 	}
 	if *webhookSecretFile != "" {
-		params.WebhookSecret, err = readFileValue(*webhookSecretFile, r.Stdin)
-		if err != nil {
-			return nil, validationError(err.Error())
-		}
+		params.WebhookSecret = webhookSecret
 	}
 	if *clearWebhookHeaders {
 		params.WebhookHeadersJSON = ""
 	}
 	if *webhookHeadersFile != "" {
-		params.WebhookHeadersJSON, err = readContentFile(*webhookHeadersFile)
-		if err != nil {
-			return nil, validationError(err.Error())
-		}
+		params.WebhookHeadersJSON = webhookHeaders
 	}
 
 	updated, err := forms.Update(r.Logger, r.DB, params)
@@ -396,6 +418,9 @@ func (r *Runner) formDelete(args []string) (any, error) {
 	}
 	if !*yes {
 		return nil, usageError("form delete requires --yes")
+	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
 	}
 	dataDir := ""
 	if r.Config != nil {
@@ -419,6 +444,9 @@ func (r *Runner) formRotateToken(args []string) (any, error) {
 	}
 	if !*yes {
 		return nil, usageError("form rotate-token requires --yes")
+	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
 	}
 	form, err := forms.RotateToken(r.Logger, r.DB, *id)
 	if err != nil {
@@ -519,16 +547,12 @@ func newFormView(form *forms.Form, showSecrets bool) formView {
 
 func newFormTemplateView(template *forms.FormTemplate, action string, includeHTML bool) formTemplateView {
 	view := formTemplateView{
-		ID:             template.ID,
-		Name:           template.Name,
-		Description:    template.Description,
-		Slug:           template.Slug,
-		Icon:           template.Icon,
-		Color:          template.Color,
-		EmailEnabled:   template.EmailDelivery.Enabled,
-		WebhookEnabled: template.WebhookDelivery.Enabled,
-		ComingSoon:     template.ComingSoon,
-		WIP:            template.WIP,
+		ID:          template.ID,
+		Name:        template.Name,
+		Description: template.Description,
+		Slug:        template.Slug,
+		Icon:        template.Icon,
+		Color:       template.Color,
 	}
 	if includeHTML {
 		view.HTML = template.RenderHTML(action)

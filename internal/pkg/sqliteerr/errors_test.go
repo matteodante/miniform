@@ -13,5 +13,7 @@ func TestContentionText(t *testing.T) {
 		assert.True(t, IsContention(errors.New("database is busy")))
 		assert.False(t, IsContention(errors.New("permission denied")))
 		assert.False(t, IsContention(nil))
+		assert.True(t, IsForeignKeyConstraint(errors.New("FOREIGN KEY constraint failed")))
+		assert.False(t, IsForeignKeyConstraint(errors.New("unique constraint failed")))
 	})
 }

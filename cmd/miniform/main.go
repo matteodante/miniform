@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -8,7 +9,9 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/matteodante/miniform/internal"
@@ -16,14 +19,13 @@ import (
 	"github.com/matteodante/miniform/internal/config"
 	"github.com/matteodante/miniform/internal/database"
 
-	cartridgesqlite "github.com/karloscodes/cartridge/sqlite"
 	"github.com/karloscodes/matcha"
+	"gorm.io/gorm"
 )
 
 var (
-	version   = "dev"
-	commit    = "unknown"
-	buildTime = "unknown"
+	version = "dev"
+	commit  = "unknown"
 )
 
 func main() {
@@ -52,11 +54,22 @@ func execute(args []string) int {
 
 	manager := newMatcha()
 	commands := map[string]func() error{
-		"install":    manager.Install,
-		"update":     manager.Update,
-		"reload":     manager.Reload,
-		"restore-db": manager.RestoreDB,
-		"check":      matcha.Check,
+		"install": func() error {
+			return runDeploymentCommand(manager, "install", os.Stdin, os.Stdout)
+		},
+		"update": func() error {
+			return runDeploymentCommand(manager, "update", os.Stdin, os.Stdout)
+		},
+		"reload": func() error {
+			return runDeploymentCommand(manager, "reload", os.Stdin, os.Stdout)
+		},
+		"backup": func() error {
+			return runDeploymentCommand(manager, "backup", os.Stdin, os.Stdout)
+		},
+		"restore-db": func() error {
+			return runDeploymentCommand(manager, "restore-db", os.Stdin, os.Stdout)
+		},
+		"check": matcha.Check,
 	}
 	command, found := commands[args[0]]
 	if !found {
@@ -92,36 +105,49 @@ func runDataCLI(args []string) int {
 	if cli.RequiresConfig(args) {
 		loaded, err := config.Load()
 		if err != nil {
-			return cli.WriteStartupFailure(args, os.Stderr, "load configuration")
+			return cli.WriteStartupFailure(args, os.Stderr, "load configuration", err)
 		}
 		cfg = loaded
 	}
 	dependencies := cli.Dependencies{Config: cfg}
-
-	if cli.RequiresDatabase(args) {
-		if err := cfg.EnsureDirectories(); err != nil {
-			return cli.WriteStartupFailure(args, os.Stderr, "prepare storage")
-		}
-		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-		manager := cartridgesqlite.NewManager(cartridgesqlite.Config{
-			Path: cfg.DatabasePath, MaxOpenConns: cfg.GetMaxOpenConns(), MaxIdleConns: cfg.GetMaxIdleConns(), Logger: logger,
-		})
-		db, err := manager.Connect()
-		if err != nil {
-			return cli.WriteStartupFailure(args, os.Stderr, "connect database")
-		}
-		if err := database.Migrate(db); err != nil {
-			return cli.WriteStartupFailure(args, os.Stderr, "prepare database")
-		}
-		defer func() {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	var manager *database.Manager
+	var runner *cli.Runner
+	defer func() {
+		if manager != nil {
 			if err := manager.Close(); err != nil {
 				log.Printf("close database: %v", err)
 			}
-		}()
-		dependencies.DB, dependencies.Logger = db, logger
+		}
+	}()
+	dependencies.Logger = logger
+	dependencies.ConnectDatabase = func() (*gorm.DB, error) {
+		if cfg == nil {
+			loaded, err := config.Load()
+			if err != nil {
+				return nil, fmt.Errorf("load configuration: %w", err)
+			}
+			cfg = loaded
+			runner.Config = loaded
+		}
+		if manager == nil {
+			manager = database.NewManager(cfg.DatabasePath, cfg.GetMaxOpenConns(), cfg.GetMaxIdleConns())
+		}
+		if err := cfg.EnsureDirectories(); err != nil {
+			return nil, fmt.Errorf("prepare storage: %w", err)
+		}
+		db, err := manager.Connect()
+		if err != nil {
+			return nil, err
+		}
+		if err := database.Migrate(db); err != nil {
+			return nil, fmt.Errorf("prepare database: %w", err)
+		}
+		return db, nil
 	}
 
-	return cli.NewRunner(dependencies).Run(args)
+	runner = cli.NewRunner(dependencies)
+	return runner.Run(args)
 }
 
 func newMatcha() *matcha.Matcha {
@@ -131,7 +157,7 @@ func newMatcha() *matcha.Matcha {
 	}
 	return matcha.New(matcha.Config{
 		Name: "miniform", AppImage: appImage, HealthPath: "/_health",
-		Volumes: []string{"/app/storage"}, CronUpdates: true, Backups: true,
+		Volumes: []string{"/app/storage"}, Backups: true,
 		ManagerRepo: "matteodante/miniform", ManagerVersion: version,
 	})
 }
@@ -151,31 +177,48 @@ func runServer(args []string) error {
 		return printVersion(os.Stdout)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	app, err := internal.NewApp()
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err := app.Close(); err != nil {
+			log.Printf("close application: %v", err)
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return nil
+	}
+
 	log.Print("Preparing database")
-	if err := internal.RunMigrations(app); err != nil {
+	if err := internal.RunMigrations(ctx, app); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return fmt.Errorf("prepare database: %w", err)
 	}
 	if *seed {
-		return seedDatabase(app)
+		if err := seedDatabase(ctx, app); err != nil && ctx.Err() == nil {
+			return err
+		}
+		return nil
 	}
 
 	shutdownTimeout := 2 * time.Second
 	if app.Config.IsProduction() {
 		shutdownTimeout = 10 * time.Second
 	}
-	return app.RunWithTimeout(shutdownTimeout)
+	return app.Run(ctx, shutdownTimeout)
 }
 
-func seedDatabase(app *internal.App) error {
+func seedDatabase(ctx context.Context, app *internal.App) error {
 	db, err := app.DBManager.Connect()
 	if err != nil {
 		return fmt.Errorf("connect database for seed: %w", err)
 	}
-	if err := database.Seed(db); err != nil {
+	if err := database.Seed(db.WithContext(ctx)); err != nil {
 		return fmt.Errorf("seed database: %w", err)
 	}
 	log.Print("Sample data created")
@@ -183,7 +226,7 @@ func seedDatabase(app *internal.App) error {
 }
 
 func printVersion(writer io.Writer) error {
-	_, err := fmt.Fprintf(writer, "Miniform %s\n  Commit:     %s\n  Build Time: %s\n", version, commit, buildTime)
+	_, err := fmt.Fprintf(writer, "Miniform %s\n  Commit: %s\n", version, commit)
 	return err
 }
 
@@ -197,8 +240,9 @@ Server:
 
 Deployment:
   install                     Install via Docker
-  update                      Update the installation
-  reload                      Reload containers
+  update                      Back up and update with one app process
+  reload                      Back up and reload with one app process
+  backup                      Create a verified database backup
   restore-db                  Restore a database backup
   check                       Check server security
 

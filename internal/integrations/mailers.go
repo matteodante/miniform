@@ -2,6 +2,7 @@ package integrations
 
 import (
 	"log/slog"
+	"net/mail"
 	"strings"
 
 	"gorm.io/gorm"
@@ -74,10 +75,15 @@ func (params MailerProfileParams) mailerProfile() (*MailerProfile, error) {
 	if host == "" {
 		return nil, &ValidationError{Field: "smtp_host", Message: "SMTP host is required"}
 	}
+	fromEmail := strings.TrimSpace(params.DefaultFromEmail)
+	address, err := mail.ParseAddress(fromEmail)
+	if err != nil || address.Address != fromEmail {
+		return nil, &ValidationError{Field: "default_from_email", Message: "From email must be a valid address"}
+	}
 	return &MailerProfile{
 		Name:             name,
 		DefaultFromName:  strings.TrimSpace(params.DefaultFromName),
-		DefaultFromEmail: strings.TrimSpace(params.DefaultFromEmail),
+		DefaultFromEmail: fromEmail,
 		SMTPHost:         host,
 		SMTPPort:         port,
 		SMTPUsername:     strings.TrimSpace(params.SMTPUsername),

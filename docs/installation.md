@@ -51,7 +51,9 @@ The SQLite driver requires CGO. Do not build release binaries with `CGO_ENABLED=
 
 ## Installer
 
-The installer downloads a versioned Linux release, verifies its SHA-256 checksum, and launches the interactive system installer. Review scripts before running them as root:
+The installer downloads a versioned Linux release, verifies its SHA-256 checksum, and launches that verified candidate. It replaces the installed manager only after installation succeeds. Review scripts before running them as root:
+
+Install and start Docker Engine first using the official instructions for your operating system. Miniform refuses installation when Docker is unavailable; it never pipes a remote Docker installer into a privileged shell.
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/matteodante/miniform/main/install.sh
@@ -66,26 +68,50 @@ Avoid piping remote scripts directly into a privileged shell.
 On an empty database, Miniform creates `admin@miniform.local` with a unique temporary password and prints it once to standard output. Retrieve container logs if necessary:
 
 ```bash
-docker logs miniform
+app_container="$(docker ps \
+  --filter 'name=^miniform$' \
+  --filter 'name=^miniform-next$' \
+  --format '{{.Names}}' | head -n 1)"
+test -n "$app_container"
+docker logs "$app_container"
 ```
 
-Sign in immediately and change both the email address and password. The temporary password is never stored in plaintext.
+Managed updates alternate between the `miniform` and `miniform-next` container names, so resolve the running container instead of assuming one name.
+
+On the first sign-in, only the password settings remain available until you replace the temporary password. Then update the email address. The temporary password is never stored in plaintext.
 
 ## Upgrades
+
+For an installation managed by the system installer:
+
+```bash
+sudo miniform backup
+sudo miniform update
+```
+
+`update` updates the manager and pulls images while the current process is still serving. It then stops the old process, creates a verified snapshot of the final stopped SQLite state, and starts the replacement. This intentionally trades a short maintenance window for single-process SQLite ownership. A pull failure leaves the process untouched; a post-stop backup or start failure attempts to restore and restart the previous deployment before returning an error.
+
+For other OCI or process-manager deployments:
 
 1. Read [CHANGELOG.md](../CHANGELOG.md) and the release notes.
 2. Back up the database and uploaded files.
 3. Pull or download the exact target version.
-4. Replace the process or container while preserving storage and its environment configuration.
+4. Stop the old process before starting the replacement while preserving storage and environment configuration.
 5. Confirm `/_health`, sign-in, a test submission, and configured deliveries.
 
-Database migrations run automatically at startup. Do not skip versions when release notes include an explicit staged migration.
-
-Before the first public release, development schemas are not preserved: recreate development storage when `main` changes its schema.
+Database migrations run automatically at startup and preserve the legacy schemas covered by the compatibility tests. Do not skip versions when release notes include an explicit staged migration, and keep a restorable backup before every upgrade; hand-edited schemas are not supported.
 
 ## Backups
 
-Back up the full storage directory or use the management command installed by the system installer. A useful backup is one that has been restored and verified. Keep backups encrypted and access-controlled because submissions and integration credentials may contain personal or sensitive data.
+`sudo miniform backup` creates and verifies a consistent SQLite snapshot under `/var/matcha/miniform/backups` and keeps the three newest snapshots. It does not copy uploaded files. For a point-in-time disaster-recovery copy, stop Miniform and copy the full `/var/matcha/miniform/storage` directory; a separate live file copy is not coordinated with the database snapshot.
+
+Restore a database interactively with:
+
+```bash
+sudo miniform restore-db
+```
+
+The command validates and stages the selected snapshot, stops Miniform, backs up the final stopped database state, atomically replaces the database, and starts one application process. If backup or startup fails, it attempts to return to the previous deployment. If the previous database was missing or invalid, rollback is impossible and Miniform remains stopped with an explicit error. A useful backup is one that has been restored and verified. Keep backups encrypted and access-controlled because submissions and integration credentials may contain personal or sensitive data.
 
 ## Uninstall
 

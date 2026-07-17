@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -13,7 +14,12 @@ import (
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 )
 
-const storedErrorLimit = 500
+const (
+	storedErrorLimit = 500
+	deliveryLease    = time.Minute
+)
+
+var errDeliveryClaimLost = errors.New("delivery claim lost")
 
 type retryPlan struct {
 	delays []time.Duration
@@ -43,7 +49,37 @@ func (plan retryPlan) next(attempt int, now time.Time) *time.Time {
 }
 
 func dueEvents(db *gorm.DB, now time.Time) *gorm.DB {
-	return db.Where("next_attempt_at <= ?", now.UTC()).Order("next_attempt_at, created_at, id")
+	return db.
+		Where("status IN ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)", []string{
+			forms.WebhookStatusPending,
+			forms.WebhookStatusRetrying,
+			forms.WebhookStatusDelivering,
+		}, now.UTC()).
+		Order("next_attempt_at, created_at, id")
+}
+
+func claimEvent(ctx *cartridge.JobContext, db *gorm.DB, model any, id uint, now time.Time) (*time.Time, error) {
+	claimed := false
+	leaseUntil := now.UTC().Add(deliveryLease)
+	err := dbtxn.WithRetry(ctx.Logger, db.WithContext(ctx), func(tx *gorm.DB) error {
+		result := tx.Model(model).
+			Where("id = ?", id).
+			Where("status IN ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)", []string{
+				forms.WebhookStatusPending,
+				forms.WebhookStatusRetrying,
+				forms.WebhookStatusDelivering,
+			}, now.UTC()).
+			Updates(map[string]any{
+				"status":          forms.WebhookStatusDelivering,
+				"next_attempt_at": leaseUntil,
+			})
+		claimed = result.RowsAffected == 1
+		return result.Error
+	})
+	if err != nil || !claimed {
+		return nil, err
+	}
+	return &leaseUntil, nil
 }
 
 type deliveryState struct {
@@ -91,7 +127,10 @@ func compactError(err error) string {
 	return message
 }
 
-func saveState(ctx *cartridge.JobContext, db *gorm.DB, model any, id uint, state deliveryState) error {
+func saveClaimedState(ctx *cartridge.JobContext, db *gorm.DB, model any, id uint, leaseUntil *time.Time, state deliveryState) error {
+	if leaseUntil == nil {
+		return errDeliveryClaimLost
+	}
 	values := map[string]any{
 		"status":           state.status,
 		"last_attempt_at":  state.attemptedAt.UTC(),
@@ -101,15 +140,24 @@ func saveState(ctx *cartridge.JobContext, db *gorm.DB, model any, id uint, state
 	if state.attemptCount != nil {
 		values["attempt_count"] = *state.attemptCount
 	}
-	return dbtxn.WithRetry(ctx.Logger, db, func(tx *gorm.DB) error {
-		return tx.Model(model).Where("id = ?", id).Updates(values).Error
+	return dbtxn.WithRetry(ctx.Logger, db.WithContext(ctx), func(tx *gorm.DB) error {
+		result := tx.Model(model).
+			Where("id = ? AND status = ? AND next_attempt_at = ?", id, forms.WebhookStatusDelivering, leaseUntil.UTC()).
+			Updates(values)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return errDeliveryClaimLost
+		}
+		return nil
 	})
 }
 
-func applyWebhookState(ctx *cartridge.JobContext, db *gorm.DB, event *forms.WebhookEvent, state deliveryState) {
-	if err := saveState(ctx, db, &forms.WebhookEvent{}, event.ID, state); err != nil {
+func applyWebhookState(ctx *cartridge.JobContext, db *gorm.DB, event *forms.WebhookEvent, state deliveryState) error {
+	if err := saveClaimedState(ctx, db, &forms.WebhookEvent{}, event.ID, event.NextAttemptAt, state); err != nil {
 		ctx.Logger.Error("update webhook event", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
-		return
+		return err
 	}
 	event.Status = state.status
 	event.LastAttemptAt = &state.attemptedAt
@@ -118,12 +166,13 @@ func applyWebhookState(ctx *cartridge.JobContext, db *gorm.DB, event *forms.Webh
 	if state.attemptCount != nil {
 		event.AttemptCount = *state.attemptCount
 	}
+	return nil
 }
 
-func applyEmailState(ctx *cartridge.JobContext, db *gorm.DB, event *forms.EmailEvent, state deliveryState) {
-	if err := saveState(ctx, db, &forms.EmailEvent{}, event.ID, state); err != nil {
+func applyEmailState(ctx *cartridge.JobContext, db *gorm.DB, event *forms.EmailEvent, state deliveryState) error {
+	if err := saveClaimedState(ctx, db, &forms.EmailEvent{}, event.ID, event.NextAttemptAt, state); err != nil {
 		ctx.Logger.Error("update email event", slog.Uint64("id", uint64(event.ID)), slog.Any("error", err))
-		return
+		return err
 	}
 	event.Status = state.status
 	event.LastAttemptAt = &state.attemptedAt
@@ -132,4 +181,5 @@ func applyEmailState(ctx *cartridge.JobContext, db *gorm.DB, event *forms.EmailE
 	if state.attemptCount != nil {
 		event.AttemptCount = *state.attemptCount
 	}
+	return nil
 }

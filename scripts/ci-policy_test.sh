@@ -19,13 +19,12 @@ expect_invalid() {
 
 expect_valid v0.0.0
 expect_valid v1.2.3
-expect_valid v1.2.3-rc.1
-expect_valid v1.2.3-alpha-1+build.42
-expect_valid v1.2.3-x-y-z.--
-expect_valid v1.2.3+001
 
 expect_invalid 1.2.3
 expect_invalid v01.2.3
+expect_invalid v1.2.3-rc.1
+expect_invalid v1.2.3-alpha-1+build.42
+expect_invalid v1.2.3+001
 expect_invalid v1.2.3-01
 expect_invalid v1.2.3-alpha.
 expect_invalid v1.2.3-alpha..1
@@ -41,15 +40,22 @@ grep -Fq './scripts/test-release-binaries.sh dist/artifacts.json "$(ALPINE_AMD64
 grep -Fq -- '--volume "$(CURDIR):/src:ro"' "$root/Makefile"
 grep -Fq -- '--volume "$(INSTALLER_BINARY_DIR):/out"' "$root/Makefile"
 grep -Fq './scripts/validate-release-tag.sh "v$(v)"' "$root/Makefile"
+grep -Fq 'git tag -s "v$(v)" -m "Release v$(v)"' "$root/Makefile"
+grep -Fq 'container_name="miniform-test-$$(date +%s)-$$$$"' "$root/Makefile"
+grep -Fq 'volume=$$(docker volume create)' "$root/Makefile"
+grep -Fq 'docker rm --force "$$container_id"' "$root/Makefile"
+grep -Fq 'docker volume rm --force "$$volume"' "$root/Makefile"
+grep -Fq 'find "$storage_tree" -xdev -exec chown -h miniform:miniform {} \;' "$root/docker-entrypoint.sh"
+grep -Fq '"$data_dir/.upload-staging"' "$root/docker-entrypoint.sh"
+grep -Fq 'MINIFORM_DATABASE_FILENAME must be a filename' "$root/docker-entrypoint.sh"
+grep -Fq '/app/storage/.upload-staging/restored/attachment.txt' "$root/Makefile"
+grep -Fq 'for database_file in "$database_path" "$database_path-wal" "$database_path-shm"; do' "$root/docker-entrypoint.sh"
 grep -Eq 'registry:2@sha256:[0-9a-f]{64}' "$root/.github/workflows/ci.yml"
 grep -Fq 'run: ./scripts/validate-release-tag.sh "$RELEASE_TAG"' "$root/.github/workflows/release.yml"
-grep -Fq 'version_without_build="${RELEASE_TAG%%+*}"' "$root/.github/workflows/release.yml"
-grep -Fq 'if [[ "$version_without_build" == *-* ]]; then' "$root/.github/workflows/release.yml"
-grep -Fq 'echo "stable=false" >> "$GITHUB_OUTPUT"' "$root/.github/workflows/release.yml"
-grep -Fq 'echo "stable=true" >> "$GITHUB_OUTPUT"' "$root/.github/workflows/release.yml"
-grep -Fq 'stable: ${{ steps.release.outputs.stable }}' "$root/.github/workflows/release.yml"
-grep -Fq 'type=raw,value=latest,enable=${{ steps.release.outputs.stable }}' "$root/.github/workflows/release.yml"
-grep -Fq 'STABLE_RELEASE: ${{ needs.image.outputs.stable }}' "$root/.github/workflows/release.yml"
+grep -Fq 'git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main' "$root/.github/workflows/release.yml"
+grep -Fq 'flavor: latest=false' "$root/.github/workflows/release.yml"
+grep -Fq "type=semver,pattern=v{{major}},enable=\${{ !startsWith(github.ref, 'refs/tags/v0.') }}" "$root/.github/workflows/release.yml"
+grep -Fq 'type=raw,value=latest' "$root/.github/workflows/release.yml"
 grep -Fq 'needs: [validate, installer]' "$root/.github/workflows/release.yml"
 grep -Fq 'MINIFORM_RUN_INSTALLATION_TEST=1' "$root/.github/workflows/release.yml"
 grep -Fq 'platforms: linux/amd64' "$root/.github/workflows/release.yml"
@@ -63,6 +69,10 @@ grep -Fq 'libc6-dev-arm64-cross' "$root/.github/workflows/release.yml"
 grep -Fq -- '- netgo' "$root/.goreleaser.yml"
 grep -Fq -- '- osusergo' "$root/.goreleaser.yml"
 grep -Fq -- '- -s -w -linkmode external -extldflags "-static"' "$root/.goreleaser.yml"
+grep -Fq -- '- -X main.version={{ .Tag }}' "$root/.goreleaser.yml"
+grep -Fq 'formats: [tar.gz, binary]' "$root/.goreleaser.yml"
+grep -Fq 'subject-checksums: dist/checksums.txt' "$root/.github/workflows/release.yml"
+grep -Fq 'artifacts: binary' "$root/.goreleaser.yml"
 grep -Fq 'test -z "$$(git status --porcelain)"' "$root/Makefile"
 grep -Fq 'rm -f $(BIN_DIR)/$(APP) $(INSTALLER_BINARY) $(E2E_BINARY)' "$root/Makefile"
 grep -Fq 'rm -rf "$(CURDIR)/dist"' "$root/Makefile"
@@ -70,13 +80,39 @@ grep -Fq 'rm -rf "$(CURDIR)/dist"' "$root/Makefile"
 e2e_setup=$(make -s -n -C "$root" test-e2e-setup)
 printf '%s\n' "$e2e_setup" | grep -Fq "PLAYWRIGHT_BROWSERS_PATH=\"$root/tmp/ms-playwright\" npx playwright install chromium"
 
+installer_run_line=$(grep -nF '"$binary" install' "$root/install.sh" | cut -d: -f1)
+installer_replace_line=$(grep -nF 'install --mode 0755 "$binary" "$INSTALL_DIR/miniform"' "$root/install.sh" | cut -d: -f1)
+if [ -z "$installer_run_line" ] || [ -z "$installer_replace_line" ]; then
+	echo "installer candidate lifecycle is missing" >&2
+	exit 1
+fi
+if [ "$installer_run_line" -ge "$installer_replace_line" ]; then
+	echo "installer replaces the current manager before installation succeeds" >&2
+	exit 1
+fi
+
 if grep -Fq 'raw.githubusercontent.com/golangci/golangci-lint' "$root/Makefile"; then
 	echo "golangci-lint installer script is executed from a mutable Git tag" >&2
 	exit 1
 fi
 
+if grep -Eq 'container=miniform-test;|volume=miniform-test-storage|127\.0\.0\.1:18080' "$root/Makefile"; then
+	echo "container-test uses shared Docker resources" >&2
+	exit 1
+fi
+
 if grep -Fq "contains(github.ref_name, '-')" "$root/.github/workflows/release.yml"; then
 	echo "release stability is inferred from build metadata" >&2
+	exit 1
+fi
+
+if grep -Fq 'CronUpdates: true' "$root/cmd/miniform/main.go"; then
+	echo "deployment enables unattended updates" >&2
+	exit 1
+fi
+
+if grep -Fq 'Compress: true' "$root/internal/assets.go"; then
+	echo "development server generates non-reproducible Fiber sidecars" >&2
 	exit 1
 fi
 

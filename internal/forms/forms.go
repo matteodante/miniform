@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/mail"
+	"net/url"
 	"strings"
 
+	"golang.org/x/net/http/httpguts"
 	"gorm.io/gorm"
 
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
@@ -19,6 +22,7 @@ type CreateParams struct {
 	AllowedOrigins     string
 	UseSDK             bool
 	GeneratedHTML      string
+	TemplateID         string
 	MailerProfileID    *uint
 	CaptchaProfileID   *uint
 	EmailRecipient     string
@@ -76,6 +80,10 @@ func Create(logger *slog.Logger, db *gorm.DB, params CreateParams) (*Form, error
 	if origins == "" {
 		return nil, invalid("allowed_origins", "Allowed origins is required")
 	}
+	origins, err := normalizeAllowedOrigins(origins)
+	if err != nil {
+		return nil, err
+	}
 
 	delivery, err := prepareDelivery(params.EmailEnabled, params.MailerProfileID, params.EmailRecipient, params.WebhookEnabled, params.WebhookURL, params.WebhookSecret, params.WebhookHeadersJSON)
 	if err != nil {
@@ -85,13 +93,30 @@ func Create(logger *slog.Logger, db *gorm.DB, params CreateParams) (*Form, error
 	if err != nil {
 		return nil, fmt.Errorf("generate form slug: %w", err)
 	}
+	token, err := generateToken(24)
+	if err != nil {
+		return nil, fmt.Errorf("generate form token: %w", err)
+	}
+	generatedHTML := strings.TrimSpace(params.GeneratedHTML)
+	if templateID := strings.TrimSpace(params.TemplateID); generatedHTML == "" && templateID != "" {
+		template := GetTemplateByID(templateID)
+		if template == nil {
+			return nil, invalid("template", "Unknown form template")
+		}
+		action := "/forms/" + url.PathEscape(normalizedSlug) + "/submit?token=" + url.QueryEscape(token)
+		generatedHTML = template.RenderHTML(action)
+	}
+	if err := validateGeneratedHTML(generatedHTML); err != nil {
+		return nil, err
+	}
 
 	form := &Form{
 		Name:             name,
 		Slug:             normalizedSlug,
 		AllowedOrigins:   origins,
 		UseSDK:           params.UseSDK,
-		GeneratedHTML:    strings.TrimSpace(params.GeneratedHTML),
+		GeneratedHTML:    generatedHTML,
+		Token:            token,
 		CaptchaProfileID: params.CaptchaProfileID,
 		EmailDelivery: &EmailDelivery{
 			Enabled:         params.EmailEnabled,
@@ -107,6 +132,9 @@ func Create(logger *slog.Logger, db *gorm.DB, params CreateParams) (*Form, error
 	}
 
 	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		if err := validateProfileReferences(tx, params.MailerProfileID, params.CaptchaProfileID); err != nil {
+			return err
+		}
 		return tx.Create(form).Error
 	}); err != nil {
 		if isUniqueConstraint(err) {
@@ -135,7 +163,13 @@ func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error
 		return nil, err
 	}
 
-	origins := keepUnlessSet(form.AllowedOrigins, params.AllowedOrigins)
+	origins := form.AllowedOrigins
+	if value := strings.TrimSpace(params.AllowedOrigins); value != "" {
+		origins, err = normalizeAllowedOrigins(value)
+		if err != nil {
+			return nil, err
+		}
+	}
 	slug := form.Slug
 	if value := strings.TrimSpace(params.Slug); value != "" {
 		slug, err = Slugify(value)
@@ -146,8 +180,14 @@ func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error
 	generatedHTML := form.GeneratedHTML
 	if params.UpdateGeneratedHTML {
 		generatedHTML = strings.TrimSpace(params.GeneratedHTML)
+		if err := validateGeneratedHTML(generatedHTML); err != nil {
+			return nil, err
+		}
 	}
 	err = dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		if err := validateProfileReferences(tx, params.MailerProfileID, params.CaptchaProfileID); err != nil {
+			return err
+		}
 		if err := tx.Model(&Form{}).Where("id = ?", params.ID).Updates(map[string]any{
 			"name": name, "slug": slug, "allowed_origins": origins,
 			"use_sdk": params.UseSDK, "generated_html": generatedHTML,
@@ -207,29 +247,57 @@ func GetEmailEvents(db *gorm.DB, formID uint, limit int) ([]EmailEvent, error) {
 	return recentEvents[EmailEvent](db, formID, limit)
 }
 
-func Delete(logger *slog.Logger, db *gorm.DB, id uint) error {
+func deleteFormRecords(tx *gorm.DB, id uint) error {
+	submissionIDs := tx.Model(&Submission{}).Select("id").Where("form_id = ?", id)
+	for _, model := range []any{&WebhookEvent{}, &EmailEvent{}, &SubmissionFile{}} {
+		if err := tx.Where("submission_id IN (?)", submissionIDs).Delete(model).Error; err != nil {
+			return err
+		}
+	}
+	if err := tx.Where("form_id = ?", id).Delete(&Submission{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("form_id = ?", id).Delete(&EmailDelivery{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("form_id = ?", id).Delete(&WebhookDelivery{}).Error; err != nil {
+		return err
+	}
+	deleted := tx.Delete(&Form{}, id)
+	if deleted.Error != nil {
+		return deleted.Error
+	}
+	if deleted.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// ReconcileDeliveryRecords restores the one-to-one delivery rows required by every form.
+func ReconcileDeliveryRecords(logger *slog.Logger, db *gorm.DB) error {
 	return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		submissionIDs := tx.Model(&Submission{}).Select("id").Where("form_id = ?", id)
-		for _, model := range []any{&WebhookEvent{}, &EmailEvent{}, &SubmissionFile{}} {
-			if err := tx.Where("submission_id IN (?)", submissionIDs).Delete(model).Error; err != nil {
+		var missingEmail []uint
+		if err := tx.Model(&Form{}).
+			Where("NOT EXISTS (SELECT 1 FROM email_deliveries WHERE email_deliveries.form_id = forms.id)").
+			Pluck("id", &missingEmail).Error; err != nil {
+			return err
+		}
+		for _, formID := range missingEmail {
+			if err := tx.Create(&EmailDelivery{FormID: formID}).Error; err != nil {
 				return err
 			}
 		}
-		if err := tx.Where("form_id = ?", id).Delete(&Submission{}).Error; err != nil {
+
+		var missingWebhooks []uint
+		if err := tx.Model(&Form{}).
+			Where("NOT EXISTS (SELECT 1 FROM webhook_deliveries WHERE webhook_deliveries.form_id = forms.id)").
+			Pluck("id", &missingWebhooks).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("form_id = ?", id).Delete(&EmailDelivery{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("form_id = ?", id).Delete(&WebhookDelivery{}).Error; err != nil {
-			return err
-		}
-		deleted := tx.Delete(&Form{}, id)
-		if deleted.Error != nil {
-			return deleted.Error
-		}
-		if deleted.RowsAffected == 0 {
-			return gorm.ErrRecordNotFound
+		for _, formID := range missingWebhooks {
+			if err := tx.Create(&WebhookDelivery{FormID: formID}).Error; err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -268,8 +336,20 @@ func prepareDelivery(emailEnabled bool, mailerID *uint, recipient string, webhoo
 	if emailEnabled && (mailerID == nil || recipient == "") {
 		return values, invalid("email", "Mailer profile and email recipient required when email forwarding is enabled")
 	}
+	if emailEnabled {
+		if _, err := mail.ParseAddress(recipient); err != nil {
+			return values, invalid("email", "Email recipient must be a valid address")
+		}
+	}
 	if webhookEnabled && values.webhookURL == "" {
 		return values, invalid("webhook", "Webhook URL required when webhook delivery is enabled")
+	}
+	if webhookEnabled {
+		endpoint, err := url.Parse(values.webhookURL)
+		if err != nil || endpoint.Host == "" ||
+			(!strings.EqualFold(endpoint.Scheme, "http") && !strings.EqualFold(endpoint.Scheme, "https")) {
+			return values, invalid("webhook", "Webhook URL must be an absolute HTTP or HTTPS URL")
+		}
 	}
 
 	var err error
@@ -286,18 +366,19 @@ func canonicalWebhookHeaders(value string) (string, error) {
 	if err := json.Unmarshal([]byte(value), &headers); err != nil {
 		return "", invalid("webhook_headers", "Webhook headers must be valid JSON")
 	}
+	for name, value := range headers {
+		if !httpguts.ValidHeaderFieldName(name) {
+			return "", invalid("webhook_headers", "Webhook header names must be valid HTTP header names")
+		}
+		if !httpguts.ValidHeaderFieldValue(value) {
+			return "", invalid("webhook_headers", "Webhook header values must be valid HTTP header values")
+		}
+	}
 	normalized, err := json.Marshal(headers)
 	if err != nil {
 		return "", fmt.Errorf("normalize webhook headers: %w", err)
 	}
 	return string(normalized), nil
-}
-
-func keepUnlessSet(current, candidate string) string {
-	if candidate = strings.TrimSpace(candidate); candidate != "" {
-		return candidate
-	}
-	return current
 }
 
 func invalid(field, message string) *ValidationError {

@@ -2,6 +2,8 @@
 
 Miniform follows Semantic Versioning. Before 1.0, minor versions may include documented breaking changes; patch versions must remain backward compatible.
 
+Release tags use stable `vMAJOR.MINOR.PATCH` versions only. Prerelease and build-metadata tags remain unsupported until the installed manager can compare them correctly.
+
 ## Prerequisites
 
 - The release commit is on protected `main` with all required checks passing.

@@ -22,6 +22,36 @@ test.describe("operator settings", () => {
     await expect(page).toHaveURL(/\/admin\/submissions/);
   });
 
+  test("revalidates password confirmation after repeated HTMX navigation", async ({ page, admin }) => {
+    await admin.open("/admin/submissions");
+
+    for (let visit = 0; visit < 2; visit += 1) {
+      const settingsResponse = page.waitForResponse((response) => (
+        new URL(response.url()).pathname === "/admin/settings"
+      ));
+      await page.locator('a[data-nav][href="/admin/settings"]').click();
+      const response = await settingsResponse;
+      expect(response.request().headers()["hx-request"]).toBe("true");
+      await expect(page).toHaveURL(/\/admin\/settings$/);
+      await expect(page.locator("#new_password")).toBeVisible();
+
+      if (visit === 0) {
+        await page.locator('a[data-nav][href="/admin/submissions"]').click();
+        await expect(page).toHaveURL(/\/admin\/submissions$/);
+      }
+    }
+
+    const newPassword = page.locator("#new_password");
+    const confirmation = page.locator("#confirm_password");
+
+    await newPassword.fill("replacement-one");
+    await confirmation.fill("replacement-two");
+    expect(await confirmation.evaluate((input) => input.checkValidity())).toBe(false);
+
+    await newPassword.fill("replacement-two");
+    expect(await confirmation.evaluate((input) => input.checkValidity())).toBe(true);
+  });
+
   test("changes the password", async ({ page, admin }) => {
     const temporaryPassword = `Tmp-${uniqueName("password")}`;
     await admin.open("/admin/settings");

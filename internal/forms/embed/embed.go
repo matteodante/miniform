@@ -14,12 +14,10 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
-const SDKScriptTag = `<!-- Optional Miniform SDK: retry and pending-state helpers -->
-<script src="/assets/miniform.js"></script>`
-
 type Options struct {
 	ShowToken  bool
 	IncludeSDK bool
+	BaseURL    string
 }
 
 type Result struct {
@@ -39,7 +37,7 @@ func Build(form *forms.Form, options Options) Result {
 	if !options.ShowToken {
 		view.Token = "YOUR_FORM_TOKEN"
 	}
-	action := formAction(view.Slug, view.Token)
+	action := formAction(options.BaseURL, view.Slug, view.Token)
 	result := Result{Action: action, IncludesSDK: options.IncludeSDK, Redacted: !options.ShowToken}
 
 	if strings.TrimSpace(view.GeneratedHTML) == "" {
@@ -49,7 +47,7 @@ func Build(form *forms.Form, options Options) Result {
 	}
 	result.HTML = addTurnstile(result.HTML, turnstileFor(&view))
 	if options.IncludeSDK {
-		result.HTML = appendBlock(result.HTML, SDKScriptTag)
+		result.HTML = appendBlock(result.HTML, SDKScriptTag(options.BaseURL))
 	}
 	return result
 }
@@ -192,12 +190,18 @@ func appendBlock(source, block string) string {
 	return strings.TrimRight(source, "\n") + "\n" + strings.TrimSpace(block)
 }
 
-func formAction(slug, token string) string {
+func SDKScriptTag(baseURL string) string {
+	token := htmlnode.Token{Type: htmlnode.StartTagToken, DataAtom: atom.Script, Data: "script"}
+	setAttribute(&token, "src", strings.TrimRight(baseURL, "/")+"/assets/miniform.js")
+	return "<!-- Optional Miniform SDK: pending-state helpers -->\n" + token.String() + "</script>"
+}
+
+func formAction(baseURL, slug, token string) string {
 	if slug = strings.TrimSpace(slug); slug == "" {
 		slug = "your-form"
 	}
 	if token = strings.TrimSpace(token); token == "" {
 		token = "YOUR_FORM_TOKEN"
 	}
-	return "/forms/" + url.PathEscape(slug) + "/submit?token=" + url.QueryEscape(token)
+	return strings.TrimRight(baseURL, "/") + "/forms/" + url.PathEscape(slug) + "/submit?token=" + url.QueryEscape(token)
 }

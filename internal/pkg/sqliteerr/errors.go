@@ -30,3 +30,10 @@ func IsUniqueConstraint(err error) bool {
 func IsUniqueOrPrimaryConstraint(err error) bool {
 	return err != nil && hasUniqueOrPrimaryCode(err)
 }
+
+func IsForeignKeyConstraint(err error) bool {
+	if err == nil {
+		return false
+	}
+	return hasForeignKeyCode(err) || strings.Contains(strings.ToLower(err.Error()), "foreign key constraint failed")
+}

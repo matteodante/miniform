@@ -51,9 +51,12 @@ module.exports = defineConfig({
     env: {
       ...process.env,
       GOCACHE: path.join(projectRoot, "tmp", "go-cache"),
-      LOG_LEVEL: "error",
       MINIFORM_ENV: "test",
+      MINIFORM_LOG_LEVEL: "error",
       MINIFORM_PORT: String(port),
+      MINIFORM_DATABASE_PATH: "",
+      MINIFORM_DATABASE_FILENAME: "miniform.db",
+      MINIFORM_LOGS_DIR: path.join(dataDirectory, "logs"),
     },
     url: `${baseURL}/_health`,
     reuseExistingServer: false,

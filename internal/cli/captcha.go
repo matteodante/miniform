@@ -25,9 +25,6 @@ type captchaFlags struct {
 }
 
 func (r *Runner) runCaptcha(args []string) (any, error) {
-	if err := r.requireDatabase(); err != nil {
-		return nil, err
-	}
 	action, actionArgs, err := requireAction("captcha", args)
 	if err != nil {
 		return nil, err
@@ -51,6 +48,9 @@ func (r *Runner) runCaptcha(args []string) (any, error) {
 func (r *Runner) captchaList(args []string) (any, error) {
 	set := newFlagSet("captcha.list")
 	if err := r.parseFlags(set, "captcha.list", args); err != nil {
+		return nil, err
+	}
+	if err := r.requireDatabase(); err != nil {
 		return nil, err
 	}
 	profiles, err := integrations.ListCaptchaProfiles(r.DB)
@@ -77,6 +77,9 @@ func (r *Runner) captchaGet(args []string) (any, error) {
 	if err := requireUint(*id, "id"); err != nil {
 		return nil, err
 	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
 	profile, err := integrations.GetCaptchaProfileByID(r.DB, *id)
 	if err != nil {
 		return nil, err
@@ -93,8 +96,12 @@ func (r *Runner) captchaCreate(args []string) (any, error) {
 	if err := requireString(*flags.name, "name"); err != nil {
 		return nil, err
 	}
-	params, err := r.captchaParams(set, flags, integrations.CaptchaProfileParams{})
+	secretKey, err := readFileValue(*flags.secretKeyFile, r.Stdin)
 	if err != nil {
+		return nil, validationError(err.Error())
+	}
+	params := captchaParams(set, flags, integrations.CaptchaProfileParams{}, secretKey)
+	if err := r.requireDatabase(); err != nil {
 		return nil, err
 	}
 	profile, err := integrations.CreateCaptchaProfile(r.Logger, r.DB, params)
@@ -114,14 +121,18 @@ func (r *Runner) captchaUpdate(args []string) (any, error) {
 	if err := requireUint(*id, "id"); err != nil {
 		return nil, err
 	}
+	secretKey, err := readFileValue(*flags.secretKeyFile, r.Stdin)
+	if err != nil {
+		return nil, validationError(err.Error())
+	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
 	current, err := integrations.GetCaptchaProfileByID(r.DB, *id)
 	if err != nil {
 		return nil, err
 	}
-	params, err := r.captchaParams(set, flags, captchaParamsFromProfile(current))
-	if err != nil {
-		return nil, err
-	}
+	params := captchaParams(set, flags, captchaParamsFromProfile(current), secretKey)
 	profile, err := integrations.UpdateCaptchaProfile(r.Logger, r.DB, *id, params)
 	if err != nil {
 		return nil, err
@@ -141,6 +152,9 @@ func (r *Runner) captchaDelete(args []string) (any, error) {
 	}
 	if !*yes {
 		return nil, usageError("captcha delete requires --yes")
+	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
 	}
 	if _, err := integrations.GetCaptchaProfileByID(r.DB, *id); err != nil {
 		return nil, err
@@ -166,18 +180,14 @@ func defineCaptchaFlags(set *flag.FlagSet) captchaFlags {
 	}
 }
 
-func (r *Runner) captchaParams(set *flag.FlagSet, flags captchaFlags, params integrations.CaptchaProfileParams) (integrations.CaptchaProfileParams, error) {
+func captchaParams(set *flag.FlagSet, flags captchaFlags, params integrations.CaptchaProfileParams, secretKey string) integrations.CaptchaProfileParams {
 	applyStringFlag(set, "name", flags.name, &params.Name)
 	applyStringFlag(set, "site-key", flags.siteKey, &params.SiteKey)
 
 	if *flags.secretKeyFile != "" {
-		secretKey, err := readFileValue(*flags.secretKeyFile, r.Stdin)
-		if err != nil {
-			return params, validationError(err.Error())
-		}
 		params.SecretKey = secretKey
 	}
-	return params, nil
+	return params
 }
 
 func captchaParamsFromProfile(profile *integrations.CaptchaProfile) integrations.CaptchaProfileParams {

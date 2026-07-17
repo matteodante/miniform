@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -47,9 +48,6 @@ type fileView struct {
 }
 
 func (r *Runner) runSubmission(args []string) (any, error) {
-	if err := r.requireDatabase(); err != nil {
-		return nil, err
-	}
 	action, actionArgs, err := requireAction("submission", args)
 	if err != nil {
 		return nil, err
@@ -89,17 +87,6 @@ func (r *Runner) submissionCreate(args []string) (any, error) {
 	if err := requireString(*dataFile, "data-file"); err != nil {
 		return nil, err
 	}
-
-	var form *forms.Form
-	var err error
-	if *formID > 0 {
-		form, err = forms.GetByID(r.DB, *formID)
-	} else {
-		form, err = forms.GetBySlug(r.DB, strings.TrimSpace(*slug))
-	}
-	if err != nil {
-		return nil, err
-	}
 	payloadText, err := readFileValue(*dataFile, r.Stdin)
 	if err != nil {
 		return nil, validationError(err.Error())
@@ -116,12 +103,27 @@ func (r *Runner) submissionCreate(args []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer forms.CloseFiles(uploads)
+	defer func() { forms.CloseFiles(uploads) }()
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
+
+	var form *forms.Form
+	if *formID > 0 {
+		form, err = forms.GetByID(r.DB, *formID)
+	} else {
+		form, err = forms.GetBySlug(r.DB, strings.TrimSpace(*slug))
+	}
+	if err != nil {
+		return nil, err
+	}
 	dataDir := ""
 	if r.Config != nil {
 		dataDir = r.Config.DataDirectory
 	}
-	submission, err := forms.CreateSubmissionWithFiles(r.Logger, r.DB, form, payload, *userAgent, dataDir, uploads)
+	ownedUploads := uploads
+	uploads = nil
+	submission, err := forms.CreateSubmissionWithFiles(r.Logger, r.DB, form, payload, *userAgent, dataDir, ownedUploads)
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +147,9 @@ func (r *Runner) submissionList(args []string) (any, error) {
 	}
 	spamFilter, err := parseOptionalBool(*spam)
 	if err != nil {
+		return nil, err
+	}
+	if err := r.requireDatabase(); err != nil {
 		return nil, err
 	}
 
@@ -181,6 +186,9 @@ func (r *Runner) submissionGet(args []string) (any, error) {
 	if err := requireUint(*id, "id"); err != nil {
 		return nil, err
 	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
 	submission, err := forms.GetSubmissionByID(r.DB, *id)
 	if err != nil {
 		return nil, err
@@ -201,6 +209,9 @@ func (r *Runner) submissionDelete(args []string) (any, error) {
 	if !*yes {
 		return nil, usageError("submission delete requires --yes")
 	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
 	dataDir := ""
 	if r.Config != nil {
 		dataDir = r.Config.DataDirectory
@@ -218,6 +229,9 @@ func (r *Runner) submissionFileList(args []string) (any, error) {
 		return nil, err
 	}
 	if err := requireUint(*id, "id"); err != nil {
+		return nil, err
+	}
+	if err := r.requireDatabase(); err != nil {
 		return nil, err
 	}
 	submission, err := forms.GetSubmissionByID(r.DB, *id)
@@ -255,6 +269,9 @@ func (r *Runner) submissionFileCopy(args []string) (any, error) {
 	if r.Config == nil {
 		return nil, internalError("resolve upload path", fmt.Errorf("configuration dependency is unavailable"))
 	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
 
 	file, err := forms.GetSubmissionFile(r.DB, *id, *fileID)
 	if err != nil {
@@ -285,27 +302,39 @@ func (r *Runner) submissionFileCopy(args []string) (any, error) {
 }
 
 func copySubmissionFile(source io.Reader, destination string, force bool) error {
-	flags := os.O_WRONLY | os.O_CREATE
-	if force {
-		flags |= os.O_TRUNC
-	} else {
-		flags |= os.O_EXCL
-	}
-	// #nosec G304 -- The destination is the operator's explicit --output path.
-	target, err := os.OpenFile(destination, flags, 0o600)
-	if os.IsExist(err) {
-		return conflictError("destination already exists; pass --force to overwrite it")
-	}
+	directory := filepath.Dir(destination)
+	target, err := os.CreateTemp(directory, "."+filepath.Base(destination)+".tmp-*")
 	if err != nil {
 		return internalError("create destination file", err)
 	}
+	temporaryPath := target.Name()
+	defer func() { _ = os.Remove(temporaryPath) }()
+
 	_, copyErr := io.Copy(target, source)
-	closeErr := target.Close()
 	if copyErr != nil {
-		return internalError("copy submission file", copyErr)
+		return internalError("copy submission file", errors.Join(copyErr, target.Close()))
 	}
-	if closeErr != nil {
-		return internalError("close destination file", closeErr)
+	if err := target.Sync(); err != nil {
+		return internalError("sync submission file", errors.Join(err, target.Close()))
+	}
+	if err := target.Close(); err != nil {
+		return internalError("close destination file", err)
+	}
+
+	if force {
+		if err := os.Rename(temporaryPath, destination); err != nil {
+			return internalError("replace destination file", err)
+		}
+	} else {
+		if err := os.Link(temporaryPath, destination); err != nil {
+			if os.IsExist(err) {
+				return conflictError("destination already exists; pass --force to overwrite it")
+			}
+			return internalError("create destination file", err)
+		}
+		if err := os.Remove(temporaryPath); err != nil {
+			return internalError("remove temporary destination file", err)
+		}
 	}
 	return nil
 }

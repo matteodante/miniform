@@ -55,7 +55,7 @@ func (r *Runner) writeFailure(command string, commandErr *commandError) {
 }
 
 // WriteStartupFailure emits a CLI-compatible error before a Runner can be created.
-func WriteStartupFailure(args []string, writer io.Writer, operation string) int {
+func WriteStartupFailure(args []string, writer io.Writer, operation string, causes ...error) int {
 	jsonOutput := false
 	for _, argument := range args {
 		switch argument {
@@ -66,6 +66,9 @@ func WriteStartupFailure(args []string, writer io.Writer, operation string) int 
 		}
 	}
 	message := operation + " failed"
+	if len(causes) > 0 && causes[0] != nil {
+		message = operation + ": " + causes[0].Error()
+	}
 	if jsonOutput {
 		cleanArgs := stripKnownGlobalFlags(args)
 		_ = writeJSON(writer, errorEnvelope{

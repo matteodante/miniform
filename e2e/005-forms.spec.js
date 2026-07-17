@@ -22,7 +22,7 @@ test.describe("endpoint management", () => {
     const slug = uniqueName("contact");
     await page.getByLabel(/Slug/).fill(slug);
     await page.getByLabel("Allowed origins").fill("*");
-    await page.getByLabel("Email forwarding").uncheck();
+    await expect(page.getByLabel("Email forwarding")).not.toBeChecked();
     await Promise.all([
       page.waitForURL(/\/admin\/forms\/\d+$/),
       page.getByRole("button", { name: "Create endpoint" }).click(),
@@ -119,7 +119,7 @@ test.describe("endpoint management", () => {
       .toMatchObject({ captcha_profile_id: captchaProfileID });
   });
 
-  test("preserves submitted values after a validation error", async ({ page, admin }) => {
+  test("preserves non-secret values after a validation error", async ({ page, admin }) => {
     const mailerProfileID = await admin.createMailer(uniqueName("draft-mailer"));
     const captchaProfileID = await admin.createCaptcha(uniqueName("draft-captcha"));
     const endpoint = await admin.createForm("Original name", uniqueName("draft"));
@@ -144,8 +144,9 @@ test.describe("endpoint management", () => {
     await expect(page.getByLabel("Include JavaScript SDK")).toBeChecked();
     await expect(page.getByLabel("Safeguard")).toHaveValue(String(captchaProfileID));
     await expect(page.getByLabel("Destination URL")).toHaveValue("https://hooks.example.com/submissions");
-    await expect(page.getByLabel("HMAC secret")).toHaveValue("draft-secret");
-    await expect(page.getByLabel(/Custom headers/)).toHaveValue("{");
+    await expect(page.getByLabel("HMAC secret")).toHaveValue("");
+    await expect(page.getByLabel(/Custom headers/)).toHaveValue("");
+    await expect(page.locator("body")).not.toContainText("draft-secret");
     await expect(page.getByLabel("Email route")).toHaveValue(String(mailerProfileID));
     await expect(page.getByLabel("Recipient")).toHaveValue("draft@example.com");
   });
@@ -168,5 +169,20 @@ test.describe("endpoint management", () => {
     }
 
     expect(await page.evaluate(() => window.__miniformAfterSwapBindings)).toBe(0);
+  });
+
+  test("shows HTMX server-error responses instead of leaving a stale page", async ({ page, admin }) => {
+    await admin.open("/admin/forms");
+    await page.route("**/admin/frontend-lifecycle-failure", (route) => route.fulfill({
+      status: 500,
+      contentType: "text/html",
+      body: "<!doctype html><html><body><main><h1>Recovered server error</h1></main></body></html>",
+    }));
+
+    await page.evaluate(() => window.htmx.ajax("GET", "/admin/frontend-lifecycle-failure", {
+      target: document.body,
+    }));
+
+    await expect(page.getByRole("heading", { name: "Recovered server error" })).toBeVisible();
   });
 });

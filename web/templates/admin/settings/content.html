@@ -13,8 +13,14 @@
     {{ if .Error }}
     <div class="border-l-2 border-clay bg-red-50 px-4 py-3" role="alert"><p class="text-sm font-medium text-clay">{{ .Error }}</p></div>
     {{ end }}
+	{{ if .User.PasswordChangeRequired }}
+	<div class="border-l-2 border-clay bg-red-50 px-4 py-3" role="alert">
+		<p class="text-sm font-semibold text-clay">Change your temporary password before using the workspace.</p>
+	</div>
+	{{ end }}
 
     <div class="grid gap-12 lg:grid-cols-2">
+		{{ if not .User.PasswordChangeRequired }}
         <form action="/admin/settings/email" method="post" class="mf-panel space-y-6 p-6 sm:p-7">
             <input type="hidden" name="username" value="{{ .User.Email }}" autocomplete="username">
             <div>
@@ -35,6 +41,7 @@
             </div>
             <button type="submit" class="mf-button">Update email</button>
         </form>
+		{{ end }}
 
         <form action="/admin/settings/password" method="post" class="mf-panel space-y-6 p-6 sm:p-7">
             <input type="hidden" name="username" value="{{ .User.Email }}" autocomplete="username">
@@ -65,6 +72,7 @@
         </form>
     </div>
 
+	{{ if not .User.PasswordChangeRequired }}
     <nav class="grid gap-px overflow-hidden rounded-2xl border border-rule bg-rule shadow-lift sm:grid-cols-2" aria-label="Workspace configuration">
         <a href="/admin/settings/mailers" class="bg-paper-raised p-6 transition-colors hover:bg-blue-50">
             <span class="mf-kicker">Delivery</span>
@@ -77,12 +85,7 @@
             <span class="mt-2 block text-sm text-ink-muted">Turnstile site and secret keys.</span>
         </a>
     </nav>
+	{{ end }}
 </div>
 
-<script>
-    document.getElementById('confirm_password').addEventListener('input', function () {
-        const newPassword = document.getElementById('new_password').value;
-        this.setCustomValidity(this.value && newPassword !== this.value ? 'Passwords do not match' : '');
-    });
-</script>
 {{ end }}

@@ -11,7 +11,11 @@ trap 'rm -rf "$temporary"' EXIT INT TERM
 test_binary() {
 	arch="$1"
 	image="$2"
-	binary="$(jq -er --arg arch "$arch" '.[] | select(.type == "Binary" and .goos == "linux" and .goarch == $arch) | .path' "$manifest")"
+	binary="$(jq -er --arg arch "$arch" '
+		[.[] | select(.type == "Binary" and .goos == "linux" and .goarch == $arch) | .path]
+		| unique
+		| if length == 1 then .[0] else error("expected exactly one release binary") end
+	' "$manifest")"
 	if [ ! -x "$binary" ]; then
 		echo "missing executable release binary for linux/$arch: $binary" >&2
 		exit 1

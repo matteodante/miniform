@@ -15,11 +15,12 @@ import (
 )
 
 const (
-	WebhookStatusPending   = "pending"
-	WebhookStatusDelivered = "delivered"
-	WebhookStatusRetrying  = "retrying"
-	WebhookStatusFailed    = "failed"
-	DefaultRetryLimit      = 3
+	WebhookStatusPending    = "pending"
+	WebhookStatusDelivering = "delivering"
+	WebhookStatusDelivered  = "delivered"
+	WebhookStatusRetrying   = "retrying"
+	WebhookStatusFailed     = "failed"
+	DefaultRetryLimit       = 3
 )
 
 type Form struct {
@@ -32,7 +33,7 @@ type Form struct {
 	UseSDK           bool                         `gorm:"not null;default:false"`
 	GeneratedHTML    string                       `gorm:"type:text"`
 	CaptchaProfileID *uint                        `gorm:"index"`
-	CaptchaProfile   *integrations.CaptchaProfile `gorm:"constraint:OnDelete:SET NULL"`
+	CaptchaProfile   *integrations.CaptchaProfile `gorm:"constraint:OnDelete:RESTRICT"`
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 
@@ -47,7 +48,7 @@ type EmailDelivery struct {
 	Form            *Form                       `gorm:"constraint:OnDelete:CASCADE"`
 	Enabled         bool                        `gorm:"not null;default:false"`
 	MailerProfileID *uint                       `gorm:"index"`
-	MailerProfile   *integrations.MailerProfile `gorm:"constraint:OnDelete:SET NULL"`
+	MailerProfile   *integrations.MailerProfile `gorm:"constraint:OnDelete:RESTRICT"`
 	Recipient       string                      `gorm:"size:320"`
 	CreatedAt       time.Time
 	UpdatedAt       time.Time

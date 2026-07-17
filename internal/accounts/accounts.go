@@ -26,28 +26,25 @@ var (
 	ErrUserNotFound       = errors.New("user not found")
 	ErrWeakPassword       = errors.New("password must be at least 8 characters")
 	ErrPasswordMismatch   = errors.New("current password is incorrect")
+	ErrPasswordUnchanged  = errors.New("new password must be different")
 	ErrMissingFields      = errors.New("required fields are missing")
 	ErrDuplicateEmail     = errors.New("email is already in use")
 	ErrInvalidEmail       = errors.New("email is not valid")
 )
 
 type User struct {
-	ID           uint       `gorm:"primaryKey"`
-	Email        string     `gorm:"size:255;uniqueIndex;not null"`
-	PasswordHash string     `gorm:"size:255;not null"`
-	LastLoginAt  *time.Time `gorm:"index"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                     uint       `gorm:"primaryKey"`
+	Email                  string     `gorm:"size:255;uniqueIndex;not null"`
+	PasswordHash           string     `gorm:"size:255;not null"`
+	PasswordChangeRequired bool       `gorm:"not null;default:false"`
+	LastLoginAt            *time.Time `gorm:"index"`
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
-type AuthenticationResult struct {
-	User         *User
-	IsFirstLogin bool
-}
-
-func IsFirstLoginPending(db *gorm.DB) bool {
-	admin, err := FindByEmail(db, DefaultAdminEmail)
-	return err == nil && admin.LastLoginAt == nil
+func RequiresPasswordChange(db *gorm.DB) bool {
+	admin, err := GetAdmin(db)
+	return err == nil && admin.PasswordChangeRequired
 }
 
 func FindByEmail(db *gorm.DB, email string) (*User, error) {
@@ -62,7 +59,7 @@ func GetAdmin(db *gorm.DB) (*User, error) {
 	return loadUser(db.Order("id ASC"))
 }
 
-func EnsureAdmin(logger *slog.Logger, db *gorm.DB, password string, markLoggedIn bool) (bool, error) {
+func EnsureAdmin(logger *slog.Logger, db *gorm.DB, password string, markLoggedIn bool, announce func() error) (bool, error) {
 	var users int64
 	if err := db.Model(&User{}).Count(&users).Error; err != nil {
 		return false, fmt.Errorf("count accounts: %w", err)
@@ -77,21 +74,44 @@ func EnsureAdmin(logger *slog.Logger, db *gorm.DB, password string, markLoggedIn
 	if err != nil {
 		return false, fmt.Errorf("hash initial password: %w", err)
 	}
-	admin := &User{Email: DefaultAdminEmail, PasswordHash: string(hash)}
+	admin := &User{
+		Email:                  DefaultAdminEmail,
+		PasswordHash:           string(hash),
+		PasswordChangeRequired: !markLoggedIn,
+	}
 	if markLoggedIn {
 		now := time.Now().UTC()
 		admin.LastLoginAt = &now
 	}
-	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error { return tx.Create(admin).Error }); err != nil {
+	created := false
+	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		created = false
+		if err := tx.Model(&User{}).Count(&users).Error; err != nil {
+			return err
+		}
+		if users != 0 {
+			return nil
+		}
+		if err := tx.Create(admin).Error; err != nil {
+			return err
+		}
+		if announce != nil {
+			if err := announce(); err != nil {
+				return fmt.Errorf("announce initial credentials: %w", err)
+			}
+		}
+		created = true
+		return nil
+	}); err != nil {
 		if isUniqueViolation(err) {
 			return false, nil
 		}
 		return false, fmt.Errorf("create initial admin: %w", err)
 	}
-	return true, nil
+	return created, nil
 }
 
-func Authenticate(logger *slog.Logger, db *gorm.DB, email, password string) (*AuthenticationResult, error) {
+func Authenticate(logger *slog.Logger, db *gorm.DB, email, password string) (*User, error) {
 	email = normalizeEmail(email)
 	if email == "" || password == "" {
 		return nil, ErrMissingFields
@@ -110,7 +130,6 @@ func Authenticate(logger *slog.Logger, db *gorm.DB, email, password string) (*Au
 		return nil, ErrInvalidCredentials
 	}
 
-	firstLogin := user.LastLoginAt == nil
 	now := time.Now().UTC()
 	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
 		return tx.Model(&User{}).Where("id = ?", user.ID).Update("last_login_at", now).Error
@@ -119,7 +138,7 @@ func Authenticate(logger *slog.Logger, db *gorm.DB, email, password string) (*Au
 	}
 	user.LastLoginAt = &now
 
-	return &AuthenticationResult{User: user, IsFirstLogin: firstLogin}, nil
+	return user, nil
 }
 
 func ChangeEmail(logger *slog.Logger, db *gorm.DB, currentEmail, newEmail, currentPassword string) error {
@@ -164,6 +183,9 @@ func ChangePassword(logger *slog.Logger, db *gorm.DB, email, currentPassword, ne
 	if !passwordMatches(user.PasswordHash, currentPassword) {
 		return ErrPasswordMismatch
 	}
+	if passwordMatches(user.PasswordHash, newPassword) {
+		return ErrPasswordUnchanged
+	}
 	if err := storePassword(logger, db, user.ID, newPassword); err != nil {
 		return fmt.Errorf("change account password: %w", err)
 	}
@@ -201,7 +223,10 @@ func storePassword(logger *slog.Logger, db *gorm.DB, userID uint, password strin
 		return fmt.Errorf("hash password: %w", err)
 	}
 	return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		return tx.Model(&User{}).Where("id = ?", userID).Update("password_hash", string(hash)).Error
+		return tx.Model(&User{}).Where("id = ?", userID).Updates(map[string]any{
+			"password_hash":            string(hash),
+			"password_change_required": false,
+		}).Error
 	})
 }
 

@@ -15,7 +15,11 @@ import (
 )
 
 func MailerProfileList(ctx *cartridge.Context) error {
-	profiles, err := integrations.ListMailerProfiles(ctx.DB())
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	profiles, err := integrations.ListMailerProfiles(db)
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
@@ -27,12 +31,16 @@ func MailerProfileNew(ctx *cartridge.Context) error {
 }
 
 func MailerProfileCreate(ctx *cartridge.Context) error {
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
 	params := mailerParams(ctx)
-	_, err := integrations.CreateMailerProfile(ctx.Logger, ctx.DB(), params)
+	_, err = integrations.CreateMailerProfile(ctx.Logger, db, params)
 	if err != nil {
 		var validation *integrations.ValidationError
 		if errors.As(err, &validation) {
-			return renderMailerEditor(ctx, mailerProfileDraft(0, params), integrationMessage(err))
+			return renderMailerEditor(ctx, mailerProfileDraft(0, params), integrationMessage(err), mailerEditorSecrets{})
 		}
 		return fiber.ErrInternalServerError
 	}
@@ -40,25 +48,39 @@ func MailerProfileCreate(ctx *cartridge.Context) error {
 }
 
 func MailerProfileShow(ctx *cartridge.Context) error {
-	profile, err := requestedMailer(ctx)
+	db, err := requestDB(ctx)
 	if err != nil {
 		return err
 	}
-	usage, err := forms.MailerProfileUsage(ctx.DB(), profile.ID)
+	profile, err := requestedMailer(ctx, db)
+	if err != nil {
+		return err
+	}
+	usage, err := forms.MailerProfileUsage(db, profile.ID)
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
+	return renderMailerProfile(ctx, profile, usage, "")
+}
+
+func renderMailerProfile(ctx *cartridge.Context, profile *integrations.MailerProfile, usage int64, message string) error {
 	return renderPage(ctx, "Email route: "+profile.Name, "admin/mailers/show/content", fiber.Map{
-		"Profile": profile, "UsageCount": usage,
+		"Profile": profile, "UsageCount": usage, "Error": message,
 	})
 }
 
 func MailerProfileEdit(ctx *cartridge.Context) error {
-	profile, err := requestedMailer(ctx)
+	db, err := requestDB(ctx)
 	if err != nil {
 		return err
 	}
-	return renderMailerEditor(ctx, profile, "")
+	profile, err := requestedMailer(ctx, db)
+	if err != nil {
+		return err
+	}
+	return renderMailerEditor(ctx, profile, "", mailerEditorSecrets{
+		hasStoredSMTPPassword: profile.SMTPPassword != "",
+	})
 }
 
 func MailerProfileUpdate(ctx *cartridge.Context) error {
@@ -66,20 +88,35 @@ func MailerProfileUpdate(ctx *cartridge.Context) error {
 	if err != nil {
 		return err
 	}
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	current, err := integrations.GetMailerProfileByID(db, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return fiber.ErrNotFound
+	}
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
 	params := mailerParams(ctx)
-	profile, err := integrations.UpdateMailerProfile(ctx.Logger, ctx.DB(), id, params)
+	secrets := mailerEditorSecrets{
+		hasStoredSMTPPassword: current.SMTPPassword != "",
+		clearSMTPPassword:     checkbox(ctx, "clear_smtp_password"),
+	}
+	if secrets.clearSMTPPassword {
+		params.SMTPPassword = ""
+	} else if strings.TrimSpace(params.SMTPPassword) == "" {
+		params.SMTPPassword = current.SMTPPassword
+	}
+	profile, err := integrations.UpdateMailerProfile(ctx.Logger, db, id, params)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.ErrNotFound
 		}
 		var validation *integrations.ValidationError
 		if errors.As(err, &validation) {
-			if _, loadErr := integrations.GetMailerProfileByID(ctx.DB(), id); errors.Is(loadErr, gorm.ErrRecordNotFound) {
-				return fiber.ErrNotFound
-			} else if loadErr != nil {
-				return fiber.ErrInternalServerError
-			}
-			return renderMailerEditor(ctx, mailerProfileDraft(id, params), integrationMessage(err))
+			return renderMailerEditor(ctx, mailerProfileDraft(id, params), integrationMessage(err), secrets)
 		}
 		return fiber.ErrInternalServerError
 	}
@@ -91,20 +128,43 @@ func MailerProfileDelete(ctx *cartridge.Context) error {
 	if err != nil {
 		return err
 	}
-	usage, err := forms.MailerProfileUsage(ctx.DB(), id)
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	usage, err := forms.MailerProfileUsage(db, id)
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
 	if usage != 0 {
-		return ctx.Status(fiber.StatusBadRequest).SendString("Cannot delete profile: it is being used by forms")
+		return renderMailerDeleteConflict(ctx, db, id)
 	}
-	if err := integrations.DeleteMailerProfile(ctx.Logger, ctx.DB(), id); err != nil {
+	if err := integrations.DeleteMailerProfile(ctx.Logger, db, id); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.ErrNotFound
+		}
+		if errors.Is(err, integrations.ErrProfileInUse) {
+			return renderMailerDeleteConflict(ctx, db, id)
 		}
 		return fiber.ErrInternalServerError
 	}
 	return ctx.Redirect("/admin/settings/mailers")
+}
+
+func renderMailerDeleteConflict(ctx *cartridge.Context, db *gorm.DB, id uint) error {
+	profile, err := integrations.GetMailerProfileByID(db, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return fiber.ErrNotFound
+	}
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
+	usage, err := forms.MailerProfileUsage(db, id)
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
+	ctx.Status(fiber.StatusBadRequest)
+	return renderMailerProfile(ctx, profile, usage, "Cannot delete profile: it is being used by forms")
 }
 
 func mailerParams(ctx *cartridge.Context) integrations.MailerProfileParams {
@@ -127,12 +187,12 @@ func mailerParams(ctx *cartridge.Context) integrations.MailerProfileParams {
 	}
 }
 
-func requestedMailer(ctx *cartridge.Context) (*integrations.MailerProfile, error) {
+func requestedMailer(ctx *cartridge.Context, db *gorm.DB) (*integrations.MailerProfile, error) {
 	id, err := requestedID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	profile, err := integrations.GetMailerProfileByID(ctx.DB(), id)
+	profile, err := integrations.GetMailerProfileByID(db, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fiber.ErrNotFound
 	}
@@ -142,14 +202,26 @@ func requestedMailer(ctx *cartridge.Context) (*integrations.MailerProfile, error
 	return profile, nil
 }
 
-func renderMailerEditor(ctx *cartridge.Context, profile *integrations.MailerProfile, message string) error {
+type mailerEditorSecrets struct {
+	hasStoredSMTPPassword bool
+	clearSMTPPassword     bool
+}
+
+func renderMailerEditor(ctx *cartridge.Context, profile *integrations.MailerProfile, message string, secrets mailerEditorSecrets) error {
 	title := "New email route"
 	isEdit := profile != nil && profile.ID != 0
 	if isEdit {
 		title = "Edit email route"
 	}
+	if profile != nil {
+		safeProfile := *profile
+		safeProfile.SMTPPassword = ""
+		profile = &safeProfile
+	}
 	return renderPage(ctx, title, "admin/mailers/new/content", fiber.Map{
 		"Profile": profile, "Error": message, "IsEdit": isEdit,
+		"HasStoredSMTPPassword": secrets.hasStoredSMTPPassword,
+		"ClearSMTPPassword":     secrets.clearSMTPPassword,
 	})
 }
 
@@ -158,7 +230,7 @@ func mailerProfileDraft(id uint, params integrations.MailerProfileParams) *integ
 		ID: id, Name: params.Name,
 		DefaultFromName: params.DefaultFromName, DefaultFromEmail: params.DefaultFromEmail,
 		SMTPHost: params.SMTPHost, SMTPPort: params.SMTPPort,
-		SMTPUsername: params.SMTPUsername, SMTPPassword: params.SMTPPassword,
+		SMTPUsername:   params.SMTPUsername,
 		SMTPEncryption: params.SMTPEncryption,
 	}
 }

@@ -12,16 +12,21 @@ import (
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 )
 
-const HoneypotField = "__mf_hp"
+const (
+	HoneypotField       = "__mf_hp"
+	legacyHoneypotField = "__fl_hp"
+)
 
-func CreateSubmission(logger *slog.Logger, db *gorm.DB, form *Form, payload map[string]any, userAgent string) (*Submission, error) {
-	return CreateSubmissionWithFiles(logger, db, form, payload, userAgent, "", nil)
-}
+var ErrEmptySubmission = errors.New("submission payload empty")
 
 func CreateSubmissionWithFiles(logger *slog.Logger, db *gorm.DB, form *Form, payload map[string]any, userAgent, dataDir string, files []*UploadedFile) (*Submission, error) {
 	spam := consumeHoneypot(payload)
 	if spam {
 		logger.Info("honeypot triggered", slog.Uint64("form_id", uint64(form.ID)), slog.String("form_slug", form.Slug))
+	}
+	if !spam && len(payload) == 0 && len(files) == 0 {
+		CloseFiles(files)
+		return nil, ErrEmptySubmission
 	}
 
 	data, err := json.Marshal(payload)
@@ -37,39 +42,53 @@ func CreateSubmissionWithFiles(logger *slog.Logger, db *gorm.DB, form *Form, pay
 		submissionFilesMutex.RLock()
 		defer submissionFilesMutex.RUnlock()
 	}
+	var records []*SubmissionFile
+	var staged *stagedUploadDeletion
+	if storeFiles {
+		records, staged, err = stageUnassignedFiles(dataDir, files)
+		if err != nil {
+			logger.Error("store submission files", slog.Any("error", err), slog.Uint64("form_id", uint64(form.ID)))
+			return nil, errors.New("failed to save submission")
+		}
+	} else {
+		CloseFiles(files)
+	}
 
-	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+	writeErr := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		var formID uint
+		if err := tx.Model(&Form{}).Select("id").Where("id = ?", form.ID).Scan(&formID).Error; err != nil {
+			return err
+		}
+		if formID == 0 {
+			return gorm.ErrRecordNotFound
+		}
 		if err := tx.Create(submission).Error; err != nil {
 			return err
 		}
-		if spam || storeFiles {
+		if spam {
 			return nil
 		}
-		return createDeliveryEvents(tx, form, submission.ID)
-	}); err != nil {
-		CloseFiles(files)
-		logger.Error("store submission", slog.Any("error", err), slog.Uint64("form_id", uint64(form.ID)))
-		return nil, errors.New("failed to save submission")
-	}
-
-	if !storeFiles {
-		CloseFiles(files)
-		return submission, nil
-	}
-
-	records, err := SaveFiles(dataDir, form.ID, submission.ID, files)
-	if err == nil {
-		err = dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		for _, record := range records {
+			record.SubmissionID = submission.ID
+		}
+		if len(records) > 0 {
 			if err := tx.Create(&records).Error; err != nil {
 				return err
 			}
-			return createDeliveryEvents(tx, form, submission.ID)
-		})
-	}
-	if err != nil {
-		cleanupSubmission(logger, db, form.ID, submission.ID, dataDir)
-		logger.Error("store submission files", slog.Any("error", err), slog.Uint64("submission_id", uint64(submission.ID)))
+		}
+		return createDeliveryEvents(tx, form, submission.ID)
+	})
+	cleanupErr := staged.finish(db)
+	if writeErr != nil {
+		if cleanupErr != nil {
+			writeErr = errors.Join(writeErr, cleanupErr)
+		}
+		logger.Error("store submission", slog.Any("error", writeErr), slog.Uint64("form_id", uint64(form.ID)))
 		return nil, errors.New("failed to save submission")
+	}
+	if cleanupErr != nil {
+		logger.Error("finalize submission uploads; restart required for recovery",
+			slog.Any("error", cleanupErr), slog.Uint64("submission_id", uint64(submission.ID)))
 	}
 
 	submission.Files = records
@@ -90,23 +109,18 @@ func createDeliveryEvents(tx *gorm.DB, form *Form, submissionID uint) error {
 }
 
 func consumeHoneypot(payload map[string]any) bool {
-	value, found := payload[HoneypotField]
-	if !found {
-		return false
+	spam := false
+	for _, field := range []string{HoneypotField, legacyHoneypotField} {
+		value, found := payload[field]
+		if !found {
+			continue
+		}
+		delete(payload, field)
+		if text, ok := value.(string); ok {
+			spam = spam || strings.TrimSpace(text) != ""
+		} else {
+			spam = spam || value != nil
+		}
 	}
-	delete(payload, HoneypotField)
-	if text, ok := value.(string); ok {
-		return strings.TrimSpace(text) != ""
-	}
-	return value != nil
-}
-
-func cleanupSubmission(logger *slog.Logger, db *gorm.DB, formID, submissionID uint, dataDir string) {
-	err := deleteSubmission(logger, db, dataDir, submissionID)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		err = DeleteSubmissionFiles(dataDir, formID, submissionID)
-	}
-	if err != nil {
-		logger.Error("clean up incomplete submission", slog.Any("error", err), slog.Uint64("submission_id", uint64(submissionID)))
-	}
+	return spam
 }

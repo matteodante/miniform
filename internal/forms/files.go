@@ -9,15 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 )
 
 const (
-	MaxFileSize              = 10 * 1024 * 1024
-	MaxFilesPerField         = 5
-	MaxTotalFiles            = 10
-	uploadDeletionQuarantine = ".upload-deletions"
+	MaxFileSize      = 10 * 1024 * 1024
+	MaxFilesPerField = 5
+	MaxTotalFiles    = 10
 )
 
 var allowedExtensions = []string{
@@ -85,7 +83,31 @@ func ExtractFiles(form *multipart.Form) ([]*UploadedFile, error) {
 	return files, nil
 }
 
-func SaveFiles(dataDir string, formID, submissionID uint, files []*UploadedFile) ([]*SubmissionFile, error) {
+func stageUnassignedFiles(dataDir string, files []*UploadedFile) ([]*SubmissionFile, *stagedUploadDeletion, error) {
+	token, err := randomHex(rand.Reader, 16)
+	if err != nil {
+		CloseFiles(files)
+		return nil, nil, fmt.Errorf("generate upload directory: %w", err)
+	}
+	storageDirectory := filepath.Join("uploads", token)
+	operation := filepath.Join(uploadStagingRoot, token)
+	stagingDirectory := filepath.Join(operation, storageDirectory)
+	records, err := saveFilesAt(dataDir, stagingDirectory, storageDirectory, 0, files)
+	if err != nil {
+		_ = deleteUploadPath(dataDir, operation)
+		return nil, nil, err
+	}
+	staged := &stagedUploadDeletion{dataDir: dataDir, operation: operation}
+	for _, record := range records {
+		staged.files = append(staged.files, stagedUploadFile{
+			original: record.StoragePath,
+			staged:   filepath.Join(operation, record.StoragePath),
+		})
+	}
+	return records, staged, nil
+}
+
+func saveFilesAt(dataDir, writeDir, storageDir string, submissionID uint, files []*UploadedFile) ([]*SubmissionFile, error) {
 	if len(files) == 0 {
 		return nil, nil
 	}
@@ -100,14 +122,13 @@ func SaveFiles(dataDir string, formID, submissionID uint, files []*UploadedFile)
 	}
 	defer func() { _ = root.Close() }()
 
-	uploadDir := filepath.Join("uploads", strconv.FormatUint(uint64(formID), 10), strconv.FormatUint(uint64(submissionID), 10))
-	if err := root.MkdirAll(uploadDir, 0o700); err != nil {
+	if err := root.MkdirAll(writeDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create upload directory: %w", err)
 	}
 	complete := false
 	defer func() {
 		if !complete {
-			_ = root.RemoveAll(uploadDir)
+			_ = root.RemoveAll(writeDir)
 		}
 	}()
 
@@ -117,8 +138,9 @@ func SaveFiles(dataDir string, formID, submissionID uint, files []*UploadedFile)
 		if err != nil {
 			return nil, fmt.Errorf("generate storage name for %q: %w", file.Filename, err)
 		}
-		storagePath := filepath.Join(uploadDir, filename)
-		destination, err := root.OpenFile(storagePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		writePath := filepath.Join(writeDir, filename)
+		storagePath := filepath.Join(storageDir, filename)
+		destination, err := root.OpenFile(writePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
 			return nil, fmt.Errorf("create upload %q: %w", file.Filename, err)
 		}
@@ -147,122 +169,6 @@ func OpenSubmissionFile(dataDir string, file *SubmissionFile) (*os.File, error) 
 		return nil, fmt.Errorf("open stored submission file %q: %w", file.StoragePath, err)
 	}
 	return source, nil
-}
-
-func DeleteSubmissionFiles(dataDir string, formID, submissionID uint) error {
-	return deleteUploadPath(dataDir, filepath.Join(
-		"uploads",
-		strconv.FormatUint(uint64(formID), 10),
-		strconv.FormatUint(uint64(submissionID), 10),
-	))
-}
-
-func DeleteFormFiles(dataDir string, formID uint) error {
-	return deleteUploadPath(dataDir, filepath.Join("uploads", strconv.FormatUint(uint64(formID), 10)))
-}
-
-type stagedUploadDeletion struct {
-	root          *os.Root
-	quarantineDir string
-	moves         []uploadDeletionMove
-}
-
-type uploadDeletionMove struct {
-	originalPath   string
-	quarantinePath string
-}
-
-func stageUploadDeletions(dataDir string, paths []string) (*stagedUploadDeletion, error) {
-	staged := &stagedUploadDeletion{}
-	if strings.TrimSpace(dataDir) == "" || len(paths) == 0 {
-		return staged, nil
-	}
-
-	root, err := os.OpenRoot(dataDir)
-	if os.IsNotExist(err) {
-		return staged, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("open data directory: %w", err)
-	}
-	staged.root = root
-
-	for _, path := range paths {
-		if _, err := root.Lstat(path); os.IsNotExist(err) {
-			continue
-		} else if err != nil {
-			return nil, staged.abort(fmt.Errorf("inspect upload path %q: %w", path, err))
-		}
-		if staged.quarantineDir == "" {
-			if err := staged.createQuarantine(); err != nil {
-				return nil, staged.abort(err)
-			}
-		}
-
-		quarantinePath := filepath.Join(staged.quarantineDir, strconv.Itoa(len(staged.moves)))
-		if err := root.Rename(path, quarantinePath); err != nil {
-			return nil, staged.abort(fmt.Errorf("stage upload path %q for deletion: %w", path, err))
-		}
-		staged.moves = append(staged.moves, uploadDeletionMove{
-			originalPath:   path,
-			quarantinePath: quarantinePath,
-		})
-	}
-
-	return staged, nil
-}
-
-func (staged *stagedUploadDeletion) createQuarantine() error {
-	if err := staged.root.MkdirAll(uploadDeletionQuarantine, 0o700); err != nil {
-		return fmt.Errorf("create upload deletion quarantine: %w", err)
-	}
-	token, err := randomHex(rand.Reader, 16)
-	if err != nil {
-		return fmt.Errorf("generate upload deletion token: %w", err)
-	}
-	staged.quarantineDir = filepath.Join(uploadDeletionQuarantine, token)
-	if err := staged.root.Mkdir(staged.quarantineDir, 0o700); err != nil {
-		return fmt.Errorf("create upload deletion staging directory: %w", err)
-	}
-	return nil
-}
-
-func (staged *stagedUploadDeletion) abort(stageErr error) error {
-	restoreErr := staged.restore()
-	staged.close()
-	return errors.Join(stageErr, restoreErr)
-}
-
-func (staged *stagedUploadDeletion) restore() error {
-	var restoreErr error
-	for index := len(staged.moves) - 1; index >= 0; index-- {
-		move := staged.moves[index]
-		if err := staged.root.Rename(move.quarantinePath, move.originalPath); err != nil {
-			restoreErr = errors.Join(restoreErr, fmt.Errorf("restore upload path %q: %w", move.originalPath, err))
-		}
-	}
-	if restoreErr == nil && staged.quarantineDir != "" {
-		if err := staged.root.RemoveAll(staged.quarantineDir); err != nil {
-			restoreErr = fmt.Errorf("remove upload deletion staging directory: %w", err)
-		}
-	}
-	return restoreErr
-}
-
-func (staged *stagedUploadDeletion) commit() error {
-	if staged.root == nil || staged.quarantineDir == "" {
-		return nil
-	}
-	if err := staged.root.RemoveAll(staged.quarantineDir); err != nil {
-		return fmt.Errorf("remove quarantined uploads: %w", err)
-	}
-	return nil
-}
-
-func (staged *stagedUploadDeletion) close() {
-	if staged.root != nil {
-		_ = staged.root.Close()
-	}
 }
 
 func deleteUploadPath(dataDir, path string) error {

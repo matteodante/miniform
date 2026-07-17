@@ -13,7 +13,12 @@ miniform --json form list
 Inside an OCI deployment, run the binary in the application container so it reads the mounted `/app/storage` volume and the container environment:
 
 ```bash
-docker exec miniform miniform --json form list
+app_container="$(docker ps \
+  --filter 'name=^miniform$' \
+  --filter 'name=^miniform-next$' \
+  --format '{{.Names}}' | head -n 1)"
+test -n "$app_container"
+docker exec "$app_container" miniform --json form list
 ```
 
 Set `MINIFORM_ENV`, `MINIFORM_DATA_DIR`, and related variables exactly as the server process when you run the CLI outside a container. `config show` prints the resolved database path.
@@ -34,7 +39,7 @@ miniform --json help form
 ```
 
 `commands --json` returns each command name, flags, mutation status, database requirement, examples, and safety notes.
-Its `supports_json` field distinguishes deterministic resource commands from deployment commands such as `install`, `update`, and `reload`, which use human-oriented output.
+Its `supports_json` field distinguishes deterministic resource commands from deployment commands such as `install`, `update`, `reload`, `backup`, and `restore-db`, which use human-oriented output.
 
 ## Output contract
 
@@ -111,6 +116,19 @@ miniform --json config show
 
 The command is read-only. Change `MINIFORM_*` variables in the process manager or container environment, then restart Miniform.
 
+## Managed deployment
+
+Run these commands on the host where the interactive system installer configured Matcha:
+
+```bash
+sudo miniform backup
+sudo miniform update
+sudo miniform reload
+sudo miniform restore-db
+```
+
+`backup` writes a verified SQLite snapshot and keeps the three newest snapshots. `update` pulls before its mandatory backup; `reload` also requires a backup. Both stop the current container before starting its replacement, so two Miniform processes never share the SQLite database. `restore-db` validates and stages the selected snapshot before stopping Miniform and atomically replacing the database. Deployment commands are serialized and return explicit errors; they do not emit JSON.
+
 ## Forms
 
 List, inspect, create, update, rotate, and delete endpoints:
@@ -120,7 +138,8 @@ miniform --json form list
 miniform --json form get --id 1
 miniform --json --show-secrets form get --slug contact
 miniform --json form code --slug contact
-miniform --json --show-secrets form code --slug contact
+miniform --json --show-secrets form code --slug contact \
+  --base-url https://forms.example.com
 
 miniform --json form create \
   --template contact \
@@ -147,7 +166,7 @@ miniform form delete --id 1 --yes
 
 `form update` preserves omitted flags. Pass explicit boolean values to disable features. Clear nullable or secret values with the corresponding `--clear-*` flag.
 
-`form code` produces the final copyable HTML, including captcha markup and the optional SDK. It follows the stored `use_sdk` setting unless `--include-sdk=true|false` is passed. By default the action uses `YOUR_FORM_TOKEN`; pass `--show-secrets` only when deployable HTML with the live token is required.
+`form code` produces the final copyable HTML, including captcha markup and the optional SDK. It follows the stored `use_sdk` setting unless `--include-sdk=true|false` is passed. Set `--base-url` to emit absolute Miniform action and SDK URLs. By default the action uses `YOUR_FORM_TOKEN`; pass `--show-secrets` only when deployable HTML with the live token is required.
 
 Email forwarding requires `--email-enabled`, `--mailer-profile-id`, and `--email-recipient`. Webhook forwarding requires `--webhook-enabled` and `--webhook-url`.
 

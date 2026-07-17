@@ -9,24 +9,19 @@ import (
 const formActionPlaceholder = "{{FORM_ACTION}}"
 
 type FormTemplate struct {
-	ID              string
-	Name            string
-	Description     string
-	Slug            string
-	Icon            string
-	Color           string
-	ComingSoon      bool
-	WIP             bool
-	HTML            string
-	WebhookDelivery WebhookDelivery
-	EmailDelivery   EmailDelivery
+	ID          string
+	Name        string
+	Description string
+	Slug        string
+	Icon        string
+	Color       string
+	HTML        string
 }
 
 type templateDefinition struct {
 	ID, Name, Description, Slug, Icon, Color string
 	Eyebrow, Title, Introduction, Submit     string
 	Fields                                   []templateField
-	ForwardsEmail                            bool
 }
 
 type templateField struct {
@@ -41,7 +36,7 @@ func GetFormTemplates() []FormTemplate {
 		templates = append(templates, FormTemplate{
 			ID: definition.ID, Name: definition.Name, Description: definition.Description,
 			Slug: definition.Slug, Icon: definition.Icon, Color: definition.Color,
-			HTML: renderTemplate(definition), EmailDelivery: EmailDelivery{Enabled: definition.ForwardsEmail},
+			HTML: renderTemplate(definition),
 		})
 	}
 	return templates
@@ -124,7 +119,7 @@ var templateCatalog = []templateDefinition{
 	{
 		ID: "contact", Name: "Contact Form", Description: "Simple contact form with name, email, and message fields",
 		Slug: "contact", Icon: "💬", Color: "blue", Eyebrow: "Contact", Title: "Contact our team",
-		Introduction: "Tell us how we can help and someone will reply within one business day.", Submit: "Send message", ForwardsEmail: true,
+		Introduction: "Tell us how we can help and someone will reply within one business day.", Submit: "Send message",
 		Fields: []templateField{
 			{Name: "name", Label: "Full name", Kind: "text", Placeholder: "Alex Rivers", Required: true},
 			{Name: "company", Label: "Company", Kind: "text", Placeholder: "Acme Inc."},
@@ -137,7 +132,7 @@ var templateCatalog = []templateDefinition{
 	{
 		ID: "feedback", Name: "Feedback Form", Description: "Collect user feedback and feature requests",
 		Slug: "feedback", Icon: "💡", Color: "purple", Eyebrow: "Feedback", Title: "Share your feedback",
-		Introduction: "Help us build the roadmap. Tell us what’s working and what could be better.", Submit: "Send feedback", ForwardsEmail: true,
+		Introduction: "Help us build the roadmap. Tell us what’s working and what could be better.", Submit: "Send feedback",
 		Fields: []templateField{
 			{Name: "name", Label: "Name", Kind: "text", Placeholder: "Taylor", Required: true},
 			{Name: "email", Label: "Email", Kind: "email", Placeholder: "you@example.com"},
@@ -149,7 +144,7 @@ var templateCatalog = []templateDefinition{
 	{
 		ID: "bug-report", Name: "Bug Report", Description: "Help users report bugs and technical issues",
 		Slug: "bug-report", Icon: "🐛", Color: "red", Eyebrow: "Bug report", Title: "Report an issue",
-		Introduction: "Found something off? Share the details and we’ll investigate within a few hours.", Submit: "Submit bug", ForwardsEmail: true,
+		Introduction: "Found something off? Share the details and we’ll investigate within a few hours.", Submit: "Submit bug",
 		Fields: []templateField{
 			{Name: "reporter", Label: "Name", Kind: "text", Placeholder: "Jordan", Required: true},
 			{Name: "email", Label: "Email", Kind: "email", Placeholder: "you@example.com", Required: true},
@@ -162,7 +157,7 @@ var templateCatalog = []templateDefinition{
 	{
 		ID: "newsletter", Name: "Newsletter Signup", Description: "Collect email addresses for your newsletter",
 		Slug: "newsletter", Icon: "📧", Color: "green", Eyebrow: "Newsletter", Title: "Join the newsletter",
-		Introduction: "Receive product updates, launch notes, and best practices twice a month.", Submit: "Subscribe", ForwardsEmail: true,
+		Introduction: "Receive product updates, launch notes, and best practices twice a month.", Submit: "Subscribe",
 		Fields: []templateField{
 			{Name: "email", Label: "Email address", Kind: "email", Placeholder: "you@company.com", Required: true},
 			{Name: "first_name", Label: "First name", Kind: "text", Placeholder: "Jamie", Required: true},
@@ -173,7 +168,7 @@ var templateCatalog = []templateDefinition{
 	{
 		ID: "waitlist", Name: "Waitlist", Description: "Build a waitlist for your product launch",
 		Slug: "waitlist", Icon: "⏳", Color: "yellow", Eyebrow: "Waitlist", Title: "Join the early access list",
-		Introduction: "We’re releasing limited invites. Tell us a bit about your team and we’ll keep you posted.", Submit: "Request invite", ForwardsEmail: true,
+		Introduction: "We’re releasing limited invites. Tell us a bit about your team and we’ll keep you posted.", Submit: "Request invite",
 		Fields: []templateField{
 			{Name: "name", Label: "Full name", Kind: "text", Placeholder: "Morgan Lee", Required: true},
 			{Name: "company", Label: "Company", Kind: "text", Placeholder: "Northwind"},

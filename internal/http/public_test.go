@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -41,6 +42,13 @@ func TestPublicHelpers(t *testing.T) {
 		token, found = extractCaptchaToken(nil)
 		assert.False(t, found)
 		assert.Empty(t, token)
+	})
+
+	t.Run("removes an obsolete captcha token from unprotected forms", func(t *testing.T) {
+		payload := map[string]any{"cf-turnstile-response": "obsolete", "name": "Ada"}
+
+		assert.NoError(t, verifyCaptcha(nil, nil, &forms.Form{}, payload))
+		assert.Equal(t, map[string]any{"name": "Ada"}, payload)
 	})
 
 	t.Run("normalizes request origins", func(t *testing.T) {
@@ -90,5 +98,15 @@ func TestPublicHelpers(t *testing.T) {
 		assert.Empty(t, turnstileResultFailure(form, &integrations.TurnstileResult{
 			Success: true, Hostname: "any-host.example", Action: integrations.TurnstileAction,
 		}))
+	})
+
+	t.Run("maps a Turnstile outage to service unavailable", func(t *testing.T) {
+		status, message := captchaFailureResponse(integrations.ErrTurnstileUnavailable)
+		assert.Equal(t, 503, status)
+		assert.Equal(t, "captcha service temporarily unavailable", message)
+
+		status, message = captchaFailureResponse(errors.New("invalid token"))
+		assert.Equal(t, 400, status)
+		assert.Equal(t, errCaptchaFailed.Error(), message)
 	})
 }

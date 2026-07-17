@@ -22,16 +22,18 @@ type Runner struct {
 	Stderr      io.Writer
 	JSON        bool
 	ShowSecrets bool
+	connectDB   func() (*gorm.DB, error)
 }
 
 // Dependencies contains the runtime services used by a Runner.
 type Dependencies struct {
-	DB     *gorm.DB
-	Config *config.Config
-	Logger *slog.Logger
-	Stdin  io.Reader
-	Stdout io.Writer
-	Stderr io.Writer
+	DB              *gorm.DB
+	ConnectDatabase func() (*gorm.DB, error)
+	Config          *config.Config
+	Logger          *slog.Logger
+	Stdin           io.Reader
+	Stdout          io.Writer
+	Stderr          io.Writer
 }
 
 // NewRunner creates a command runner with safe process I/O defaults.
@@ -54,12 +56,13 @@ func NewRunner(deps Dependencies) *Runner {
 	}
 
 	return &Runner{
-		DB:     deps.DB,
-		Config: deps.Config,
-		Logger: logger,
-		Stdin:  stdin,
-		Stdout: stdout,
-		Stderr: stderr,
+		DB:        deps.DB,
+		Config:    deps.Config,
+		Logger:    logger,
+		Stdin:     stdin,
+		Stdout:    stdout,
+		Stderr:    stderr,
+		connectDB: deps.ConnectDatabase,
 	}
 }
 
@@ -82,22 +85,27 @@ func IsInvocation(args []string) bool {
 // RequiresDatabase reports whether command execution needs SQLite.
 func RequiresDatabase(args []string) bool {
 	args = stripKnownGlobalFlags(args)
-	if len(args) == 0 {
+	if helpRequested(args) {
 		return false
 	}
-	switch args[0] {
-	case "commands", "help", "config":
+	if len(args) < 2 {
 		return false
-	case "form":
-		return len(args) < 2 || (args[1] != "template-list" && args[1] != "template-get")
-	default:
-		return true
 	}
+	name := args[0] + " " + args[1]
+	for _, command := range commandManifest() {
+		if command.Name == name {
+			return command.RequiresDatabase
+		}
+	}
+	return false
 }
 
 // RequiresConfig reports whether command execution needs the effective runtime config.
 func RequiresConfig(args []string) bool {
 	args = stripKnownGlobalFlags(args)
+	if helpRequested(args) {
+		return false
+	}
 	if RequiresDatabase(args) {
 		return true
 	}
@@ -105,6 +113,16 @@ func RequiresConfig(args []string) bool {
 		return false
 	}
 	return args[0] == "config" && args[1] == "show"
+}
+
+func helpRequested(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "-h", "-help", "--help":
+			return true
+		}
+	}
+	return false
 }
 
 func stripKnownGlobalFlags(args []string) []string {
@@ -225,8 +243,24 @@ func requireAction(resource string, args []string) (string, []string, error) {
 }
 
 func (r *Runner) requireDatabase() error {
-	if r.DB == nil {
+	if r.DB != nil {
+		return nil
+	}
+	if r.connectDB == nil {
 		return internalError("connect database", errors.New("database dependency is unavailable"))
 	}
+	db, err := r.connectDB()
+	if err != nil {
+		return &commandError{
+			Code:     "internal_error",
+			Message:  "connect database: " + err.Error(),
+			ExitCode: ExitInternal,
+			Cause:    err,
+		}
+	}
+	if db == nil {
+		return internalError("connect database", errors.New("database connector returned no connection"))
+	}
+	r.DB = db
 	return nil
 }

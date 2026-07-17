@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -39,6 +41,25 @@ func TemplateFuncs() map[string]any {
 	}
 }
 
+func ClientIP(ctx *fiber.Ctx, trustMatchaProxy bool) string {
+	return clientIP(ctx.Context().RemoteIP().String(), ctx.Get(fiber.HeaderXForwardedFor), trustMatchaProxy)
+}
+
+func clientIP(remoteIP, forwardedFor string, trustMatchaProxy bool) string {
+	if !trustMatchaProxy {
+		return remoteIP
+	}
+	addresses := strings.Split(forwardedFor, ",")
+	if len(addresses) == 0 {
+		return remoteIP
+	}
+	address := net.ParseIP(strings.TrimSpace(addresses[len(addresses)-1]))
+	if address == nil {
+		return remoteIP
+	}
+	return address.String()
+}
+
 func ErrorHandler(logger *slog.Logger, cfg *config.Config) fiber.ErrorHandler {
 	return func(ctx *fiber.Ctx, failure error) error {
 		status, message := publicError(failure, cfg.IsDevelopment())
@@ -46,7 +67,8 @@ func ErrorHandler(logger *slog.Logger, cfg *config.Config) fiber.ErrorHandler {
 			slog.Int("status", status), slog.String("method", ctx.Method()),
 			slog.String("path", ctx.Path()), slog.Any("error", failure),
 		)
-		if ctx.Accepts(fiber.MIMEApplicationJSON) == fiber.MIMEApplicationJSON {
+		ctx.Vary(fiber.HeaderAccept)
+		if ctx.Accepts(fiber.MIMETextHTML, fiber.MIMEApplicationJSON) == fiber.MIMEApplicationJSON {
 			return ctx.Status(status).JSON(fiber.Map{"error": http.StatusText(status), "message": message})
 		}
 		if status == fiber.StatusInternalServerError {
@@ -55,6 +77,18 @@ func ErrorHandler(logger *slog.Logger, cfg *config.Config) fiber.ErrorHandler {
 				"DevMode": cfg.IsDevelopment(), "ErrorMessage": message, "HideHeaderActions": true,
 			}, "")
 		}
+		if status >= fiber.StatusBadRequest && status < fiber.StatusInternalServerError {
+			const recoveryURL = "/admin/submissions"
+			if ctx.Get("HX-Request") == "true" {
+				ctx.Set("HX-Redirect", recoveryURL)
+			}
+			return ctx.Status(status).Render("layouts/base", fiber.Map{
+				"Title":       fmt.Sprintf("%d - %s", status, http.StatusText(status)),
+				"ContentView": "errors/4xx/content", "Status": status,
+				"ErrorMessage": message, "RecoveryURL": recoveryURL, "HideHeaderActions": true,
+			}, "")
+		}
+		ctx.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
 		return ctx.Status(status).SendString(fmt.Sprintf("Error: %d - %s", status, message))
 	}
 }

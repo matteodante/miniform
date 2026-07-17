@@ -8,7 +8,7 @@ import (
 //go:embed templates
 var embeddedTemplates embed.FS
 
-//go:embed static
+//go:embed static/*.css static/*.js static/*.svg static/vendor/*.css static/vendor/*.js
 var embeddedStatic embed.FS
 
 var (

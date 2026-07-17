@@ -14,7 +14,11 @@ import (
 )
 
 func CaptchaProfileList(ctx *cartridge.Context) error {
-	profiles, err := integrations.ListCaptchaProfiles(ctx.DB())
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	profiles, err := integrations.ListCaptchaProfiles(db)
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
@@ -26,8 +30,12 @@ func CaptchaProfileNew(ctx *cartridge.Context) error {
 }
 
 func CaptchaProfileCreate(ctx *cartridge.Context) error {
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
 	params := captchaParams(ctx)
-	_, err := integrations.CreateCaptchaProfile(ctx.Logger, ctx.DB(), params)
+	_, err = integrations.CreateCaptchaProfile(ctx.Logger, db, params)
 	if err != nil {
 		var validation *integrations.ValidationError
 		if errors.As(err, &validation) {
@@ -39,21 +47,33 @@ func CaptchaProfileCreate(ctx *cartridge.Context) error {
 }
 
 func CaptchaProfileShow(ctx *cartridge.Context) error {
-	profile, err := requestedCaptcha(ctx)
+	db, err := requestDB(ctx)
 	if err != nil {
 		return err
 	}
-	usage, err := forms.CaptchaProfileUsage(ctx.DB(), profile.ID)
+	profile, err := requestedCaptcha(ctx, db)
+	if err != nil {
+		return err
+	}
+	usage, err := forms.CaptchaProfileUsage(db, profile.ID)
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
+	return renderCaptchaProfile(ctx, profile, usage, "")
+}
+
+func renderCaptchaProfile(ctx *cartridge.Context, profile *integrations.CaptchaProfile, usage int64, message string) error {
 	return renderPage(ctx, "Safeguard: "+profile.Name, "admin/captcha/show/content", fiber.Map{
-		"Profile": profile, "UsageCount": usage,
+		"Profile": profile, "UsageCount": usage, "Error": message,
 	})
 }
 
 func CaptchaProfileEdit(ctx *cartridge.Context) error {
-	profile, err := requestedCaptcha(ctx)
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	profile, err := requestedCaptcha(ctx, db)
 	if err != nil {
 		return err
 	}
@@ -65,7 +85,11 @@ func CaptchaProfileUpdate(ctx *cartridge.Context) error {
 	if err != nil {
 		return err
 	}
-	current, err := integrations.GetCaptchaProfileByID(ctx.DB(), id)
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	current, err := integrations.GetCaptchaProfileByID(db, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return fiber.ErrNotFound
 	}
@@ -76,7 +100,7 @@ func CaptchaProfileUpdate(ctx *cartridge.Context) error {
 	if strings.TrimSpace(params.SecretKey) == "" {
 		params.SecretKey = current.SecretKey
 	}
-	profile, err := integrations.UpdateCaptchaProfile(ctx.Logger, ctx.DB(), id, params)
+	profile, err := integrations.UpdateCaptchaProfile(ctx.Logger, db, id, params)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.ErrNotFound
@@ -95,20 +119,43 @@ func CaptchaProfileDelete(ctx *cartridge.Context) error {
 	if err != nil {
 		return err
 	}
-	usage, err := forms.CaptchaProfileUsage(ctx.DB(), id)
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	usage, err := forms.CaptchaProfileUsage(db, id)
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
 	if usage != 0 {
-		return ctx.Status(fiber.StatusBadRequest).SendString("Cannot delete profile: it is being used by forms")
+		return renderCaptchaDeleteConflict(ctx, db, id)
 	}
-	if err := integrations.DeleteCaptchaProfile(ctx.Logger, ctx.DB(), id); err != nil {
+	if err := integrations.DeleteCaptchaProfile(ctx.Logger, db, id); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.ErrNotFound
+		}
+		if errors.Is(err, integrations.ErrProfileInUse) {
+			return renderCaptchaDeleteConflict(ctx, db, id)
 		}
 		return fiber.ErrInternalServerError
 	}
 	return ctx.Redirect("/admin/settings/captcha")
+}
+
+func renderCaptchaDeleteConflict(ctx *cartridge.Context, db *gorm.DB, id uint) error {
+	profile, err := integrations.GetCaptchaProfileByID(db, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return fiber.ErrNotFound
+	}
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
+	usage, err := forms.CaptchaProfileUsage(db, id)
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
+	ctx.Status(fiber.StatusBadRequest)
+	return renderCaptchaProfile(ctx, profile, usage, "Cannot delete profile: it is being used by forms")
 }
 
 func captchaParams(ctx *cartridge.Context) integrations.CaptchaProfileParams {
@@ -117,12 +164,12 @@ func captchaParams(ctx *cartridge.Context) integrations.CaptchaProfileParams {
 	}
 }
 
-func requestedCaptcha(ctx *cartridge.Context) (*integrations.CaptchaProfile, error) {
+func requestedCaptcha(ctx *cartridge.Context, db *gorm.DB) (*integrations.CaptchaProfile, error) {
 	id, err := requestedID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	profile, err := integrations.GetCaptchaProfileByID(ctx.DB(), id)
+	profile, err := integrations.GetCaptchaProfileByID(db, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fiber.ErrNotFound
 	}

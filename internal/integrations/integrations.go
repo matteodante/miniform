@@ -1,6 +1,7 @@
 package integrations
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 	"github.com/matteodante/miniform/internal/pkg/sqliteerr"
 )
+
+var ErrProfileInUse = errors.New("profile is referenced by one or more forms")
 
 type MailerProfile struct {
 	ID               uint   `gorm:"primaryKey"`
@@ -29,8 +32,8 @@ type MailerProfile struct {
 type CaptchaProfile struct {
 	ID        uint   `gorm:"primaryKey"`
 	Name      string `gorm:"size:255;not null;uniqueIndex"`
-	SiteKey   string `gorm:"type:text;not null"`
-	SecretKey string `gorm:"type:text;not null"`
+	SiteKey   string `gorm:"type:text;not null;default:''"`
+	SecretKey string `gorm:"type:text;not null;default:''"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -89,6 +92,9 @@ func persistProfile(logger *slog.Logger, db *gorm.DB, action string, write func(
 	}
 	if uniqueViolation(err) {
 		return &ValidationError{Field: "name", Message: "A profile with this name already exists"}
+	}
+	if sqliteerr.IsForeignKeyConstraint(err) {
+		return ErrProfileInUse
 	}
 	if logger != nil {
 		logger.Error("profile write failed", slog.String("action", action), slog.Any("error", err))

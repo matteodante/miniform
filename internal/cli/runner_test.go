@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	cartridgeconfig "github.com/karloscodes/cartridge/config"
 	"github.com/stretchr/testify/assert"
@@ -40,13 +42,159 @@ func TestRunner(t *testing.T) {
 		assert.True(t, envelope.OK)
 		assert.Equal(t, "commands", envelope.Command)
 		assert.Greater(t, len(envelope.Data), 25)
+		assert.Contains(t, commandNames(envelope.Data), "backup")
 		assert.Contains(t, commandNames(envelope.Data), "form create")
 	})
 
 	t.Run("recognizes global flags before the resource", func(t *testing.T) {
 		assert.True(t, IsInvocation([]string{"--json", "form", "list"}))
 		assert.True(t, RequiresDatabase([]string{"--json", "form", "list"}))
+		assert.False(t, RequiresDatabase([]string{"form", "list", "--help"}))
+		assert.False(t, RequiresDatabase([]string{"form", "list", "-h"}))
+		assert.False(t, RequiresConfig([]string{"form", "list", "--help"}))
+		assert.False(t, RequiresConfig([]string{"config", "show", "-h"}))
 		assert.False(t, RequiresDatabase([]string{"--json", "commands"}))
+		assert.False(t, RequiresDatabase([]string{"form", "unknown"}))
+		assert.False(t, RequiresDatabase([]string{"form"}))
+	})
+
+	t.Run("validates command syntax before connecting to the database", func(t *testing.T) {
+		tests := []struct {
+			name string
+			args []string
+		}{
+			{name: "unknown flag", args: []string{"form", "list", "--bogus"}},
+			{name: "malformed flag", args: []string{"form", "get", "--id", "not-a-number"}},
+			{name: "unexpected positional", args: []string{"form", "list", "extra"}},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				connectCalls := 0
+				runner := NewRunner(Dependencies{
+					ConnectDatabase: func() (*gorm.DB, error) {
+						connectCalls++
+						return nil, errors.New("database should not be connected")
+					},
+					Stdout: io.Discard,
+					Stderr: io.Discard,
+				})
+
+				exitCode := runner.Run(tt.args)
+
+				assert.Equal(t, ExitUsage, exitCode)
+				assert.Zero(t, connectCalls)
+			})
+		}
+	})
+
+	t.Run("validates local command semantics before connecting to the database", func(t *testing.T) {
+		missingFile := filepath.Join(t.TempDir(), "missing-secret")
+		tests := []struct {
+			name     string
+			args     []string
+			stdin    string
+			exitCode int
+		}{
+			{name: "required flag", args: []string{"form", "get"}, exitCode: ExitUsage},
+			{name: "confirmation", args: []string{"form", "delete", "--id", "1"}, exitCode: ExitUsage},
+			{name: "conflicting flags", args: []string{"form", "update", "--id", "1", "--clear-webhook-secret", "--webhook-secret-file", missingFile}, exitCode: ExitUsage},
+			{name: "conflicting stdin files", args: []string{"account", "change-password", "--current-password-file", "-", "--new-password-file", "-"}, exitCode: ExitUsage},
+			{name: "unreadable account file", args: []string{"account", "reset-password", "--new-password-file", missingFile}, exitCode: ExitValidation},
+			{name: "unreadable form create file", args: []string{"form", "create", "--name", "Contact", "--slug", "contact", "--allowed-origins", "*", "--generated-html-file", missingFile}, exitCode: ExitValidation},
+			{name: "unreadable form update file", args: []string{"form", "update", "--id", "1", "--webhook-headers-file", missingFile}, exitCode: ExitValidation},
+			{name: "unreadable mailer file", args: []string{"mailer", "update", "--id", "1", "--smtp-password-file", missingFile}, exitCode: ExitValidation},
+			{name: "unreadable captcha file", args: []string{"captcha", "update", "--id", "1", "--secret-key-file", missingFile}, exitCode: ExitValidation},
+			{name: "invalid base URL", args: []string{"form", "code", "--id", "1", "--base-url", "javascript:alert(1)"}, exitCode: ExitValidation},
+			{name: "invalid event type", args: []string{"event", "list", "--type", "unknown"}, exitCode: ExitValidation},
+			{name: "invalid payload file", args: []string{"submission", "create", "--form-id", "1", "--data-file", "-"}, stdin: "[", exitCode: ExitValidation},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				connectCalls := 0
+				runner := NewRunner(Dependencies{
+					ConnectDatabase: func() (*gorm.DB, error) {
+						connectCalls++
+						return nil, errors.New("database should not be connected")
+					},
+					Stdin:  strings.NewReader(tt.stdin),
+					Stdout: io.Discard,
+					Stderr: io.Discard,
+				})
+
+				exitCode := runner.Run(tt.args)
+
+				assert.Equal(t, tt.exitCode, exitCode)
+				assert.Zero(t, connectCalls)
+			})
+		}
+	})
+
+	t.Run("connects once for valid database commands", func(t *testing.T) {
+		tests := []struct {
+			name string
+			args []string
+		}{
+			{name: "forms", args: []string{"form", "list"}},
+			{name: "mailers", args: []string{"mailer", "list"}},
+			{name: "captcha", args: []string{"captcha", "list"}},
+			{name: "submissions", args: []string{"submission", "list"}},
+			{name: "events", args: []string{"event", "list", "--type", "webhook"}},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				db := testsupport.SetupTestDB(t)
+				connectCalls := 0
+				runner := NewRunner(Dependencies{
+					ConnectDatabase: func() (*gorm.DB, error) {
+						connectCalls++
+						return db, nil
+					},
+					Stdout: io.Discard,
+					Stderr: io.Discard,
+				})
+
+				exitCode := runner.Run(tt.args)
+
+				assert.Equal(t, ExitSuccess, exitCode)
+				assert.Equal(t, 1, connectCalls)
+			})
+		}
+	})
+
+	t.Run("reports the database connection failure", func(t *testing.T) {
+		stderr := &bytes.Buffer{}
+		runner := NewRunner(Dependencies{
+			ConnectDatabase: func() (*gorm.DB, error) {
+				return nil, errors.New("permission denied")
+			},
+			Stdout: io.Discard,
+			Stderr: stderr,
+		})
+
+		exitCode := runner.Run([]string{"form", "list"})
+
+		assert.Equal(t, ExitInternal, exitCode)
+		assert.Contains(t, stderr.String(), "connect database: permission denied")
+	})
+
+	t.Run("does not connect for help or built-in templates", func(t *testing.T) {
+		connectCalls := 0
+		runner := NewRunner(Dependencies{
+			ConnectDatabase: func() (*gorm.DB, error) {
+				connectCalls++
+				return nil, errors.New("database should not be connected")
+			},
+			Stdout: io.Discard,
+			Stderr: io.Discard,
+		})
+
+		assert.Equal(t, ExitSuccess, runner.Run([]string{"help", "form"}))
+		assert.Equal(t, ExitSuccess, runner.Run([]string{"form", "list", "--help"}))
+		assert.Equal(t, ExitSuccess, runner.Run([]string{"form", "template-list"}))
+		assert.Zero(t, connectCalls)
 	})
 
 	t.Run("returns stable JSON usage errors", func(t *testing.T) {
@@ -65,13 +213,38 @@ func TestRunner(t *testing.T) {
 	t.Run("writes machine-readable startup failures", func(t *testing.T) {
 		stderr := &bytes.Buffer{}
 
-		exitCode := WriteStartupFailure([]string{"--json", "form", "list"}, stderr, "connect database")
+		exitCode := WriteStartupFailure([]string{"--json", "form", "list"}, stderr, "connect database", errors.New("permission denied"))
 
 		assert.Equal(t, ExitInternal, exitCode)
 		var envelope errorEnvelope
 		require.NoError(t, json.Unmarshal(stderr.Bytes(), &envelope))
 		assert.Equal(t, "form.list", envelope.Command)
 		assert.Equal(t, "internal_error", envelope.Error.Code)
+		assert.Contains(t, envelope.Error.Message, "permission denied")
+	})
+
+	t.Run("classifies an unchanged password as validation", func(t *testing.T) {
+		failure := classifyError(accounts.ErrPasswordUnchanged)
+
+		assert.Equal(t, ExitValidation, failure.ExitCode)
+		assert.Equal(t, "validation_error", failure.Code)
+	})
+
+	t.Run("keeps an existing file intact when forced copy fails", func(t *testing.T) {
+		directory := t.TempDir()
+		destination := filepath.Join(directory, "submission.txt")
+		require.NoError(t, os.WriteFile(destination, []byte("original"), 0o600))
+		source := io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(errors.New("copy failed")))
+
+		err := copySubmissionFile(source, destination, true)
+
+		require.Error(t, err)
+		content, readErr := os.ReadFile(destination)
+		require.NoError(t, readErr)
+		assert.Equal(t, "original", string(content))
+		entries, readErr := os.ReadDir(directory)
+		require.NoError(t, readErr)
+		assert.Len(t, entries, 1)
 	})
 
 	t.Run("creates forms and redacts submission credentials by default", func(t *testing.T) {
@@ -96,11 +269,12 @@ func TestRunner(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 		profile, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
-			Name:           "Primary",
-			SMTPHost:       "smtp.example.com",
-			SMTPPort:       587,
-			SMTPPassword:   "original-secret",
-			SMTPEncryption: "starttls",
+			Name:             "Primary",
+			DefaultFromEmail: "sender@example.com",
+			SMTPHost:         "smtp.example.com",
+			SMTPPort:         587,
+			SMTPPassword:     "original-secret",
+			SMTPEncryption:   "starttls",
 		})
 		require.NoError(t, err)
 		runner, _, _ := newTestRunner(t, db, "")
@@ -120,6 +294,7 @@ func TestRunner(t *testing.T) {
 
 		exitCode := runner.Run([]string{
 			"mailer", "create", "--json", "--name", "SMTP",
+			"--default-from-email", "sender@example.com",
 			"--smtp-host", "smtp.example.com", "--smtp-password-file", "-",
 		})
 
@@ -143,7 +318,7 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, ExitSuccess, exitCode)
 		result, err := accounts.Authenticate(logger, db, user.Email, "replacement-password")
 		require.NoError(t, err)
-		assert.Equal(t, user.ID, result.User.ID)
+		assert.Equal(t, user.ID, result.ID)
 	})
 
 	t.Run("submission list returns parsed payload and pagination", func(t *testing.T) {
@@ -151,7 +326,7 @@ func TestRunner(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Inbox", Slug: "inbox", AllowedOrigins: "*"})
 		require.NoError(t, err)
-		_, err = forms.CreateSubmission(logger, db, form, map[string]any{"email": "user@example.com"}, "test-agent")
+		_, err = forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"email": "user@example.com"}, "test-agent", "", nil)
 		require.NoError(t, err)
 		runner, stdout, _ := newTestRunner(t, db, "")
 
@@ -182,9 +357,19 @@ func TestRunner(t *testing.T) {
 		assert.Contains(t, stdout.String(), "/assets/miniform.js")
 
 		runner, stdout, _ = newTestRunner(t, db, "")
-		exitCode = runner.Run([]string{"form", "code", "--json", "--show-secrets", "--id", uintString(form.ID)})
+		exitCode = runner.Run([]string{
+			"form", "code", "--json", "--show-secrets", "--base-url", "https://forms.example.com", "--id", uintString(form.ID),
+		})
 		assert.Equal(t, ExitSuccess, exitCode)
 		assert.Contains(t, stdout.String(), form.Token)
+		assert.Contains(t, stdout.String(), "https://forms.example.com/forms/embed/submit")
+		assert.Contains(t, stdout.String(), "https://forms.example.com/assets/miniform.js")
+
+		runner, _, _ = newTestRunner(t, db, "")
+		exitCode = runner.Run([]string{
+			"form", "code", "--base-url", "javascript:alert(1)", "--id", uintString(form.ID),
+		})
+		assert.Equal(t, ExitValidation, exitCode)
 	})
 
 	t.Run("submission get renders nested delivery events", func(t *testing.T) {
@@ -198,7 +383,7 @@ func TestRunner(t *testing.T) {
 			WebhookURL:     "https://example.com/hook",
 		})
 		require.NoError(t, err)
-		submission, err := forms.CreateSubmission(logger, db, form, map[string]any{"ok": true}, "test-agent")
+		submission, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"ok": true}, "test-agent", "", nil)
 		require.NoError(t, err)
 		runner, stdout, _ := newTestRunner(t, db, "")
 
@@ -218,7 +403,7 @@ func TestRunner(t *testing.T) {
 			AllowedOrigins: "*",
 		})
 		require.NoError(t, err)
-		submission, err := forms.CreateSubmission(logger, db, form, map[string]any{"ok": true}, "test-agent")
+		submission, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"ok": true}, "test-agent", "", nil)
 		require.NoError(t, err)
 
 		baseDirectory := t.TempDir()

@@ -25,10 +25,11 @@ type smtpConfig struct {
 }
 
 func sendSMTP(ctx context.Context, config *smtpConfig, message []byte) error {
-	client, err := openSMTP(ctx, config)
+	client, stopCancel, err := openSMTP(ctx, config)
 	if err != nil {
 		return err
 	}
+	defer stopCancel()
 	defer func() { _ = client.Close() }()
 
 	if config.Encryption == "starttls" {
@@ -74,11 +75,17 @@ func sendSMTP(ctx context.Context, config *smtpConfig, message []byte) error {
 	return nil
 }
 
-func openSMTP(ctx context.Context, config *smtpConfig) (*smtp.Client, error) {
+func openSMTP(ctx context.Context, config *smtpConfig) (*smtp.Client, func() bool, error) {
 	address := net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
 	connection, err := (&net.Dialer{Timeout: smtpTimeout}).DialContext(ctx, "tcp", address)
 	if err != nil {
-		return nil, fmt.Errorf("connect SMTP: %w", err)
+		return nil, nil, fmt.Errorf("connect SMTP: %w", err)
+	}
+	rawConnection := connection
+	stopCancel := context.AfterFunc(ctx, func() { _ = rawConnection.Close() })
+	closeConnection := func() {
+		stopCancel()
+		_ = rawConnection.Close()
 	}
 
 	deadline := time.Now().Add(smtpTimeout)
@@ -86,25 +93,28 @@ func openSMTP(ctx context.Context, config *smtpConfig) (*smtp.Client, error) {
 		deadline = contextDeadline
 	}
 	if err := connection.SetDeadline(deadline); err != nil {
-		_ = connection.Close()
-		return nil, fmt.Errorf("set SMTP deadline: %w", err)
+		closeConnection()
+		return nil, nil, fmt.Errorf("set SMTP deadline: %w", err)
 	}
 
 	if config.Encryption == "tls" {
 		secure := tls.Client(connection, &tls.Config{ServerName: config.Host, MinVersion: tls.VersionTLS12})
 		if err := secure.HandshakeContext(ctx); err != nil {
-			_ = connection.Close()
-			return nil, fmt.Errorf("negotiate SMTP TLS: %w", err)
+			closeConnection()
+			return nil, nil, fmt.Errorf("negotiate SMTP TLS: %w", err)
 		}
 		connection = secure
 	}
 
 	client, err := smtp.NewClient(connection, config.Host)
 	if err != nil {
-		_ = connection.Close()
-		return nil, fmt.Errorf("initialize SMTP: %w", err)
+		closeConnection()
+		if ctx.Err() != nil {
+			return nil, nil, fmt.Errorf("initialize SMTP: %w", ctx.Err())
+		}
+		return nil, nil, fmt.Errorf("initialize SMTP: %w", err)
 	}
-	return client, nil
+	return client, stopCancel, nil
 }
 
 func envelopeAddress(value string) (string, error) {

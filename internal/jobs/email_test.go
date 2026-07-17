@@ -106,6 +106,39 @@ func TestEmailDelivery(t *testing.T) {
 		}, "from@example.com", "to@example.com")
 		assert.ErrorContains(t, err, "encryption")
 	})
+
+	t.Run("stops a blocked SMTP session when canceled", func(t *testing.T) {
+		listener, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		defer listener.Close()
+		connection := make(chan net.Conn, 1)
+		go func() {
+			accepted, acceptErr := listener.Accept()
+			if acceptErr == nil {
+				connection <- accepted
+			}
+		}()
+
+		address := listener.Addr().(*net.TCPAddr)
+		ctx, cancel := context.WithCancel(context.Background())
+		result := make(chan error, 1)
+		go func() {
+			result <- sendSMTP(ctx, &smtpConfig{
+				Host: "127.0.0.1", Port: address.Port, Encryption: "none",
+				From: "forms@example.com", To: "owner@example.com",
+			}, []byte("test"))
+		}()
+		accepted := <-connection
+		defer accepted.Close()
+		cancel()
+
+		select {
+		case err := <-result:
+			assert.ErrorIs(t, err, context.Canceled)
+		case <-time.After(time.Second):
+			t.Fatal("SMTP session did not stop after cancellation")
+		}
+	})
 }
 
 func fakeSMTP(t *testing.T) (string, int, <-chan smtpServerResult) {

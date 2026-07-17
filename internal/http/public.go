@@ -15,12 +15,12 @@ import (
 	"github.com/matteodante/miniform/internal/config"
 	"github.com/matteodante/miniform/internal/forms"
 	"github.com/matteodante/miniform/internal/integrations"
+	miniformserver "github.com/matteodante/miniform/internal/server"
 )
 
 var (
-	errEmptySubmission = errors.New("submission payload empty")
-	errTooManyFields   = errors.New("too many fields")
-	errCaptchaFailed   = errors.New("captcha verification failed")
+	errTooManyFields = errors.New("too many fields")
+	errCaptchaFailed = errors.New("captcha verification failed")
 )
 
 type publicFailure struct {
@@ -31,7 +31,11 @@ type publicFailure struct {
 func (failure *publicFailure) Error() string { return failure.message }
 
 func PublicFormSubmission(ctx *cartridge.Context, cfg *config.Config) error {
-	form, err := publicForm(ctx)
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	form, err := publicForm(ctx, db)
 	if err != nil {
 		var failure *publicFailure
 		if !errors.As(err, &failure) {
@@ -44,17 +48,19 @@ func PublicFormSubmission(ctx *cartridge.Context, cfg *config.Config) error {
 	if err != nil {
 		return submissionFailure(ctx, form, payload, fiber.StatusBadRequest, err.Error())
 	}
-	successURL := redirectField(payload, "_success_url")
-	errorURL := redirectField(payload, "_error_url")
-	if !validRedirect(form, successURL) {
+	origin := requestOrigin(ctx)
+	successURL, err := resolvedRedirect(form, redirectField(payload, "_success_url"), origin)
+	if err != nil {
 		return jsonError(ctx, fiber.StatusBadRequest, "invalid success redirect URL")
 	}
-	if !validRedirect(form, errorURL) {
+	errorURL, err := resolvedRedirect(form, redirectField(payload, "_error_url"), origin)
+	if err != nil {
 		return jsonError(ctx, fiber.StatusBadRequest, "invalid error redirect URL")
 	}
 
-	if err := verifyCaptcha(ctx, form, payload); err != nil {
-		return redirectOrJSON(ctx, errorURL, fiber.StatusBadRequest, err.Error())
+	if err := verifyCaptcha(ctx, cfg, form, payload); err != nil {
+		status, message := captchaFailureResponse(err)
+		return redirectOrJSON(ctx, errorURL, status, message)
 	}
 	delete(payload, "_success_url")
 	delete(payload, "_error_url")
@@ -64,10 +70,13 @@ func PublicFormSubmission(ctx *cartridge.Context, cfg *config.Config) error {
 		return redirectOrJSON(ctx, errorURL, fiber.StatusBadRequest, err.Error())
 	}
 	submission, err := forms.CreateSubmissionWithFiles(
-		ctx.Logger, ctx.DB(), form, payload, ctx.Get(fiber.HeaderUserAgent),
+		ctx.Logger, db, form, payload, ctx.Get(fiber.HeaderUserAgent),
 		cfg.DataDirectory, files,
 	)
 	if err != nil {
+		if errors.Is(err, forms.ErrEmptySubmission) {
+			return redirectOrJSON(ctx, errorURL, fiber.StatusBadRequest, err.Error())
+		}
 		return redirectOrJSON(ctx, errorURL, fiber.StatusInternalServerError, "submission failed")
 	}
 	if successURL != "" {
@@ -79,12 +88,12 @@ func PublicFormSubmission(ctx *cartridge.Context, cfg *config.Config) error {
 	})
 }
 
-func publicForm(ctx *cartridge.Context) (*forms.Form, error) {
+func publicForm(ctx *cartridge.Context, db *gorm.DB) (*forms.Form, error) {
 	slug := strings.TrimSpace(ctx.Params("slug"))
 	if slug == "" {
 		return nil, &publicFailure{fiber.StatusNotFound, "form not found"}
 	}
-	form, err := forms.GetBySlug(ctx.DB(), slug)
+	form, err := forms.GetBySlug(db, slug)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, &publicFailure{fiber.StatusNotFound, "form not found"}
@@ -110,12 +119,13 @@ func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[s
 			return payload, errTooManyFields
 		}
 		if len(payload) == 0 {
-			return payload, errEmptySubmission
+			return payload, forms.ErrEmptySubmission
 		}
 		return payload, nil
 	}
 
 	fieldCount := 0
+	hasFiles := false
 	if strings.Contains(ctx.Get(fiber.HeaderContentType), fiber.MIMEMultipartForm) {
 		multipart, err := ctx.MultipartForm()
 		if err != nil {
@@ -128,6 +138,7 @@ func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[s
 			}
 			setFormValues(payload, name, values)
 		}
+		hasFiles = len(multipart.File) > 0
 	} else {
 		for name, value := range ctx.Request().PostArgs().All() {
 			fieldCount++
@@ -139,8 +150,8 @@ func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[s
 			return payload, errTooManyFields
 		}
 	}
-	if len(payload) == 0 {
-		return payload, errEmptySubmission
+	if len(payload) == 0 && !hasFiles {
+		return payload, forms.ErrEmptySubmission
 	}
 	return payload, nil
 }
@@ -176,8 +187,11 @@ func uploadedFiles(ctx *cartridge.Context) ([]*forms.UploadedFile, error) {
 }
 
 func submissionFailure(ctx *cartridge.Context, form *forms.Form, payload map[string]any, status int, message string) error {
-	redirect := redirectField(payload, "_error_url")
-	if validRedirect(form, redirect) && redirect != "" {
+	redirect, err := resolvedRedirect(form, redirectField(payload, "_error_url"), requestOrigin(ctx))
+	if err != nil {
+		return jsonError(ctx, fiber.StatusBadRequest, "invalid error redirect URL")
+	}
+	if redirect != "" {
 		return ctx.Redirect(redirect)
 	}
 	return jsonError(ctx, status, message)
@@ -188,8 +202,24 @@ func redirectField(payload map[string]any, name string) string {
 	return strings.TrimSpace(value)
 }
 
-func validRedirect(form *forms.Form, target string) bool {
-	return target == "" || form.ValidateRedirectURL(target) == nil
+func resolvedRedirect(form *forms.Form, target, origin string) (string, error) {
+	target = strings.TrimSpace(target)
+	if err := form.ValidateRedirectURL(target); err != nil || target == "" {
+		return target, err
+	}
+	parsed, err := url.Parse(target)
+	if err != nil || parsed.IsAbs() {
+		return target, err
+	}
+	base, err := url.Parse(origin)
+	if err != nil || base.Hostname() == "" || !form.IsOriginAllowed(base.Hostname()) {
+		return "", forms.ErrRedirectNotAllowed
+	}
+	if base.Scheme != "http" && base.Scheme != "https" {
+		return "", forms.ErrRedirectNotAllowed
+	}
+	base.Path, base.RawQuery, base.Fragment = "/", "", ""
+	return base.ResolveReference(parsed).String(), nil
 }
 
 func redirectOrJSON(ctx *cartridge.Context, target string, status int, message string) error {
@@ -199,8 +229,9 @@ func redirectOrJSON(ctx *cartridge.Context, target string, status int, message s
 	return jsonError(ctx, status, message)
 }
 
-func verifyCaptcha(ctx *cartridge.Context, form *forms.Form, payload map[string]any) error {
+func verifyCaptcha(ctx *cartridge.Context, cfg *config.Config, form *forms.Form, payload map[string]any) error {
 	if form.CaptchaProfileID == nil {
+		_, _ = extractCaptchaToken(payload)
 		return nil
 	}
 	profile := form.CaptchaProfile
@@ -216,9 +247,15 @@ func verifyCaptcha(ctx *cartridge.Context, form *forms.Form, payload map[string]
 		ctx.Logger.Warn("captcha secret unavailable", slog.Uint64("form_id", uint64(form.ID)))
 		return errCaptchaFailed
 	}
-	result, err := integrations.VerifyTurnstileToken(ctx.UserContext(), profile.SecretKey, token, ctx.IP())
+	result, err := integrations.VerifyTurnstileToken(
+		ctx.UserContext(), profile.SecretKey, token,
+		miniformserver.ClientIP(ctx.Ctx, cfg.IsMatchaManaged()),
+	)
 	if err != nil {
 		ctx.Logger.Warn("turnstile rejected submission", slog.Uint64("form_id", uint64(form.ID)), slog.Any("error", err))
+		if errors.Is(err, integrations.ErrTurnstileUnavailable) {
+			return integrations.ErrTurnstileUnavailable
+		}
 		return errCaptchaFailed
 	}
 	if reason := turnstileResultFailure(form, result); reason != "" {
@@ -226,6 +263,13 @@ func verifyCaptcha(ctx *cartridge.Context, form *forms.Form, payload map[string]
 		return errCaptchaFailed
 	}
 	return nil
+}
+
+func captchaFailureResponse(err error) (int, string) {
+	if errors.Is(err, integrations.ErrTurnstileUnavailable) {
+		return fiber.StatusServiceUnavailable, "captcha service temporarily unavailable"
+	}
+	return fiber.StatusBadRequest, errCaptchaFailed.Error()
 }
 
 func turnstileResultFailure(form *forms.Form, result *integrations.TurnstileResult) string {
@@ -282,11 +326,22 @@ func jsonError(ctx *cartridge.Context, status int, message string) error {
 }
 
 func getRequestOrigin(ctx *cartridge.Context) string {
-	origin := ctx.Get(fiber.HeaderOrigin)
+	return extractDomain(requestOrigin(ctx))
+}
+
+func requestOrigin(ctx *cartridge.Context) string {
+	origin := strings.TrimSpace(ctx.Get(fiber.HeaderOrigin))
 	if origin == "" {
-		origin = ctx.Get(fiber.HeaderReferer)
+		origin = strings.TrimSpace(ctx.Get(fiber.HeaderReferer))
 	}
-	return extractDomain(origin)
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Hostname() == "" {
+		return ""
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host
 }
 
 func extractDomain(raw string) string {

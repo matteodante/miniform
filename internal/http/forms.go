@@ -17,12 +17,16 @@ import (
 )
 
 func AdminFormsIndex(ctx *cartridge.Context) error {
-	list, err := forms.List(ctx.DB())
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	list, err := forms.List(db)
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
 	return renderPage(ctx, "Endpoints", "admin/forms/index/content", fiber.Map{
-		"Forms": list, "CreateRoute": "/admin/forms/new",
+		"Forms": list,
 	})
 }
 
@@ -37,53 +41,57 @@ func AdminFormsNew(ctx *cartridge.Context) error {
 	if template == nil {
 		return ctx.Redirect("/admin/forms/new")
 	}
-	return renderFormEditor(ctx, nil, template, "")
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	return renderFormEditor(ctx, db, nil, template, "", formEditorSecrets{})
 }
 
 func AdminFormsCreate(ctx *cartridge.Context) error {
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
 	template := forms.GetTemplateByID(strings.TrimSpace(ctx.FormValue("template_id")))
 	params := createFormParams(ctx)
-	created, err := forms.Create(ctx.Logger, ctx.DB(), params)
+	created, err := forms.Create(ctx.Logger, db, params)
 	if err != nil {
 		var validation *forms.ValidationError
 		if errors.As(err, &validation) {
-			return renderFormEditor(ctx, createFormDraft(params), template, validation.Message)
+			return renderFormEditor(ctx, db, createFormDraft(params), template, validation.Message, formEditorSecrets{})
 		}
 		ctx.Logger.Error("create form", slog.Any("error", err))
 		return fiber.ErrInternalServerError
 	}
 
-	if template != nil {
-		html := template.RenderHTML(formAction(created.Slug, created.Token))
-		if html != "" {
-			if _, err := forms.SetGeneratedHTML(ctx.Logger, ctx.DB(), created.ID, html); err != nil {
-				ctx.Logger.Error("store generated form HTML", slog.Uint64("form_id", uint64(created.ID)), slog.Any("error", err))
-			}
-		}
-	}
 	return ctx.Redirect(fmt.Sprintf("/admin/forms/%d", created.ID))
 }
 
 func AdminFormShow(ctx *cartridge.Context) error {
-	form, err := requestedForm(ctx)
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	form, err := requestedForm(ctx, db)
 	if err != nil {
 		return err
 	}
 
-	submissions, err := forms.GetSubmissions(ctx.DB(), form.ID, 25)
+	submissions, err := forms.GetSubmissions(db, form.ID, 25)
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
-	webhooks, err := forms.GetWebhookEvents(ctx.DB(), form.ID, 20)
+	webhooks, err := forms.GetWebhookEvents(db, form.ID, 20)
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
-	emails, err := forms.GetEmailEvents(ctx.DB(), form.ID, 20)
+	emails, err := forms.GetEmailEvents(db, form.ID, 20)
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
 
-	embed := formembed.Build(form, formembed.Options{ShowToken: true})
+	embed := formembed.Build(form, formembed.Options{BaseURL: ctx.BaseURL(), ShowToken: true})
 	if embed.Warning != "" {
 		ctx.Logger.Warn("normalize generated form HTML", slog.Uint64("form_id", uint64(form.ID)), slog.String("warning", embed.Warning))
 	}
@@ -92,16 +100,24 @@ func AdminFormShow(ctx *cartridge.Context) error {
 		"Endpoint": fmt.Sprintf("/forms/%s/submit", form.Slug), "Token": form.Token,
 		"WebhookEvents": webhooks, "EmailEvents": emails,
 		"EmailRecipient": deliveryRecipient(form.EmailDelivery),
-		"FormCode":       embed.HTML, "HasGeneratedHTML": strings.TrimSpace(form.GeneratedHTML) != "",
+		"FormCode":       embed.HTML, "FormCodeWarning": embed.Warning,
+		"SDKScriptTag": formembed.SDKScriptTag(ctx.BaseURL()),
 	})
 }
 
 func AdminFormsEdit(ctx *cartridge.Context) error {
-	form, err := requestedForm(ctx)
+	db, err := requestDB(ctx)
 	if err != nil {
 		return err
 	}
-	return renderFormEditor(ctx, form, nil, "")
+	form, err := requestedForm(ctx, db)
+	if err != nil {
+		return err
+	}
+	return renderFormEditor(ctx, db, form, nil, "", formEditorSecrets{
+		hasStoredWebhookSecret:  form.WebhookDelivery != nil && form.WebhookDelivery.Secret != "",
+		hasStoredWebhookHeaders: form.WebhookDelivery != nil && form.WebhookDelivery.HeadersJSON != "",
+	})
 }
 
 func AdminFormsUpdate(ctx *cartridge.Context) error {
@@ -109,8 +125,37 @@ func AdminFormsUpdate(ctx *cartridge.Context) error {
 	if err != nil {
 		return err
 	}
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	form, err := forms.GetByID(db, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return fiber.ErrNotFound
+	}
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
 	params := updateFormParams(ctx, id)
-	updated, err := forms.Update(ctx.Logger, ctx.DB(), params)
+	secrets := formEditorSecrets{
+		hasStoredWebhookSecret:  form.WebhookDelivery != nil && form.WebhookDelivery.Secret != "",
+		hasStoredWebhookHeaders: form.WebhookDelivery != nil && form.WebhookDelivery.HeadersJSON != "",
+		clearWebhookSecret:      checkbox(ctx, "clear_webhook_secret"),
+		clearWebhookHeaders:     checkbox(ctx, "clear_webhook_headers"),
+	}
+	if form.WebhookDelivery != nil {
+		if secrets.clearWebhookSecret {
+			params.WebhookSecret = ""
+		} else if strings.TrimSpace(params.WebhookSecret) == "" {
+			params.WebhookSecret = form.WebhookDelivery.Secret
+		}
+		if secrets.clearWebhookHeaders {
+			params.WebhookHeadersJSON = ""
+		} else if strings.TrimSpace(params.WebhookHeadersJSON) == "" {
+			params.WebhookHeadersJSON = form.WebhookDelivery.HeadersJSON
+		}
+	}
+	updated, err := forms.Update(ctx.Logger, db, params)
 	if err == nil {
 		return ctx.Redirect(fmt.Sprintf("/admin/forms/%d", updated.ID))
 	}
@@ -119,11 +164,7 @@ func AdminFormsUpdate(ctx *cartridge.Context) error {
 	}
 	var validation *forms.ValidationError
 	if errors.As(err, &validation) {
-		form, loadErr := forms.GetByID(ctx.DB(), id)
-		if loadErr != nil {
-			return fiber.ErrInternalServerError
-		}
-		return renderFormEditor(ctx, updateFormDraft(form, params), nil, validation.Message)
+		return renderFormEditor(ctx, db, updateFormDraft(form, params), nil, validation.Message, secrets)
 	}
 	ctx.Logger.Error("update form", slog.Uint64("form_id", uint64(id)), slog.Any("error", err))
 	return fiber.ErrInternalServerError
@@ -133,7 +174,7 @@ func createFormParams(ctx *cartridge.Context) forms.CreateParams {
 	return forms.CreateParams{
 		Name: ctx.FormValue("name"), Slug: ctx.FormValue("slug"),
 		AllowedOrigins: ctx.FormValue("allowed_origins"), UseSDK: checkbox(ctx, "use_sdk"),
-		GeneratedHTML:    ctx.FormValue("generated_html"),
+		GeneratedHTML: ctx.FormValue("generated_html"), TemplateID: ctx.FormValue("template_id"),
 		MailerProfileID:  optionalID(ctx.FormValue("mailer_profile_id")),
 		CaptchaProfileID: optionalID(ctx.FormValue("captcha_profile_id")),
 		EmailRecipient:   ctx.FormValue("email_recipient"), EmailEnabled: checkbox(ctx, "email_enabled"),
@@ -154,14 +195,31 @@ func updateFormParams(ctx *cartridge.Context, id uint) forms.UpdateParams {
 	}
 }
 
-func renderFormEditor(ctx *cartridge.Context, form *forms.Form, template *forms.FormTemplate, message string) error {
-	mailers, err := integrations.ListMailerProfiles(ctx.DB())
+type formEditorSecrets struct {
+	hasStoredWebhookSecret  bool
+	hasStoredWebhookHeaders bool
+	clearWebhookSecret      bool
+	clearWebhookHeaders     bool
+}
+
+func renderFormEditor(ctx *cartridge.Context, db *gorm.DB, form *forms.Form, template *forms.FormTemplate, message string, secrets formEditorSecrets) error {
+	mailers, err := integrations.ListMailerProfiles(db)
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
-	captchas, err := integrations.ListCaptchaProfiles(ctx.DB())
+	captchas, err := integrations.ListCaptchaProfiles(db)
 	if err != nil {
 		return fiber.ErrInternalServerError
+	}
+	if form != nil {
+		safeForm := *form
+		if form.WebhookDelivery != nil {
+			safeWebhook := *form.WebhookDelivery
+			safeWebhook.Secret = ""
+			safeWebhook.HeadersJSON = ""
+			safeForm.WebhookDelivery = &safeWebhook
+		}
+		form = &safeForm
 	}
 	isEdit := form != nil && form.ID != 0
 	data := fiber.Map{
@@ -169,7 +227,11 @@ func renderFormEditor(ctx *cartridge.Context, form *forms.Form, template *forms.
 		"MailerProfiles": mailers, "CaptchaProfiles": captchas,
 		"DefaultSlug": "new-form", "ContentView": "admin/forms/new/content",
 		"SelectedMailerProfileID": uint(0), "SelectedCaptchaProfileID": uint(0),
-		"Title": "Create endpoint",
+		"Title":                   "Create endpoint",
+		"HasStoredWebhookSecret":  secrets.hasStoredWebhookSecret,
+		"HasStoredWebhookHeaders": secrets.hasStoredWebhookHeaders,
+		"ClearWebhookSecret":      secrets.clearWebhookSecret,
+		"ClearWebhookHeaders":     secrets.clearWebhookHeaders,
 	}
 
 	var email *forms.EmailDelivery
@@ -186,11 +248,8 @@ func renderFormEditor(ctx *cartridge.Context, form *forms.Form, template *forms.
 		}
 	}
 	if template != nil && !isEdit {
-		data["Template"] = template
 		data["TemplateID"] = template.ID
 		if form == nil {
-			emailCopy, webhookCopy := template.EmailDelivery, template.WebhookDelivery
-			email, webhook = &emailCopy, &webhookCopy
 			data["FormName"] = template.Name
 			if template.Slug != "" {
 				data["DefaultSlug"] = template.Slug
@@ -225,7 +284,7 @@ func createFormDraft(params forms.CreateParams) *forms.Form {
 	setDraftDeliveries(
 		form,
 		params.EmailEnabled, params.MailerProfileID, params.EmailRecipient,
-		params.WebhookEnabled, params.WebhookURL, params.WebhookSecret, params.WebhookHeadersJSON,
+		params.WebhookEnabled, params.WebhookURL,
 	)
 	return form
 }
@@ -238,17 +297,17 @@ func updateFormDraft(form *forms.Form, params forms.UpdateParams) *forms.Form {
 	setDraftDeliveries(
 		form,
 		params.EmailEnabled, params.MailerProfileID, params.EmailRecipient,
-		params.WebhookEnabled, params.WebhookURL, params.WebhookSecret, params.WebhookHeadersJSON,
+		params.WebhookEnabled, params.WebhookURL,
 	)
 	return form
 }
 
-func setDraftDeliveries(form *forms.Form, emailEnabled bool, mailerID *uint, recipient string, webhookEnabled bool, webhookURL, webhookSecret, webhookHeaders string) {
+func setDraftDeliveries(form *forms.Form, emailEnabled bool, mailerID *uint, recipient string, webhookEnabled bool, webhookURL string) {
 	form.EmailDelivery = &forms.EmailDelivery{
 		Enabled: emailEnabled, MailerProfileID: mailerID, Recipient: recipient,
 	}
 	form.WebhookDelivery = &forms.WebhookDelivery{
-		Enabled: webhookEnabled, URL: webhookURL, Secret: webhookSecret, HeadersJSON: webhookHeaders,
+		Enabled: webhookEnabled, URL: webhookURL,
 	}
 }
 
@@ -259,12 +318,12 @@ func deliveryRecipient(delivery *forms.EmailDelivery) string {
 	return delivery.Recipient
 }
 
-func requestedForm(ctx *cartridge.Context) (*forms.Form, error) {
+func requestedForm(ctx *cartridge.Context, db *gorm.DB) (*forms.Form, error) {
 	id, err := requestedID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	form, err := forms.GetByID(ctx.DB(), id)
+	form, err := forms.GetByID(db, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fiber.ErrNotFound
 	}

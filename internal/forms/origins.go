@@ -74,6 +74,7 @@ func originMatches(host, entry string) bool {
 		return true
 	}
 	entry = strings.TrimPrefix(entry, "*.")
+	entry = strings.TrimPrefix(entry, ".")
 	allowedHost := normalizedHost(entry)
 	return allowedHost != "" && (host == allowedHost || strings.HasSuffix(host, "."+allowedHost))
 }

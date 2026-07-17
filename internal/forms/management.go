@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,37 +21,36 @@ func DeleteForm(logger *slog.Logger, db *gorm.DB, dataDir string, id uint) error
 	submissionFilesMutex.Lock()
 	defer submissionFilesMutex.Unlock()
 
-	if _, err := GetByID(db, id); err != nil {
-		return err
-	}
-
-	var submissionIDs []uint
-	if err := db.Model(&Submission{}).Where("form_id = ?", id).Pluck("id", &submissionIDs).Error; err != nil {
-		return fmt.Errorf("list form submissions for deletion: %w", err)
-	}
-	uploadPaths := make([]string, 0, len(submissionIDs))
-	formDirectory := strconv.FormatUint(uint64(id), 10)
-	for _, submissionID := range submissionIDs {
-		uploadPaths = append(uploadPaths, filepath.Join(
-			"uploads",
-			formDirectory,
-			strconv.FormatUint(uint64(submissionID), 10),
-		))
-	}
-	stagedFiles, err := stageUploadDeletions(dataDir, uploadPaths)
-	if err != nil {
-		return fmt.Errorf("stage form uploads: %w", err)
-	}
-	defer stagedFiles.close()
-
-	if deleteErr := Delete(logger, db, id); deleteErr != nil && !errors.Is(deleteErr, gorm.ErrRecordNotFound) {
-		if restoreErr := stagedFiles.restore(); restoreErr != nil {
-			deleteErr = errors.Join(deleteErr, restoreErr)
+	var staged *stagedUploadDeletion
+	deleteErr := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		if staged != nil {
+			if err := staged.finish(tx); err != nil {
+				return err
+			}
+			staged = nil
 		}
-		return fmt.Errorf("delete form: %w", deleteErr)
+		var form Form
+		if err := tx.Select("id").First(&form, id).Error; err != nil {
+			return err
+		}
+		var files []*SubmissionFile
+		submissionIDs := tx.Model(&Submission{}).Select("id").Where("form_id = ?", id)
+		if err := tx.Where("submission_id IN (?)", submissionIDs).Find(&files).Error; err != nil {
+			return fmt.Errorf("list form uploads for deletion: %w", err)
+		}
+		var err error
+		staged, err = stageStoredFiles(dataDir, files)
+		if err != nil {
+			return fmt.Errorf("stage form uploads: %w", err)
+		}
+		return deleteFormRecords(tx, id)
+	})
+	cleanupErr := staged.finish(db)
+	if deleteErr != nil {
+		return errors.Join(fmt.Errorf("delete form: %w", deleteErr), cleanupErr)
 	}
-	if err := errors.Join(DeleteFormFiles(dataDir, id), stagedFiles.commit()); err != nil {
-		return fmt.Errorf("delete form uploads: %w", err)
+	if cleanupErr != nil {
+		return fmt.Errorf("form deleted but quarantined upload cleanup failed: %w", cleanupErr)
 	}
 	return nil
 }
@@ -71,19 +68,6 @@ func RotateToken(logger *slog.Logger, db *gorm.DB, id uint) (*Form, error) {
 		return tx.Model(&Form{}).Where("id = ?", id).Update("token", token).Error
 	}); err != nil {
 		return nil, fmt.Errorf("rotate form token: %w", err)
-	}
-	return GetByID(db, id)
-}
-
-// SetGeneratedHTML replaces the stored HTML used by the embed-code view.
-func SetGeneratedHTML(logger *slog.Logger, db *gorm.DB, id uint, html string) (*Form, error) {
-	if _, err := GetByID(db, id); err != nil {
-		return nil, err
-	}
-	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		return tx.Model(&Form{}).Where("id = ?", id).Update("generated_html", strings.TrimSpace(html)).Error
-	}); err != nil {
-		return nil, fmt.Errorf("set generated form HTML: %w", err)
 	}
 	return GetByID(db, id)
 }
@@ -219,21 +203,23 @@ func DeleteSubmission(logger *slog.Logger, db *gorm.DB, dataDir string, id uint)
 }
 
 func deleteSubmission(logger *slog.Logger, db *gorm.DB, dataDir string, id uint) error {
-	submission, err := GetSubmissionByID(db, id)
-	if err != nil {
-		return err
-	}
-	stagedFiles, err := stageUploadDeletions(dataDir, []string{filepath.Join(
-		"uploads",
-		strconv.FormatUint(uint64(submission.FormID), 10),
-		strconv.FormatUint(uint64(submission.ID), 10),
-	)})
-	if err != nil {
-		return fmt.Errorf("stage submission files: %w", err)
-	}
-	defer stagedFiles.close()
-
-	if err = dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+	var staged *stagedUploadDeletion
+	deleteErr := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		if staged != nil {
+			if err := staged.finish(tx); err != nil {
+				return err
+			}
+			staged = nil
+		}
+		var submission Submission
+		if err := tx.Preload("Files").First(&submission, id).Error; err != nil {
+			return err
+		}
+		var err error
+		staged, err = stageStoredFiles(dataDir, submission.Files)
+		if err != nil {
+			return fmt.Errorf("stage submission uploads: %w", err)
+		}
 		if err := tx.Where("submission_id = ?", id).Delete(&WebhookEvent{}).Error; err != nil {
 			return err
 		}
@@ -251,16 +237,14 @@ func deleteSubmission(logger *slog.Logger, db *gorm.DB, dataDir string, id uint)
 			return gorm.ErrRecordNotFound
 		}
 		return nil
-	}); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		if restoreErr := stagedFiles.restore(); restoreErr != nil {
-			err = errors.Join(err, restoreErr)
-		}
-		return fmt.Errorf("delete submission: %w", err)
+	})
+	cleanupErr := staged.finish(db)
+	if deleteErr != nil {
+		return errors.Join(fmt.Errorf("delete submission: %w", deleteErr), cleanupErr)
 	}
-	if err := stagedFiles.commit(); err != nil {
-		return fmt.Errorf("delete submission files: %w", err)
+	if cleanupErr != nil {
+		return fmt.Errorf("submission deleted but quarantined upload cleanup failed: %w", cleanupErr)
 	}
-
 	return nil
 }
 
@@ -318,7 +302,7 @@ func retryDeliveryEvent(logger *slog.Logger, db *gorm.DB, model any, id uint) er
 	now := time.Now().UTC()
 	return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
 		result := tx.Model(model).
-			Where("id = ?", id).
+			Where("id = ? AND status = ?", id, WebhookStatusFailed).
 			Updates(map[string]any{
 				"status":           WebhookStatusPending,
 				"attempt_count":    0,

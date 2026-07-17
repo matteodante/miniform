@@ -44,7 +44,7 @@
                 <label class="flex items-start gap-3 rounded-xl border border-rule p-4 text-sm text-ink" for="use_sdk">
                     <input class="mt-0.5 h-4 w-4 rounded border-gray-300" id="use_sdk" name="use_sdk" type="checkbox"
                         {{ if $form }}{{ if $form.UseSDK }}checked{{ end }}{{ else }}checked{{ end }}>
-                    <span><strong class="block font-semibold">Include JavaScript SDK</strong><span class="text-xs text-ink-muted">Adds retry and loading states to the copied snippet.</span></span>
+                    <span><strong class="block font-semibold">Include JavaScript SDK</strong><span class="text-xs text-ink-muted">Adds a single-submit loading state and inline result messages.</span></span>
                 </label>
                 <label class="grid gap-2 text-sm font-medium text-ink" for="captcha_profile_id">
                     Safeguard
@@ -93,12 +93,23 @@
                             value="{{ if $webhook }}{{ $webhook.URL }}{{ end }}" placeholder="https://api.example.com/hooks">
                     </label>
                     <label class="grid gap-2 text-sm font-medium text-ink" for="webhook_secret">HMAC secret
-                        <input class="mf-input w-full font-mono text-sm" id="webhook_secret" name="webhook_secret" type="text"
-                            value="{{ if $webhook }}{{ $webhook.Secret }}{{ end }}">
+						<input class="mf-input w-full font-mono text-sm" id="webhook_secret" name="webhook_secret" type="password" autocomplete="new-password">
+						{{ if and .IsEdit .HasStoredWebhookSecret }}<span class="text-xs font-normal text-ink-muted">A secret is stored. Leave this blank to keep it.</span>{{ end }}
                     </label>
+					{{ if and .IsEdit .HasStoredWebhookSecret }}
+					<label class="flex items-center gap-2 text-xs text-ink" for="clear_webhook_secret">
+						<input id="clear_webhook_secret" name="clear_webhook_secret" type="checkbox" {{ if .ClearWebhookSecret }}checked{{ end }}> Remove stored secret
+					</label>
+					{{ end }}
                     <label class="grid gap-2 text-sm font-medium text-ink" for="webhook_headers">Custom headers <span class="font-mono text-xs font-normal text-ink-muted">JSON object</span>
-                        <textarea class="mf-input w-full font-mono text-sm" id="webhook_headers" name="webhook_headers" rows="4" placeholder='{"Authorization":"Bearer token"}'>{{ if $webhook }}{{ $webhook.HeadersJSON }}{{ end }}</textarea>
+						<textarea class="mf-input w-full font-mono text-sm" id="webhook_headers" name="webhook_headers" rows="4" placeholder='{"Authorization":"Bearer token"}'></textarea>
+						{{ if and .IsEdit .HasStoredWebhookHeaders }}<span class="text-xs font-normal text-ink-muted">Custom headers are stored. Leave this blank to keep them.</span>{{ end }}
                     </label>
+					{{ if and .IsEdit .HasStoredWebhookHeaders }}
+					<label class="flex items-center gap-2 text-xs text-ink" for="clear_webhook_headers">
+						<input id="clear_webhook_headers" name="clear_webhook_headers" type="checkbox" {{ if .ClearWebhookHeaders }}checked{{ end }}> Remove stored headers
+					</label>
+					{{ end }}
                 </div>
             </section>
 

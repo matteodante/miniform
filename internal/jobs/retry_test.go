@@ -87,8 +87,13 @@ func TestRetryQueue(t *testing.T) {
 			Context: context.Background(), DB: db,
 			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		}
+		leaseUntil, err := claimEvent(ctx, db, &forms.EmailEvent{}, event.ID, time.Now().UTC())
+		require.NoError(t, err)
+		require.NotNil(t, leaseUntil)
+		event.Status = forms.WebhookStatusDelivering
+		event.NextAttemptAt = leaseUntil
 		state := deliveredState(event.AttemptCount)
-		applyEmailState(ctx, db, event, state)
+		require.NoError(t, applyEmailState(ctx, db, event, state))
 		assert.Equal(t, forms.WebhookStatusDelivered, event.Status)
 		assert.Equal(t, 1, event.AttemptCount)
 		assert.Equal(t, time.UTC, event.LastAttemptAt.Location())

@@ -8,12 +8,14 @@ test.describe("email routes", () => {
     await page.getByLabel("Profile name").fill(name);
     await page.getByLabel("SMTP host").fill("smtp.draft.example");
     await page.getByLabel("Port").fill("70000");
+    await page.getByLabel("From email").fill("draft@example.com");
     await page.getByRole("button", { name: "Create email route" }).click();
 
     await expect(page.getByText(/SMTP port must be between 1 and 65535/i)).toBeVisible();
     await expect(page.getByLabel("Profile name")).toHaveValue(name);
     await expect(page.getByLabel("SMTP host")).toHaveValue("smtp.draft.example");
     await expect(page.getByLabel("Port")).toHaveValue("70000");
+    await expect(page.getByLabel("From email")).toHaveValue("draft@example.com");
   });
 
   test("creates an SMTP connection from the UI", async ({ page, admin }) => {

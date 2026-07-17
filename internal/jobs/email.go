@@ -28,28 +28,38 @@ func NewEmailDispatcher(cfg *config.Config) *EmailDispatcher {
 
 func (dispatcher *EmailDispatcher) ProcessBatch(ctx *cartridge.JobContext) error {
 	var events []forms.EmailEvent
-	query := ctx.DB.Preload("Submission.Form.EmailDelivery.MailerProfile")
-	if err := dueEvents(query, time.Now()).Limit(10).Find(&events).Error; err != nil {
+	now := time.Now().UTC()
+	query := ctx.DB.WithContext(ctx).Preload("Submission.Form.EmailDelivery.MailerProfile")
+	if err := dueEvents(query, now).Limit(10).Find(&events).Error; err != nil {
 		ctx.Logger.Error("query email queue", slog.Any("error", err))
 		return err
 	}
 	for i := range events {
-		dispatcher.deliver(ctx, &events[i])
+		leaseUntil, err := claimEvent(ctx, ctx.DB, &forms.EmailEvent{}, events[i].ID, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if leaseUntil == nil {
+			continue
+		}
+		events[i].Status = forms.WebhookStatusDelivering
+		events[i].NextAttemptAt = leaseUntil
+		if err := dispatcher.deliver(ctx, &events[i]); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-func (dispatcher *EmailDispatcher) deliver(ctx *cartridge.JobContext, event *forms.EmailEvent) {
+func (dispatcher *EmailDispatcher) deliver(ctx *cartridge.JobContext, event *forms.EmailEvent) error {
 	if event.Submission == nil || event.Submission.Form == nil {
-		applyEmailState(ctx, ctx.DB, event, finalState(forms.WebhookStatusFailed, "submission unavailable"))
-		return
+		return applyEmailState(ctx, ctx.DB, event, finalState(forms.WebhookStatusFailed, "submission unavailable"))
 	}
 
 	delivery := event.Submission.Form.EmailDelivery
 	profile, from, to, err := emailSettings(delivery)
 	if err != nil {
-		applyEmailState(ctx, ctx.DB, event, finalState(forms.WebhookStatusFailed, err.Error()))
-		return
+		return applyEmailState(ctx, ctx.DB, event, finalState(forms.WebhookStatusFailed, err.Error()))
 	}
 
 	subject := "New submission · " + event.Submission.Form.Name
@@ -60,10 +70,17 @@ func (dispatcher *EmailDispatcher) deliver(ctx *cartridge.JobContext, event *for
 	}
 
 	if err != nil {
-		applyEmailState(ctx, ctx.DB, event, retryState(event.AttemptCount, dispatcher.retries, err))
-		return
+		if stateErr := applyEmailState(ctx, ctx.DB, event, retryState(event.AttemptCount, dispatcher.retries, err)); stateErr != nil {
+			return stateErr
+		}
+		ctx.Logger.Warn("email delivery failed",
+			slog.Uint64("event_id", uint64(event.ID)),
+			slog.Int("attempt", event.AttemptCount),
+			slog.String("status", event.Status),
+		)
+		return nil
 	}
-	applyEmailState(ctx, ctx.DB, event, deliveredState(event.AttemptCount))
+	return applyEmailState(ctx, ctx.DB, event, deliveredState(event.AttemptCount))
 }
 
 func emailSettings(delivery *forms.EmailDelivery) (*integrations.MailerProfile, string, string, error) {

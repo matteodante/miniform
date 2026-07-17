@@ -50,8 +50,16 @@
                 <label class="grid gap-2 text-sm font-medium text-ink" for="smtp_password">
                     Password
                     <input class="mf-input w-full font-mono text-sm" id="smtp_password" name="smtp_password" type="password"
-                        value="{{ if .Profile }}{{ .Profile.SMTPPassword }}{{ end }}">
+						autocomplete="new-password">
+					{{ if and .IsEdit .HasStoredSMTPPassword }}
+					<span class="text-xs font-normal text-ink-muted">A password is stored. Leave this blank to keep it.</span>
+					{{ end }}
                 </label>
+				{{ if and .IsEdit .HasStoredSMTPPassword }}
+				<label class="flex items-center gap-2 text-xs text-ink" for="clear_smtp_password">
+					<input id="clear_smtp_password" name="clear_smtp_password" type="checkbox" {{ if .ClearSMTPPassword }}checked{{ end }}> Remove stored password
+				</label>
+				{{ end }}
             </div>
         </section>
 
@@ -65,7 +73,7 @@
                 </label>
                 <label class="grid gap-2 text-sm font-medium text-ink" for="default_from_email">
                     From email
-                    <input class="mf-input w-full" id="default_from_email" name="default_from_email" type="email"
+                    <input class="mf-input w-full" id="default_from_email" name="default_from_email" type="email" required
                         value="{{ if .Profile }}{{ .Profile.DefaultFromEmail }}{{ end }}" placeholder="no-reply@example.com">
                 </label>
             </div>

@@ -260,37 +260,101 @@ clean:
 	@echo ">> removing build artifacts"
 	rm -f $(BIN_DIR)/$(APP) $(INSTALLER_BINARY) $(E2E_BINARY)
 	rm -rf "$(CURDIR)/dist"
+	find "$(CURDIR)/web/static" -type f -name '*.fiber.gz' -delete
 
 container-build:
 	docker build --pull --tag miniform:local .
 
 container-test: container-build
 	@set -eu; \
-		container=miniform-test; \
-		volume=miniform-test-storage; \
+		container_name="miniform-test-$$(date +%s)-$$$$"; \
+		container_id=; \
+		volume=; \
 		cleanup() { \
-			docker rm --force "$$container" >/dev/null 2>&1 || true; \
-			docker volume rm --force "$$volume" >/dev/null 2>&1 || true; \
+			test -z "$$container_id" || docker rm --force "$$container_id" >/dev/null 2>&1 || true; \
+			test -z "$$volume" || docker volume rm --force "$$volume" >/dev/null 2>&1 || true; \
 		}; \
 		trap cleanup EXIT INT TERM; \
-		cleanup; \
-		docker volume create "$$volume" >/dev/null; \
+		volume=$$(docker volume create); \
 		docker run --rm --user 0:0 --entrypoint sh \
 			--volume "$$volume":/app/storage miniform:local \
-			-c 'umask 077; : > /app/storage/restored.db'; \
-		docker run --detach --name "$$container" \
-			--publish 127.0.0.1:18080:8080 \
-			--env MINIFORM_ENV=development \
+			-c 'set -eu; umask 077; \
+				mkdir -p /app/storage/logs /app/storage/uploads/restored /app/storage/.upload-staging/restored /app/storage/.upload-deletions/restored; \
+				: > /app/storage/restored.db; \
+				: > /app/storage/restored.db-wal; \
+				: > /app/storage/restored.db-shm; \
+				: > /app/storage/trimmed.development.db; \
+				printf restored-log > /app/storage/logs/miniform.log; \
+				ln -s /etc/passwd /app/storage/logs/outside-link; \
+				printf restored > /app/storage/uploads/restored/attachment.txt; \
+				ln -s /etc/passwd /app/storage/uploads/restored/outside-link; \
+				printf staged > /app/storage/.upload-staging/restored/attachment.txt; \
+				printf quarantined > /app/storage/.upload-deletions/restored/attachment.txt; \
+				ln -s /tmp/miniform-outside /app/storage/unsafe-parent'; \
+		for unsafe_env in \
+			'MINIFORM_DATA_DIR=/app/storage/unsafe-parent/data' \
+			'MINIFORM_LOGS_DIR=/app/storage/unsafe-parent/logs' \
+			'MINIFORM_DATABASE_PATH=/app/storage/unsafe-parent/miniform.db'; do \
+			if docker run --rm --env "$$unsafe_env" \
+				--volume "$$volume":/app/storage \
+				--entrypoint sh miniform:local \
+				-c 'mkdir -p /tmp/miniform-outside; exec /usr/local/bin/docker-entrypoint.sh true'; then \
+				echo "Error: entrypoint accepted symbolic-link storage parent for $$unsafe_env" >&2; \
+				exit 1; \
+			fi; \
+		done; \
+		docker run --rm \
+			--env 'MINIFORM_ENV= development ' \
+			--env 'MINIFORM_DATA_DIR= /app/storage ' \
+			--env 'MINIFORM_LOGS_DIR= /app/storage/logs ' \
+			--env 'MINIFORM_DATABASE_PATH= /app/storage/restored.db ' \
 			--volume "$$volume":/app/storage \
-			miniform:local >/dev/null; \
+			--entrypoint /usr/local/bin/docker-entrypoint.sh \
+			miniform:local sh -c 'set -eu; \
+				test "$$(stat -c %u /app/storage/logs/miniform.log)" = 10001; \
+				test "$$(stat -c %u /app/storage/uploads/restored/attachment.txt)" = 10001; \
+				test "$$(stat -c %u /app/storage/.upload-staging/restored/attachment.txt)" = 10001; \
+				test "$$(stat -c %u /app/storage/.upload-deletions/restored/attachment.txt)" = 10001; \
+				test "$$(stat -c %u /etc/passwd)" = 0; \
+				test -L /app/storage/logs/outside-link; \
+				test -L /app/storage/uploads/restored/outside-link; \
+				for path in /app/storage/restored.db /app/storage/restored.db-wal /app/storage/restored.db-shm; do \
+					test -r "$$path"; \
+					test -w "$$path"; \
+				done; \
+				test -r /app/storage/uploads/restored/attachment.txt; \
+				test -w /app/storage/uploads/restored/attachment.txt; \
+				test -r /app/storage/logs/miniform.log; \
+				test -w /app/storage/logs/miniform.log; \
+				printf writable >> /app/storage/logs/miniform.log; \
+				rm /app/storage/logs/outside-link; \
+				rm /app/storage/uploads/restored/outside-link; \
+				rm -rf /app/storage/.upload-deletions/restored; \
+				rm -f /app/storage/restored.db-wal /app/storage/restored.db-shm'; \
+		docker run --rm \
+			--env 'MINIFORM_ENV=   ' \
+			--env 'MINIFORM_DATABASE_FILENAME= trimmed.db ' \
+			--volume "$$volume":/app/storage \
+			--entrypoint /usr/local/bin/docker-entrypoint.sh \
+			miniform:local sh -c \
+				'test "$$(stat -c %u /app/storage/trimmed.development.db)" = 10001'; \
+		container_id=$$(docker run --detach --name "$$container_name" \
+			--env MINIFORM_ENV=development \
+			--env MINIFORM_DATABASE_PATH=/app/storage/restored.db \
+			--volume "$$volume":/app/storage \
+			miniform:local); \
 		for attempt in $$(seq 1 30); do \
-			curl --fail --silent http://127.0.0.1:18080/_health >/dev/null && break; \
-			test "$$attempt" -lt 30 || (docker logs "$$container" && exit 1); \
+			docker exec "$$container_id" wget --quiet --output-document=- http://127.0.0.1:8080/_health >/dev/null && break; \
+			test "$$attempt" -lt 30 || (docker logs "$$container_id" && exit 1); \
 			sleep 1; \
 		done; \
-		docker exec "$$container" sh -c \
+		docker exec "$$container_id" sh -c \
 			'test "$$(stat -c %u /app/storage/restored.db)" = 10001'; \
-		docker exec "$$container" sh -c \
+		docker exec --user 10001:10001 "$$container_id" sh -c \
+			'test -r /app/storage/uploads/restored/attachment.txt && test -w /app/storage/uploads/restored/attachment.txt'; \
+		docker exec "$$container_id" sh -c \
+			'test ! -e /app/storage/.upload-staging'; \
+		docker exec "$$container_id" sh -c \
 			'set -- $$(grep "^Uid:" /proc/1/status); test "$$2" = 10001'; \
 		echo ">> container health, ownership, and runtime UID checks passed"
 
@@ -329,9 +393,11 @@ release:
 	fi
 	@./scripts/validate-release-tag.sh "v$(v)"
 	@test -z "$$(git status --porcelain)" || (echo "Error: Uncommitted changes. Commit first." && exit 1)
+	@git fetch --quiet origin main
+	@git merge-base --is-ancestor HEAD origin/main || (echo "Error: Release commit is not on origin/main." && exit 1)
 	@echo "Creating release v$(v)..."
 	@$(MAKE) check
-	git tag -a "v$(v)" -m "Release v$(v)"
+	git tag -s "v$(v)" -m "Release v$(v)"
 	git push origin "v$(v)"
 	@echo ""
 	@echo "Release v$(v) triggered!"

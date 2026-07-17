@@ -36,7 +36,7 @@
         <section class="mf-panel p-6">
             <h2 class="text-lg font-semibold text-ink">Usage</h2>
             <p class="mt-4 text-3xl font-bold text-ink">{{ .UsageCount }}</p>
-            <p class="text-sm text-ink-muted">active {{ if eq .UsageCount 1 }}delivery{{ else }}deliveries{{ end }}</p>
+            <p class="text-sm text-ink-muted">referenced {{ if eq .UsageCount 1 }}delivery{{ else }}deliveries{{ end }}</p>
             {{ if gt .UsageCount 0 }}<p class="mt-4 text-xs font-medium text-rose-700">Detach it before deletion.</p>{{ end }}
         </section>
     </div>

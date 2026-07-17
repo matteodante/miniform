@@ -15,7 +15,7 @@ import (
 
 func Seed(db *gorm.DB) error {
 	logger := slog.Default()
-	if _, err := accounts.EnsureAdmin(logger, db, "miniform", true); err != nil {
+	if _, err := accounts.EnsureAdmin(logger, db, "miniform", true, nil); err != nil {
 		return fmt.Errorf("seed admin: %w", err)
 	}
 

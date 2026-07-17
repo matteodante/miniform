@@ -35,9 +35,6 @@ type mailerFlags struct {
 }
 
 func (r *Runner) runMailer(args []string) (any, error) {
-	if err := r.requireDatabase(); err != nil {
-		return nil, err
-	}
 	action, actionArgs, err := requireAction("mailer", args)
 	if err != nil {
 		return nil, err
@@ -61,6 +58,9 @@ func (r *Runner) runMailer(args []string) (any, error) {
 func (r *Runner) mailerList(args []string) (any, error) {
 	set := newFlagSet("mailer.list")
 	if err := r.parseFlags(set, "mailer.list", args); err != nil {
+		return nil, err
+	}
+	if err := r.requireDatabase(); err != nil {
 		return nil, err
 	}
 	profiles, err := integrations.ListMailerProfiles(r.DB)
@@ -87,6 +87,9 @@ func (r *Runner) mailerGet(args []string) (any, error) {
 	if err := requireUint(*id, "id"); err != nil {
 		return nil, err
 	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
 	profile, err := integrations.GetMailerProfileByID(r.DB, *id)
 	if err != nil {
 		return nil, err
@@ -103,11 +106,15 @@ func (r *Runner) mailerCreate(args []string) (any, error) {
 	if err := requireString(*flags.name, "name"); err != nil {
 		return nil, err
 	}
-	params, err := r.mailerParams(set, flags, integrations.MailerProfileParams{
+	password, err := readFileValue(*flags.smtpPasswordFile, r.Stdin)
+	if err != nil {
+		return nil, validationError(err.Error())
+	}
+	params := mailerParams(set, flags, integrations.MailerProfileParams{
 		SMTPPort:       587,
 		SMTPEncryption: "starttls",
-	})
-	if err != nil {
+	}, password)
+	if err := r.requireDatabase(); err != nil {
 		return nil, err
 	}
 	profile, err := integrations.CreateMailerProfile(r.Logger, r.DB, params)
@@ -131,15 +138,19 @@ func (r *Runner) mailerUpdate(args []string) (any, error) {
 	if *clearSMTPPassword && *flags.smtpPasswordFile != "" {
 		return nil, usageError("--clear-smtp-password conflicts with --smtp-password-file")
 	}
+	password, err := readFileValue(*flags.smtpPasswordFile, r.Stdin)
+	if err != nil {
+		return nil, validationError(err.Error())
+	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
+	}
 
 	current, err := integrations.GetMailerProfileByID(r.DB, *id)
 	if err != nil {
 		return nil, err
 	}
-	params, err := r.mailerParams(set, flags, mailerParamsFromProfile(current))
-	if err != nil {
-		return nil, err
-	}
+	params := mailerParams(set, flags, mailerParamsFromProfile(current), password)
 	if *clearSMTPPassword {
 		params.SMTPPassword = ""
 	}
@@ -162,6 +173,9 @@ func (r *Runner) mailerDelete(args []string) (any, error) {
 	}
 	if !*yes {
 		return nil, usageError("mailer delete requires --yes")
+	}
+	if err := r.requireDatabase(); err != nil {
+		return nil, err
 	}
 	if _, err := integrations.GetMailerProfileByID(r.DB, *id); err != nil {
 		return nil, err
@@ -192,7 +206,7 @@ func defineMailerFlags(set *flag.FlagSet) mailerFlags {
 	}
 }
 
-func (r *Runner) mailerParams(set *flag.FlagSet, flags mailerFlags, params integrations.MailerProfileParams) (integrations.MailerProfileParams, error) {
+func mailerParams(set *flag.FlagSet, flags mailerFlags, params integrations.MailerProfileParams, password string) integrations.MailerProfileParams {
 	applyStringFlag(set, "name", flags.name, &params.Name)
 	applyStringFlag(set, "default-from-name", flags.defaultFromName, &params.DefaultFromName)
 	applyStringFlag(set, "default-from-email", flags.defaultFromEmail, &params.DefaultFromEmail)
@@ -203,14 +217,10 @@ func (r *Runner) mailerParams(set *flag.FlagSet, flags mailerFlags, params integ
 		params.SMTPPort = *flags.smtpPort
 	}
 
-	var err error
 	if *flags.smtpPasswordFile != "" {
-		params.SMTPPassword, err = readFileValue(*flags.smtpPasswordFile, r.Stdin)
-		if err != nil {
-			return params, validationError(err.Error())
-		}
+		params.SMTPPassword = password
 	}
-	return params, nil
+	return params
 }
 
 func mailerParamsFromProfile(profile *integrations.MailerProfile) integrations.MailerProfileParams {

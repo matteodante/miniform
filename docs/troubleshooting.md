@@ -23,13 +23,24 @@ Also confirm that `MINIFORM_SESSION_SECRET` remains identical across restarts.
 The unique temporary password appears once in application output. For a container:
 
 ```bash
-docker logs miniform
+app_container="$(docker ps \
+  --filter 'name=^miniform$' \
+  --filter 'name=^miniform-next$' \
+  --format '{{.Names}}' | head -n 1)"
+test -n "$app_container"
+docker logs "$app_container"
 ```
 
 If it is unavailable, reset it inside the container without deleting the database:
 
 ```bash
-printf '%s' "$NEW_PASSWORD" | docker exec -i miniform miniform account reset-password --new-password-file -
+app_container="$(docker ps \
+  --filter 'name=^miniform$' \
+  --filter 'name=^miniform-next$' \
+  --format '{{.Names}}' | head -n 1)"
+test -n "$app_container"
+printf '%s' "$NEW_PASSWORD" | docker exec -i "$app_container" \
+  miniform account reset-password --new-password-file -
 ```
 
 ## SQLite busy or locked errors

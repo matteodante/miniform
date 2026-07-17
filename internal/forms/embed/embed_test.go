@@ -15,13 +15,15 @@ func TestBuild(t *testing.T) {
 	t.Run("redacts token and follows SDK option", func(t *testing.T) {
 		form := &forms.Form{ID: 7, PublicID: "public-id", Slug: "contact", Token: "live-token"}
 
-		result := formembed.Build(form, formembed.Options{IncludeSDK: true})
+		result := formembed.Build(form, formembed.Options{
+			BaseURL: "https://forms.example.com/", IncludeSDK: true,
+		})
 
 		assert.True(t, result.Redacted)
 		assert.True(t, result.IncludesSDK)
-		assert.Contains(t, result.Action, "token=YOUR_FORM_TOKEN")
+		assert.Equal(t, "https://forms.example.com/forms/contact/submit?token=YOUR_FORM_TOKEN", result.Action)
 		assert.NotContains(t, result.HTML, "live-token")
-		assert.Contains(t, result.HTML, formembed.SDKScriptTag)
+		assert.Contains(t, result.HTML, `<script src="https://forms.example.com/assets/miniform.js"></script>`)
 	})
 
 	t.Run("normalizes generated HTML with the live action", func(t *testing.T) {
@@ -33,11 +35,11 @@ func TestBuild(t *testing.T) {
 			GeneratedHTML: `<section><form action="old" method="GET"><button>Send</button></form></section>`,
 		}
 
-		result := formembed.Build(form, formembed.Options{ShowToken: true})
+		result := formembed.Build(form, formembed.Options{BaseURL: "https://forms.example.com", ShowToken: true})
 
 		require.Empty(t, result.Warning)
 		assert.False(t, result.Redacted)
-		assert.Contains(t, result.HTML, `action="/forms/feedback/submit?token=live-token"`)
+		assert.Contains(t, result.HTML, `action="https://forms.example.com/forms/feedback/submit?token=live-token"`)
 		assert.Contains(t, result.HTML, `method="POST"`)
 		assert.Contains(t, result.HTML, `data-form-id="8"`)
 	})
@@ -55,7 +57,7 @@ func TestBuild(t *testing.T) {
 			},
 		}
 
-		result := formembed.Build(form, formembed.Options{ShowToken: true})
+		result := formembed.Build(form, formembed.Options{BaseURL: "https://forms.example.com", ShowToken: true})
 
 		assert.Contains(t, result.HTML, `data-sitekey="public-site-key"`)
 		assert.Contains(t, result.HTML, `data-action="submit"`)
@@ -63,7 +65,9 @@ func TestBuild(t *testing.T) {
 	})
 
 	t.Run("does not inject Turnstile without an assigned profile", func(t *testing.T) {
-		result := formembed.Build(&forms.Form{ID: 10, Slug: "plain", Token: "token"}, formembed.Options{ShowToken: true})
+		result := formembed.Build(&forms.Form{ID: 10, Slug: "plain", Token: "token"}, formembed.Options{
+			BaseURL: "https://forms.example.com", ShowToken: true,
+		})
 
 		assert.NotContains(t, result.HTML, "cf-turnstile")
 		assert.NotContains(t, result.HTML, "challenges.cloudflare.com/turnstile")

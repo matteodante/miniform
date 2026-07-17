@@ -22,7 +22,7 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w -linkmode external -extldflags "-static"
-      - -X main.version={{ .Version }}
+      - -X main.version={{ .Tag }}
       - -X main.commit={{ .FullCommit }}
       - -X github.com/matteodante/miniform/internal/server.buildCommit={{ .FullCommit }}
 
@@ -42,14 +42,14 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w -linkmode external -extldflags "-static"
-      - -X main.version={{ .Version }}
+      - -X main.version={{ .Tag }}
       - -X main.commit={{ .FullCommit }}
       - -X github.com/matteodante/miniform/internal/server.buildCommit={{ .FullCommit }}
 
 archives:
   - id: release
     ids: [linux-amd64, linux-arm64]
-    formats: [tar.gz]
+    formats: [tar.gz, binary]
     name_template: "miniform-linux-{{ .Arch }}"
     wrap_in_directory: true
     builds_info:
@@ -67,6 +67,10 @@ checksum:
 sboms:
   - id: archives
     artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.spdx.json"
+  - id: binaries
+    artifacts: binary
     documents:
       - "{{ .ArtifactName }}.spdx.json"
 

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	"github.com/matteodante/miniform/internal/forms"
 	"github.com/matteodante/miniform/internal/integrations"
 	"github.com/matteodante/miniform/internal/pkg/testsupport"
 )
@@ -31,7 +32,7 @@ func TestProfiles(t *testing.T) {
 
 		updated, err := integrations.UpdateMailerProfile(logger, db, created.ID, integrations.MailerProfileParams{
 			Name: "Primary SMTP", SMTPHost: "mail.example.org",
-			SMTPPort: 465, SMTPEncryption: "tls",
+			SMTPPort: 465, SMTPEncryption: "tls", DefaultFromEmail: "forms@example.com",
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "Primary SMTP", updated.Name)
@@ -66,17 +67,21 @@ func TestProfiles(t *testing.T) {
 			Name: "Bad encryption", SMTPHost: "smtp.example.com", SMTPEncryption: "plain",
 		})
 		assertValidation(t, err, "smtp_encryption")
+		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
+			Name: "Bad sender", DefaultFromEmail: "not-an-email", SMTPHost: "smtp.example.com",
+		})
+		assertValidation(t, err, "default_from_email")
 
-		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: "Unique", SMTPHost: "smtp.example.com"})
+		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: "Unique", DefaultFromEmail: "sender@example.com", SMTPHost: "smtp.example.com"})
 		require.NoError(t, err)
-		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: "Unique", SMTPHost: "smtp.example.com"})
+		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: "Unique", DefaultFromEmail: "sender@example.com", SMTPHost: "smtp.example.com"})
 		assertValidation(t, err, "name")
 
-		second, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: "Second", SMTPHost: "smtp.example.com"})
+		second, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: "Second", DefaultFromEmail: "sender@example.com", SMTPHost: "smtp.example.com"})
 		require.NoError(t, err)
-		_, err = integrations.UpdateMailerProfile(logger, db, second.ID, integrations.MailerProfileParams{Name: "Unique", SMTPHost: "smtp.example.com"})
+		_, err = integrations.UpdateMailerProfile(logger, db, second.ID, integrations.MailerProfileParams{Name: "Unique", DefaultFromEmail: "sender@example.com", SMTPHost: "smtp.example.com"})
 		assertValidation(t, err, "name")
-		_, err = integrations.UpdateMailerProfile(logger, db, 9999, integrations.MailerProfileParams{Name: "Missing", SMTPHost: "smtp.example.com"})
+		_, err = integrations.UpdateMailerProfile(logger, db, 9999, integrations.MailerProfileParams{Name: "Missing", DefaultFromEmail: "sender@example.com", SMTPHost: "smtp.example.com"})
 		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
 	})
 
@@ -138,10 +143,39 @@ func TestProfiles(t *testing.T) {
 		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
 	})
 
+	t.Run("refuses to delete profiles referenced by a form", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		mailer, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
+			Name: "In use", DefaultFromEmail: "sender@example.com", SMTPHost: "smtp.example.com",
+		})
+		require.NoError(t, err)
+		captcha, err := integrations.CreateCaptchaProfile(logger, db, integrations.CaptchaProfileParams{
+			Name: "In use", SiteKey: "site", SecretKey: "secret",
+		})
+		require.NoError(t, err)
+		form, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "Protected", Slug: "protected", AllowedOrigins: "*",
+			MailerProfileID: &mailer.ID, EmailEnabled: true, EmailRecipient: "owner@example.com",
+			CaptchaProfileID: &captcha.ID,
+		})
+		require.NoError(t, err)
+
+		assert.ErrorIs(t, integrations.DeleteMailerProfile(logger, db, mailer.ID), integrations.ErrProfileInUse)
+		assert.ErrorIs(t, integrations.DeleteCaptchaProfile(logger, db, captcha.ID), integrations.ErrProfileInUse)
+
+		preserved, err := forms.GetByID(db, form.ID)
+		require.NoError(t, err)
+		require.NotNil(t, preserved.EmailDelivery)
+		require.NotNil(t, preserved.EmailDelivery.MailerProfileID)
+		assert.Equal(t, mailer.ID, *preserved.EmailDelivery.MailerProfileID)
+		require.NotNil(t, preserved.CaptchaProfileID)
+		assert.Equal(t, captcha.ID, *preserved.CaptchaProfileID)
+	})
+
 	t.Run("lists profiles alphabetically", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		for _, name := range []string{"Zulu", "Alpha", "Middle"} {
-			_, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: name, SMTPHost: "smtp.example.com"})
+			_, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: name, DefaultFromEmail: "sender@example.com", SMTPHost: "smtp.example.com"})
 			require.NoError(t, err)
 		}
 		mailers, err := integrations.ListMailerProfiles(db)

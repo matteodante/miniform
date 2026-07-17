@@ -2,7 +2,6 @@ package cli
 
 import (
 	"flag"
-	"strings"
 	"time"
 
 	"github.com/matteodante/miniform/internal/forms"
@@ -12,12 +11,8 @@ import (
 type mailerView struct {
 	ID               uint      `json:"id"`
 	Name             string    `json:"name"`
-	Provider         string    `json:"provider"`
-	APIKey           string    `json:"api_key,omitempty"`
-	Domain           string    `json:"domain,omitempty"`
 	DefaultFromName  string    `json:"default_from_name,omitempty"`
 	DefaultFromEmail string    `json:"default_from_email,omitempty"`
-	DefaultsJSON     string    `json:"defaults_json,omitempty"`
 	SMTPHost         string    `json:"smtp_host,omitempty"`
 	SMTPPort         int       `json:"smtp_port,omitempty"`
 	SMTPUsername     string    `json:"smtp_username,omitempty"`
@@ -30,12 +25,8 @@ type mailerView struct {
 
 type mailerFlags struct {
 	name             *string
-	provider         *string
-	apiKeyFile       *string
-	domain           *string
 	defaultFromName  *string
 	defaultFromEmail *string
-	defaultsFile     *string
 	smtpHost         *string
 	smtpPort         *int
 	smtpUsername     *string
@@ -113,14 +104,10 @@ func (r *Runner) mailerCreate(args []string) (any, error) {
 		return nil, err
 	}
 	params, err := r.mailerParams(set, flags, integrations.MailerProfileParams{
-		Provider:       "smtp",
 		SMTPPort:       587,
 		SMTPEncryption: "starttls",
 	})
 	if err != nil {
-		return nil, err
-	}
-	if err := validateMailerParams(params); err != nil {
 		return nil, err
 	}
 	profile, err := integrations.CreateMailerProfile(r.Logger, r.DB, params)
@@ -134,23 +121,15 @@ func (r *Runner) mailerUpdate(args []string) (any, error) {
 	set := newFlagSet("mailer.update")
 	id := set.Uint("id", 0, "mailer profile id")
 	flags := defineMailerFlags(set)
-	clearAPIKey := set.Bool("clear-api-key", false, "clear Mailgun API key")
 	clearSMTPPassword := set.Bool("clear-smtp-password", false, "clear SMTP password")
-	clearDefaults := set.Bool("clear-defaults", false, "clear defaults JSON")
 	if err := r.parseFlags(set, "mailer.update", args); err != nil {
 		return nil, err
 	}
 	if err := requireUint(*id, "id"); err != nil {
 		return nil, err
 	}
-	if *clearAPIKey && *flags.apiKeyFile != "" {
-		return nil, usageError("--clear-api-key conflicts with --api-key-file")
-	}
 	if *clearSMTPPassword && *flags.smtpPasswordFile != "" {
 		return nil, usageError("--clear-smtp-password conflicts with --smtp-password-file")
-	}
-	if *clearDefaults && *flags.defaultsFile != "" {
-		return nil, usageError("--clear-defaults conflicts with --defaults-file")
 	}
 
 	current, err := integrations.GetMailerProfileByID(r.DB, *id)
@@ -161,17 +140,8 @@ func (r *Runner) mailerUpdate(args []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if *clearAPIKey {
-		params.APIKey = ""
-	}
 	if *clearSMTPPassword {
 		params.SMTPPassword = ""
-	}
-	if *clearDefaults {
-		params.DefaultsJSON = ""
-	}
-	if err := validateMailerParams(params); err != nil {
-		return nil, err
 	}
 	profile, err := integrations.UpdateMailerProfile(r.Logger, r.DB, *id, params)
 	if err != nil {
@@ -212,12 +182,8 @@ func (r *Runner) mailerDelete(args []string) (any, error) {
 func defineMailerFlags(set *flag.FlagSet) mailerFlags {
 	return mailerFlags{
 		name:             set.String("name", "", "profile name"),
-		provider:         set.String("provider", "", "smtp or mailgun"),
-		apiKeyFile:       set.String("api-key-file", "", "path containing Mailgun API key, or - for stdin"),
-		domain:           set.String("domain", "", "Mailgun sending domain"),
 		defaultFromName:  set.String("default-from-name", "", "default sender name"),
 		defaultFromEmail: set.String("default-from-email", "", "default sender email"),
-		defaultsFile:     set.String("defaults-file", "", "path containing defaults JSON"),
 		smtpHost:         set.String("smtp-host", "", "SMTP hostname"),
 		smtpPort:         set.Int("smtp-port", 0, "SMTP port"),
 		smtpUsername:     set.String("smtp-username", "", "SMTP username"),
@@ -227,12 +193,7 @@ func defineMailerFlags(set *flag.FlagSet) mailerFlags {
 }
 
 func (r *Runner) mailerParams(set *flag.FlagSet, flags mailerFlags, params integrations.MailerProfileParams) (integrations.MailerProfileParams, error) {
-	if *flags.apiKeyFile == "-" && *flags.smtpPasswordFile == "-" {
-		return params, usageError("only one secret file can be stdin")
-	}
 	applyStringFlag(set, "name", flags.name, &params.Name)
-	applyStringFlag(set, "provider", flags.provider, &params.Provider)
-	applyStringFlag(set, "domain", flags.domain, &params.Domain)
 	applyStringFlag(set, "default-from-name", flags.defaultFromName, &params.DefaultFromName)
 	applyStringFlag(set, "default-from-email", flags.defaultFromEmail, &params.DefaultFromEmail)
 	applyStringFlag(set, "smtp-host", flags.smtpHost, &params.SMTPHost)
@@ -243,20 +204,8 @@ func (r *Runner) mailerParams(set *flag.FlagSet, flags mailerFlags, params integ
 	}
 
 	var err error
-	if *flags.apiKeyFile != "" {
-		params.APIKey, err = readFileValue(*flags.apiKeyFile, r.Stdin)
-		if err != nil {
-			return params, validationError(err.Error())
-		}
-	}
 	if *flags.smtpPasswordFile != "" {
 		params.SMTPPassword, err = readFileValue(*flags.smtpPasswordFile, r.Stdin)
-		if err != nil {
-			return params, validationError(err.Error())
-		}
-	}
-	if *flags.defaultsFile != "" {
-		params.DefaultsJSON, err = readContentFile(*flags.defaultsFile)
 		if err != nil {
 			return params, validationError(err.Error())
 		}
@@ -264,32 +213,11 @@ func (r *Runner) mailerParams(set *flag.FlagSet, flags mailerFlags, params integ
 	return params, nil
 }
 
-func validateMailerParams(params integrations.MailerProfileParams) error {
-	switch strings.ToLower(strings.TrimSpace(params.Provider)) {
-	case "smtp", "mailgun":
-	default:
-		return validationError("provider must be smtp or mailgun")
-	}
-	if params.SMTPPort < 0 || params.SMTPPort > 65535 {
-		return validationError("smtp port must be between 0 and 65535")
-	}
-	switch strings.ToLower(strings.TrimSpace(params.SMTPEncryption)) {
-	case "", "starttls", "tls", "none":
-	default:
-		return validationError("smtp encryption must be starttls, tls, or none")
-	}
-	return nil
-}
-
 func mailerParamsFromProfile(profile *integrations.MailerProfile) integrations.MailerProfileParams {
 	return integrations.MailerProfileParams{
 		Name:             profile.Name,
-		Provider:         profile.Provider,
-		APIKey:           profile.APIKey,
-		Domain:           profile.Domain,
 		DefaultFromName:  profile.DefaultFromName,
 		DefaultFromEmail: profile.DefaultFromEmail,
-		DefaultsJSON:     profile.DefaultsJSON,
 		SMTPHost:         profile.SMTPHost,
 		SMTPPort:         profile.SMTPPort,
 		SMTPUsername:     profile.SMTPUsername,
@@ -306,12 +234,8 @@ func (r *Runner) newMailerView(profile *integrations.MailerProfile) (mailerView,
 	return mailerView{
 		ID:               profile.ID,
 		Name:             profile.Name,
-		Provider:         profile.Provider,
-		APIKey:           redact(profile.APIKey, r.ShowSecrets),
-		Domain:           profile.Domain,
 		DefaultFromName:  profile.DefaultFromName,
 		DefaultFromEmail: profile.DefaultFromEmail,
-		DefaultsJSON:     redact(profile.DefaultsJSON, r.ShowSecrets),
 		SMTPHost:         profile.SMTPHost,
 		SMTPPort:         profile.SMTPPort,
 		SMTPUsername:     profile.SMTPUsername,

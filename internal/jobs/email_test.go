@@ -14,10 +14,12 @@ import (
 	"github.com/karloscodes/cartridge"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/matteodante/miniform/internal/config"
 	"github.com/matteodante/miniform/internal/forms"
 	"github.com/matteodante/miniform/internal/integrations"
+	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 	"github.com/matteodante/miniform/internal/pkg/testsupport"
 )
 
@@ -56,22 +58,33 @@ func TestEmailDelivery(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		host, port, result := fakeSMTP(t)
 		profile := &integrations.MailerProfile{
-			Name: "Relay", Provider: "smtp", DefaultFromName: "Miniform",
+			Name: "Relay", DefaultFromName: "Miniform",
 			DefaultFromEmail: "forms@example.com", SMTPHost: host, SMTPPort: port,
 			SMTPUsername: "relay", SMTPPassword: "secret", SMTPEncryption: "none",
 		}
-		require.NoError(t, db.Create(profile).Error)
 		form := &forms.Form{Name: "Contact", Slug: "contact-job", AllowedOrigins: "*"}
-		require.NoError(t, db.Create(form).Error)
-		profileID := profile.ID
-		require.NoError(t, db.Create(&forms.EmailDelivery{
-			FormID: form.ID, Enabled: true, MailerProfileID: &profileID,
-			OverridesJSON: `{"to":"owner@example.com"}`,
-		}).Error)
-		submission := &forms.Submission{FormID: form.ID, DataJSON: `{"name":"Alice"}`}
-		require.NoError(t, db.Create(submission).Error)
-		event := forms.NewEmailEvent(submission.ID, time.Now())
-		require.NoError(t, db.Create(event).Error)
+		var event *forms.EmailEvent
+		require.NoError(t, dbtxn.WithRetry(slog.Default(), db, func(tx *gorm.DB) error {
+			if err := tx.Create(profile).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(form).Error; err != nil {
+				return err
+			}
+			profileID := profile.ID
+			if err := tx.Create(&forms.EmailDelivery{
+				FormID: form.ID, Enabled: true, MailerProfileID: &profileID,
+				OverridesJSON: `{"to":"owner@example.com"}`,
+			}).Error; err != nil {
+				return err
+			}
+			submission := &forms.Submission{FormID: form.ID, DataJSON: `{"name":"Alice"}`}
+			if err := tx.Create(submission).Error; err != nil {
+				return err
+			}
+			event = forms.NewEmailEvent(submission.ID, time.Now())
+			return tx.Create(event).Error
+		}))
 
 		ctx := &cartridge.JobContext{
 			Context: context.Background(), DB: db,

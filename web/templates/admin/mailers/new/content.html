@@ -3,7 +3,7 @@
     <header>
         <p class="mf-kicker">Email routes</p>
         <h1 class="mt-2 text-3xl font-bold text-ink">{{ if .IsEdit }}Edit email route{{ else }}New email route{{ end }}</h1>
-        <p class="mt-2 text-sm text-ink-muted">Connect SMTP or Mailgun once, then reuse it across forms.</p>
+        <p class="mt-2 text-sm text-ink-muted">Connect an SMTP server once, then reuse it across forms.</p>
     </header>
 
     {{ if .Error }}
@@ -12,40 +12,21 @@
 
     <form method="POST" action="{{ if .IsEdit }}/admin/settings/mailers/{{ .Profile.ID }}{{ else }}/admin/settings/mailers{{ end }}" class="space-y-5">
         <section class="mf-panel p-6">
-            <div class="grid gap-5 sm:grid-cols-2">
+            <div class="grid gap-5">
                 <label class="grid gap-2 text-sm font-medium text-ink" for="name">
                     Profile name
                     <input class="mf-input w-full" id="name" name="name" type="text" required
                         value="{{ if .Profile }}{{ .Profile.Name }}{{ end }}" placeholder="Support delivery">
                 </label>
-                <label class="grid gap-2 text-sm font-medium text-ink" for="provider">
-                    Provider
-                    <select class="mf-input w-full" id="provider" name="provider" required>
-                        <option value="smtp" {{ if or (not .Profile) (eq .Profile.Provider "smtp") }}selected{{ end }}>SMTP</option>
-                        <option value="mailgun" {{ if and .Profile (eq .Profile.Provider "mailgun") }}selected{{ end }}>Mailgun</option>
-                    </select>
-                </label>
             </div>
         </section>
 
         <section class="mf-panel p-6">
-            <h2 class="text-lg font-semibold text-ink">Provider connection</h2>
-            <div data-config="mailgun" class="mt-5 grid gap-5 sm:grid-cols-2">
-                <label class="grid gap-2 text-sm font-medium text-ink" for="api_key">
-                    API key
-                    <input class="mf-input w-full font-mono text-sm" id="api_key" name="api_key" type="password"
-                        value="{{ if .Profile }}{{ .Profile.APIKey }}{{ end }}" placeholder="key-xxxxxxxx">
-                </label>
-                <label class="grid gap-2 text-sm font-medium text-ink" for="domain">
-                    Sending domain
-                    <input class="mf-input w-full" id="domain" name="domain" type="text"
-                        value="{{ if .Profile }}{{ .Profile.Domain }}{{ end }}" placeholder="mg.example.com">
-                </label>
-            </div>
-            <div data-config="smtp" class="mt-5 grid gap-5 sm:grid-cols-2">
+            <h2 class="text-lg font-semibold text-ink">SMTP connection</h2>
+            <div class="mt-5 grid gap-5 sm:grid-cols-2">
                 <label class="grid gap-2 text-sm font-medium text-ink sm:col-span-2" for="smtp_host">
                     SMTP host
-                    <input class="mf-input w-full" id="smtp_host" name="smtp_host" type="text"
+                    <input class="mf-input w-full" id="smtp_host" name="smtp_host" type="text" required
                         value="{{ if .Profile }}{{ .Profile.SMTPHost }}{{ end }}" placeholder="smtp.example.com">
                 </label>
                 <label class="grid gap-2 text-sm font-medium text-ink" for="smtp_port">
@@ -87,11 +68,6 @@
                     <input class="mf-input w-full" id="default_from_email" name="default_from_email" type="email"
                         value="{{ if .Profile }}{{ .Profile.DefaultFromEmail }}{{ end }}" placeholder="no-reply@example.com">
                 </label>
-                <label class="grid gap-2 text-sm font-medium text-ink sm:col-span-2" for="defaults_json">
-                    Provider defaults <span class="font-mono text-xs font-normal text-ink-muted">JSON object · optional</span>
-                    <textarea class="mf-input w-full font-mono text-sm" id="defaults_json" name="defaults_json" rows="5"
-                        placeholder='{"tags":["form-submission"]}'>{{ if .Profile }}{{ .Profile.DefaultsJSON }}{{ end }}</textarea>
-                </label>
             </div>
         </section>
 
@@ -101,14 +77,4 @@
         </div>
     </form>
 </div>
-<script>
-(() => {
-    const provider = document.getElementById("provider");
-    const sync = () => document.querySelectorAll("[data-config]").forEach(group => {
-        group.style.display = group.dataset.config === provider.value ? "" : "none";
-    });
-    provider.addEventListener("change", sync);
-    sync();
-})();
-</script>
 {{ end }}

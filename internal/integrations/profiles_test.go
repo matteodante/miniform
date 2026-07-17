@@ -17,10 +17,10 @@ import (
 func TestProfiles(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	t.Run("mailer lifecycle preserves provider settings", func(t *testing.T) {
+	t.Run("mailer lifecycle preserves SMTP settings", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		created, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
-			Name: "  Transactional SMTP  ", Provider: "smtp", DefaultsJSON: `{"headers":{"X-App":"Miniform"}}`,
+			Name:            "  Transactional SMTP  ",
 			DefaultFromName: "Forms", DefaultFromEmail: "forms@example.com",
 			SMTPHost: "smtp.example.com", SMTPPort: 587, SMTPUsername: "user",
 			SMTPPassword: "secret", SMTPEncryption: "starttls",
@@ -30,7 +30,7 @@ func TestProfiles(t *testing.T) {
 		assert.NotZero(t, created.ID)
 
 		updated, err := integrations.UpdateMailerProfile(logger, db, created.ID, integrations.MailerProfileParams{
-			Name: "Primary SMTP", Provider: "smtp", SMTPHost: "mail.example.org",
+			Name: "Primary SMTP", SMTPHost: "mail.example.org",
 			SMTPPort: 465, SMTPEncryption: "tls",
 		})
 		require.NoError(t, err)
@@ -45,41 +45,38 @@ func TestProfiles(t *testing.T) {
 		assert.ErrorIs(t, integrations.DeleteMailerProfile(logger, db, created.ID), gorm.ErrRecordNotFound)
 	})
 
+	t.Run("mailer schema contains only SMTP configuration", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		for _, column := range []string{"provider", "api_key", "domain", "defaults_json"} {
+			assert.False(t, db.Migrator().HasColumn(&integrations.MailerProfile{}, column), column)
+		}
+	})
+
 	t.Run("mailer validation rejects malformed input and duplicate names", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		_, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{})
 		assertValidation(t, err, "name")
+		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: "Missing host"})
+		assertValidation(t, err, "smtp_host")
 		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
-			Name: "Broken JSON", DefaultsJSON: `{broken`,
-		})
-		assertValidation(t, err, "defaults_json")
-		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
-			Name: "Wrong JSON shape", DefaultsJSON: `[]`,
-		})
-		assertValidation(t, err, "defaults_json")
-		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
-			Name: "Unknown provider", Provider: "sendmail",
-		})
-		assertValidation(t, err, "provider")
-		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
-			Name: "Bad port", SMTPPort: 70000,
+			Name: "Bad port", SMTPHost: "smtp.example.com", SMTPPort: 70000,
 		})
 		assertValidation(t, err, "smtp_port")
 		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
-			Name: "Bad encryption", SMTPEncryption: "plain",
+			Name: "Bad encryption", SMTPHost: "smtp.example.com", SMTPEncryption: "plain",
 		})
 		assertValidation(t, err, "smtp_encryption")
 
-		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: "Unique"})
+		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: "Unique", SMTPHost: "smtp.example.com"})
 		require.NoError(t, err)
-		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: "Unique"})
+		_, err = integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: "Unique", SMTPHost: "smtp.example.com"})
 		assertValidation(t, err, "name")
 
-		second, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: "Second"})
+		second, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: "Second", SMTPHost: "smtp.example.com"})
 		require.NoError(t, err)
-		_, err = integrations.UpdateMailerProfile(logger, db, second.ID, integrations.MailerProfileParams{Name: "Unique"})
+		_, err = integrations.UpdateMailerProfile(logger, db, second.ID, integrations.MailerProfileParams{Name: "Unique", SMTPHost: "smtp.example.com"})
 		assertValidation(t, err, "name")
-		_, err = integrations.UpdateMailerProfile(logger, db, 9999, integrations.MailerProfileParams{Name: "Missing"})
+		_, err = integrations.UpdateMailerProfile(logger, db, 9999, integrations.MailerProfileParams{Name: "Missing", SMTPHost: "smtp.example.com"})
 		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
 	})
 
@@ -127,7 +124,7 @@ func TestProfiles(t *testing.T) {
 	t.Run("lists profiles alphabetically", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		for _, name := range []string{"Zulu", "Alpha", "Middle"} {
-			_, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: name})
+			_, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{Name: name, SMTPHost: "smtp.example.com"})
 			require.NoError(t, err)
 		}
 		mailers, err := integrations.ListMailerProfiles(db)

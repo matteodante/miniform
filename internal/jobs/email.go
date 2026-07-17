@@ -1,13 +1,10 @@
 package jobs
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/mail"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -20,13 +17,11 @@ import (
 )
 
 type EmailDispatcher struct {
-	client  *http.Client
 	retries retryPlan
 }
 
 func NewEmailDispatcher(cfg *config.Config) *EmailDispatcher {
 	return &EmailDispatcher{
-		client:  &http.Client{Timeout: 15 * time.Second},
 		retries: newRetryPlan(cfg),
 	}
 }
@@ -59,15 +54,8 @@ func (dispatcher *EmailDispatcher) deliver(ctx *cartridge.JobContext, event *for
 
 	subject := "New submission · " + event.Submission.Form.Name
 	body := emailBody(event.Submission.DataJSON)
-	switch strings.ToLower(profile.Provider) {
-	case "mailgun":
-		err = dispatcher.sendMailgun(ctx, profile, from, to, subject, body)
-	default:
-		settings, configErr := smtpSettings(profile, from, to)
-		if configErr != nil {
-			err = configErr
-			break
-		}
+	settings, err := smtpSettings(profile, from, to)
+	if err == nil {
 		err = sendSMTP(ctx, settings, buildSMTPMessage(from, to, subject, body))
 	}
 
@@ -122,34 +110,6 @@ func smtpSettings(profile *integrations.MailerProfile, from, to string) (*smtpCo
 		Username: profile.SMTPUsername, Password: profile.SMTPPassword, Encryption: encryption,
 		From: from, To: to,
 	}, nil
-}
-
-func (dispatcher *EmailDispatcher) sendMailgun(ctx context.Context, profile *integrations.MailerProfile, from, to, subject, body string) error {
-	if profile.APIKey == "" || profile.Domain == "" {
-		return fmt.Errorf("mailgun configuration missing")
-	}
-	values := url.Values{"from": {from}, "to": {to}, "subject": {subject}, "text": {body}}
-	endpoint := "https://api.mailgun.net/v3/" + url.PathEscape(profile.Domain) + "/messages"
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(values.Encode()))
-	if err != nil {
-		return fmt.Errorf("create mailgun request: %w", err)
-	}
-	request.SetBasicAuth("api", profile.APIKey)
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	request.Header.Set("User-Agent", "Miniform/1.0")
-
-	response, err := dispatcher.client.Do(request)
-	if err != nil {
-		return fmt.Errorf("send mailgun message: %w", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	if err := discardBody(response.Body); err != nil {
-		return fmt.Errorf("read mailgun response: %w", err)
-	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("mailgun returned status %d", response.StatusCode)
-	}
-	return nil
 }
 
 func emailBody(rawJSON string) string {

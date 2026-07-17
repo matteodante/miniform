@@ -4,6 +4,7 @@ APP      = miniform
 TAILWIND = $(BIN_DIR)/tailwindcss
 GO_IMAGE ?= golang:1.26.5-bookworm
 INSTALLER_BINARY ?= $(BIN_DIR)/miniform-linux
+E2E_BINARY ?= $(BIN_DIR)/miniform-e2e
 APPLE_CONTAINER_IMAGE ?= miniform:local
 APPLE_CONTAINER_NAME ?= miniform
 APPLE_CONTAINER_PORT ?= 8080
@@ -137,8 +138,11 @@ test-e2e-setup:
 	cd e2e && npm ci && npx playwright install chromium
 
 test-e2e: deps
+	@echo ">> building E2E server"
+	MINIFORM_ENV=test GOCACHE=$(GOCACHE) go build -trimpath -o $(E2E_BINARY) ./cmd/$(APP)
 	@echo ">> running Node and Playwright E2E tests"
-	cd e2e && npm run test:unit && npm test
+	cd e2e && npm run test:unit
+	cd e2e && MINIFORM_E2E_SERVER_COMMAND="$(E2E_BINARY)" npm test
 
 test-integration: installer-binary
 	@echo ">> running VM-based installer integration tests"

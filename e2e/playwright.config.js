@@ -6,6 +6,7 @@ const { defineConfig, devices } = require("@playwright/test");
 const projectRoot = path.resolve(__dirname, "..");
 const port = Number(process.env.PLAYWRIGHT_TEST_PORT || 41817);
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${port}`;
+const serverCommand = process.env.MINIFORM_E2E_SERVER_COMMAND || "go run ./cmd/miniform";
 const browserPath = process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(projectRoot, "tmp", "ms-playwright");
 const dataRoot = process.env.MINIFORM_DATA_DIR
   ? path.resolve(projectRoot, process.env.MINIFORM_DATA_DIR)
@@ -46,7 +47,7 @@ module.exports = defineConfig({
   }],
   webServer: {
     cwd: projectRoot,
-    command: "go run ./cmd/miniform",
+    command: serverCommand,
     env: {
       ...process.env,
       GOCACHE: path.join(projectRoot, "tmp", "go-cache"),

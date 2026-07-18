@@ -16,8 +16,8 @@ Miniform accepts submissions and file uploads from any HTML form, stores them in
 - Independent forms with tokens and allowed-origin policies
 - Retried webhook and email delivery with visible history
 - Honeypot, rate limiting, origin checks, and per-endpoint Turnstile
-- Embedded web UI and SQLite persistence in a single process
-- Standard HTML forms first; the small JavaScript helper is optional
+- Crash-recoverable uploads, durable delivery queues, and SQLite persistence in a single process
+- Native HTML forms and direct HTTP requests with no client library
 
 ## Quick start from source
 
@@ -31,7 +31,7 @@ make bootstrap
 make run
 ```
 
-Open <http://127.0.0.1:8080>. On the first boot, Miniform prints a unique temporary admin password to the terminal. Change it after signing in.
+Open <http://127.0.0.1:8080>. On the first boot, Miniform prints a unique temporary admin password to the terminal. The first sign-in is restricted to password replacement; the rest of the workspace opens only after that succeeds.
 
 For a disposable local instance with sample data and a working submission page:
 
@@ -63,12 +63,17 @@ make apple-container-health
 make apple-container-stop
 ```
 
+The Apple Container workflow stores development data in the persistent `miniform-data` volume; stopping the container does not delete it. On first use after upgrading from the old bind-mount workflow, `make apple-container-run` copies an existing project `storage/` directory into the new volume and keeps the source directory for recovery.
+
 Production mode requires HTTPS and a persistent `MINIFORM_SESSION_SECRET`. See the [installation guide](docs/installation.md) before exposing Miniform to the internet.
+
+Miniform is intentionally a single-writer deployment. Stop the previous process before starting a replacement, and back up uploaded files together with the SQLite database when a point-in-time restore is required. Managed installation, upgrade, backup, and restore behavior is documented in the installation guide.
 
 ## Documentation
 
 - [Installation and upgrades](docs/installation.md)
 - [Configuration reference](docs/configuration.md)
+- [Submitting forms and HTTP API](docs/submitting-forms.md)
 - [CLI reference](docs/cli.md)
 - [Architecture](docs/architecture.md)
 - [Development guide](docs/development.md)

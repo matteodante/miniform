@@ -9,36 +9,37 @@ Miniform uses the cartridge framework (Fiber wrapper) with config-based route de
 Location: `internal/routes.go`
 
 ```go
-func (s *Server) setupRoutes() {
-    // Auth config with session middleware
-    authConfig := &cartridge.RouteConfig{
-        CustomMiddleware: []fiber.Handler{
-            s.Session().Middleware(),
-            httphandlers.RequirePasswordChanged(),
-        },
+func MountRoutes(server *cartridge.Server, cfg *config.Config) {
+    requireSession := handlers.RequireSession(server.Session())
+    requirePasswordChanged := handlers.RequirePasswordChanged(server.Session(), server.GetDBManager())
+    authenticated := &cartridge.RouteConfig{
+        CustomMiddleware: []fiber.Handler{requireSession, requirePasswordChanged},
     }
 
-    // Public config with rate limiting and CORS
-    publicConfig := &cartridge.RouteConfig{
+    public := &cartridge.RouteConfig{
         EnableSecFetchSite: cartridge.Bool(false),
         EnableCORS:         true,
         CORSConfig: &cors.Config{
             AllowOrigins: "*",
             AllowMethods: "POST,OPTIONS",
-            AllowHeaders: "Content-Type, Authorization",
+            AllowHeaders: "Content-Type",
         },
-        WriteConcurrency: true,
         CustomMiddleware: []fiber.Handler{
             limiter.New(limiter.Config{
-                Max:        30,
-                Expiration: 60 * time.Second,
+                Max: 30, Expiration: time.Minute,
+                Storage: newRateLimitStorage(),
+                KeyGenerator: func(ctx *fiber.Ctx) string {
+                    return miniformserver.ClientIP(ctx, cfg.IsMatchaManaged())
+                },
+                Next: func(*fiber.Ctx) bool { return cfg.IsDevelopment() || cfg.IsTest() },
             }),
         },
     }
 
-    // Define routes
-    s.Get("/admin/forms", httphandlers.AdminFormsIndex, authConfig)
-    s.Post("/forms/:slug/submit", httphandlers.PublicFormSubmission, publicConfig)
+    server.Get("/admin/forms", handlers.AdminFormsIndex, authenticated)
+    server.Post("/forms/:slug/submit", func(ctx *cartridge.Context) error {
+        return handlers.PublicFormSubmission(ctx, cfg)
+    }, public)
 }
 ```
 
@@ -49,12 +50,10 @@ All handlers use `cartridge.Context`:
 ```go
 func AdminFormsIndex(ctx *cartridge.Context) error {
     db := ctx.DB()
-    user := ctx.User()
-    logger := ctx.Logger()
 
     forms, err := forms.List(db)
     if err != nil {
-        return fiber.ErrInternalServerError
+        return err
     }
 
     return ctx.Render("layouts/base", fiber.Map{
@@ -76,11 +75,8 @@ func AdminFormsIndex(ctx *cartridge.Context) error {
     EnableCORS: true,
     CORSConfig: &cors.Config{...},
 
-    // Security
+    // Security policy
     EnableSecFetchSite: cartridge.Bool(false),
-
-    // Concurrency
-    WriteConcurrency: true,  // Enable write semaphore limiting
 }
 ```
 
@@ -126,23 +122,17 @@ Applied per-route via middleware:
 
 ```go
 limiter.New(limiter.Config{
-    Max:        30,              // requests
-    Expiration: 60 * time.Second, // per minute
-    KeyGenerator: func(c *fiber.Ctx) string {
-        return c.IP()
+    Max: 30, Expiration: time.Minute,
+    Storage: newRateLimitStorage(),
+    KeyGenerator: func(ctx *fiber.Ctx) string {
+        return miniformserver.ClientIP(ctx, cfg.IsMatchaManaged())
     },
-    Next: func(c *fiber.Ctx) bool {
-        return cfg.IsDevelopment()  // skip in dev
-    },
+    Next: func(*fiber.Ctx) bool { return cfg.IsDevelopment() || cfg.IsTest() },
 })
 ```
 
-## Write Concurrency Limiting
+## SQLite writes and cancellation
 
-For SQLite write protection:
+Route middleware does not serialize SQLite mutations. The owning domain wraps each write with `dbtxn.WithRetry`, while handlers pass `ctx.UserContext()` into cancellable database or network work. The application cancels all request contexts during shutdown.
 
-```go
-publicConfig := &cartridge.RouteConfig{
-    WriteConcurrency: true,  // Enables semaphore-based limiting
-}
-```
+Production rate limits use in-process storage. Direct deployments ignore `X-Forwarded-For`; only a Matcha-managed deployment trusts the last address appended by its proxy.

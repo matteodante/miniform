@@ -37,7 +37,7 @@ The complete repository conventions are in [AGENTS.md](AGENTS.md) and [docs/arch
 1. Branch from an up-to-date `main`.
 2. Keep unrelated refactors out of the change.
 3. Add or update tests for behavior changes.
-4. Run `make check`; run `make test-e2e` for user-facing flows.
+4. Run `make check`; add `make test-e2e` for user-facing flows, `make test-race` for lifecycle or concurrency work, and `make audit` for dependency, release, or security changes.
 5. Update user-facing documentation and `CHANGELOG.md` when needed.
 6. Complete the pull request template and link the relevant issue.
 

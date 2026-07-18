@@ -68,6 +68,9 @@ func ErrorHandler(logger *slog.Logger, cfg *config.Config) fiber.ErrorHandler {
 			slog.String("path", ctx.Path()), slog.Any("error", failure),
 		)
 		ctx.Vary(fiber.HeaderAccept)
+		if ctx.Method() == fiber.MethodPost && fiber.RoutePatternMatch(ctx.Path(), "/forms/:slug/submit") {
+			return ctx.Status(status).JSON(fiber.Map{"ok": false, "error": message})
+		}
 		if ctx.Accepts(fiber.MIMETextHTML, fiber.MIMEApplicationJSON) == fiber.MIMEApplicationJSON {
 			return ctx.Status(status).JSON(fiber.Map{"error": http.StatusText(status), "message": message})
 		}

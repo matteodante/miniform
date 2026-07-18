@@ -41,11 +41,6 @@
                         value="{{ if $form }}{{ $form.AllowedOrigins }}{{ end }}" placeholder="example.com, *.example.com">
                     <span class="text-xs font-normal text-ink-muted">Comma-separated domains; <code>*</code> allows every origin and is best kept for local testing.</span>
                 </label>
-                <label class="flex items-start gap-3 rounded-xl border border-rule p-4 text-sm text-ink" for="use_sdk">
-                    <input class="mt-0.5 h-4 w-4 rounded border-gray-300" id="use_sdk" name="use_sdk" type="checkbox"
-                        {{ if $form }}{{ if $form.UseSDK }}checked{{ end }}{{ else }}checked{{ end }}>
-                    <span><strong class="block font-semibold">Include JavaScript SDK</strong><span class="text-xs text-ink-muted">Adds a single-submit loading state and inline result messages.</span></span>
-                </label>
                 <label class="grid gap-2 text-sm font-medium text-ink" for="captcha_profile_id">
                     Safeguard
                     <select class="mf-input w-full" id="captcha_profile_id" name="captcha_profile_id">

@@ -30,7 +30,6 @@ type Form struct {
 	Slug             string                       `gorm:"size:255;uniqueIndex;not null"`
 	Token            string                       `gorm:"size:64;uniqueIndex;not null"`
 	AllowedOrigins   string                       `gorm:"type:text"`
-	UseSDK           bool                         `gorm:"not null;default:false"`
 	GeneratedHTML    string                       `gorm:"type:text"`
 	CaptchaProfileID *uint                        `gorm:"index"`
 	CaptchaProfile   *integrations.CaptchaProfile `gorm:"constraint:OnDelete:RESTRICT"`

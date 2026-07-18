@@ -15,17 +15,15 @@ import (
 )
 
 type Options struct {
-	ShowToken  bool
-	IncludeSDK bool
-	BaseURL    string
+	ShowToken bool
+	BaseURL   string
 }
 
 type Result struct {
-	Action      string
-	HTML        string
-	IncludesSDK bool
-	Redacted    bool
-	Warning     string
+	Action   string
+	HTML     string
+	Redacted bool
+	Warning  string
 }
 
 func Build(form *forms.Form, options Options) Result {
@@ -38,7 +36,7 @@ func Build(form *forms.Form, options Options) Result {
 		view.Token = "YOUR_FORM_TOKEN"
 	}
 	action := formAction(options.BaseURL, view.Slug, view.Token)
-	result := Result{Action: action, IncludesSDK: options.IncludeSDK, Redacted: !options.ShowToken}
+	result := Result{Action: action, Redacted: !options.ShowToken}
 
 	if strings.TrimSpace(view.GeneratedHTML) == "" {
 		result.HTML = defaultMarkup(&view, action)
@@ -46,9 +44,6 @@ func Build(form *forms.Form, options Options) Result {
 		result.HTML, result.Warning = rewriteForm(view.GeneratedHTML, &view, action)
 	}
 	result.HTML = addTurnstile(result.HTML, turnstileFor(&view))
-	if options.IncludeSDK {
-		result.HTML = appendBlock(result.HTML, SDKScriptTag(options.BaseURL))
-	}
 	return result
 }
 
@@ -188,12 +183,6 @@ func appendBlock(source, block string) string {
 		return source
 	}
 	return strings.TrimRight(source, "\n") + "\n" + strings.TrimSpace(block)
-}
-
-func SDKScriptTag(baseURL string) string {
-	token := htmlnode.Token{Type: htmlnode.StartTagToken, DataAtom: atom.Script, Data: "script"}
-	setAttribute(&token, "src", strings.TrimRight(baseURL, "/")+"/assets/miniform.js")
-	return "<!-- Optional Miniform SDK: pending-state helpers -->\n" + token.String() + "</script>"
 }
 
 func formAction(baseURL, slug, token string) string {

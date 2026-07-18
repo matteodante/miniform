@@ -12,10 +12,11 @@ Location: `internal/pkg/testsupport/db.go`
 import "github.com/matteodante/miniform/internal/pkg/testsupport"
 
 func TestCreateForm(t *testing.T) {
-    db := testsupport.SetupTestDB(t)
-    logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-    // Test code here
+    t.Run("creates a valid form", func(t *testing.T) {
+        db := testsupport.SetupTestDB(t)
+        logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+        // Exercise the owning domain API.
+    })
 }
 ```
 
@@ -25,31 +26,26 @@ Use `t.Run()` to organize tests into contexts:
 
 ```go
 func TestFormOperations(t *testing.T) {
-    db := testsupport.SetupTestDB(t)
-    logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+    t.Run("creates a form", func(t *testing.T) {
+        db := testsupport.SetupTestDB(t)
+        logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-    t.Run("Create", func(t *testing.T) {
-        form := &forms.Form{Name: "Test Form"}
-        err := forms.Create(logger, db, form)
+        form, err := forms.Create(logger, db, forms.CreateParams{
+            Name: "Test Form", Slug: "test-form", AllowedOrigins: "*",
+        })
         require.NoError(t, err)
         assert.NotZero(t, form.ID)
         assert.NotEmpty(t, form.PublicID)
     })
 
-    t.Run("GetByID", func(t *testing.T) {
-        form := createTestForm(t, db, "Lookup Test")
-        result, err := forms.GetByID(db, form.ID)
-        require.NoError(t, err)
-        assert.Equal(t, form.Name, result.Name)
-    })
+    t.Run("rejects a missing slug", func(t *testing.T) {
+        db := testsupport.SetupTestDB(t)
+        logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-    t.Run("Delete", func(t *testing.T) {
-        form := createTestForm(t, db, "Delete Test")
-        err := forms.Delete(logger, db, form.ID)
-        require.NoError(t, err)
-
-        _, err = forms.GetByID(db, form.ID)
-        assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+        _, err := forms.Create(logger, db, forms.CreateParams{Name: "Test Form", AllowedOrigins: "*"})
+        var validation *forms.ValidationError
+        require.ErrorAs(t, err, &validation)
+        assert.Equal(t, "slug", validation.Field)
     })
 }
 ```
@@ -77,29 +73,9 @@ func TestExample(t *testing.T) {
 }
 ```
 
-## Test Helpers
+## Test helpers
 
-Create helper functions for common setup:
-
-```go
-func createTestUser(t *testing.T, db *gorm.DB, email, password string) *accounts.User {
-    hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-    require.NoError(t, err)
-
-    user := &accounts.User{
-        Email:        email,
-        PasswordHash: string(hash),
-    }
-    require.NoError(t, db.Create(user).Error)
-    return user
-}
-
-func createTestForm(t *testing.T, db *gorm.DB, name string) *forms.Form {
-    form := &forms.Form{Name: name}
-    require.NoError(t, db.Create(form).Error)
-    return form
-}
-```
+Reuse `internal/pkg/testsupport` and neighboring helpers. Prefer domain APIs for behavior under test. Direct database setup is acceptable only when the test explicitly needs a legacy or invalid state that public APIs cannot create.
 
 ## Table-Driven Tests (When Appropriate)
 
@@ -143,6 +119,14 @@ func TestIsBusyError(t *testing.T) {
 logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 ```
 
+## Browser tests
+
+- Keep Playwright tests sequential.
+- Use semantic roles, labels, stable actions, or explicit stable attributes.
+- Assert the final URL and visible outcome, including error recovery.
+- Let global setup create and mark a unique temporary data directory.
+- Never remove an explicitly supplied `MINIFORM_E2E_DATA_DIR` during teardown.
+
 ## Running Tests
 
 ```bash
@@ -157,4 +141,10 @@ go test ./internal/forms/...
 
 # Run specific test
 go test -v -run TestFormOperations ./internal/forms/...
+
+# Run lifecycle and concurrency coverage
+make test-race
+
+# Run Node teardown checks and Playwright
+make test-e2e
 ```

@@ -64,6 +64,54 @@ func TestErrorHandler(t *testing.T) {
 		assert.Equal(t, "Not Found", body["message"])
 	})
 
+	t.Run("normalizes public submission handler failures", func(t *testing.T) {
+		cfg := &appconfig.Config{Config: &cartridgeconfig.Config{Environment: cartridgeconfig.Production}}
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		app := fiber.New(fiber.Config{ErrorHandler: ErrorHandler(logger, cfg)})
+		app.Post("/forms/:slug/submit", func(*fiber.Ctx) error {
+			return errors.New("database password leaked")
+		})
+
+		req := httptest.NewRequestWithContext(t.Context(), "POST", "/forms/contact/submit", nil)
+		req.Header.Set("Accept", "text/html")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		assert.Equal(t, fiber.StatusInternalServerError, resp.StatusCode)
+		assert.Equal(t, fiber.MIMEApplicationJSON, resp.Header.Get(fiber.HeaderContentType))
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+		assert.Equal(t, false, body["ok"])
+		assert.Equal(t, "Internal Server Error", body["error"])
+		assert.NotContains(t, body["error"], "database password")
+	})
+
+	t.Run("normalizes public submission middleware failures", func(t *testing.T) {
+		cfg := &appconfig.Config{Config: &cartridgeconfig.Config{Environment: cartridgeconfig.Production}}
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		app := fiber.New(fiber.Config{ErrorHandler: ErrorHandler(logger, cfg)})
+		app.Use(func(ctx *fiber.Ctx) error {
+			if ctx.Method() == fiber.MethodPost && fiber.RoutePatternMatch(ctx.Path(), "/forms/:slug/submit") {
+				return fiber.ErrRequestEntityTooLarge
+			}
+			return ctx.Next()
+		})
+		app.Post("/forms/:slug/submit", func(ctx *fiber.Ctx) error { return ctx.SendStatus(fiber.StatusNoContent) })
+
+		req := httptest.NewRequestWithContext(t.Context(), "POST", "/forms/contact/submit", nil)
+		req.Header.Set("Accept", "text/html")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		assert.Equal(t, fiber.StatusRequestEntityTooLarge, resp.StatusCode)
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+		assert.Equal(t, false, body["ok"])
+		assert.Equal(t, "Request Entity Too Large", body["error"])
+	})
+
 	t.Run("prefers HTML for a browser navigation accept header", func(t *testing.T) {
 		cfg := &appconfig.Config{Config: &cartridgeconfig.Config{Environment: cartridgeconfig.Production}}
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))

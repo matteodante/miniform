@@ -16,11 +16,11 @@ Development defaults also work without a configuration file. The built-in Matcha
 | `MINIFORM_DATABASE_FILENAME` | `miniform.db` | Filename only; use `MINIFORM_DATABASE_PATH` for a path |
 | `MINIFORM_DATABASE_PATH` | Derived from data directory, environment, and filename | Use only when an explicit SQLite path is required |
 | `MINIFORM_LOGS_DIR` | Under the data directory | Keep on persistent storage if logs are retained |
-| `MINIFORM_SESSION_TIMEOUT_SECONDS` | `604800` | Set an explicit organizational policy if needed |
+| `MINIFORM_SESSION_TIMEOUT_SECONDS` | `604800`; OCI image: `1800` | Set an explicit organizational policy if needed |
 | `MINIFORM_MAX_INPUT_FIELDS` | `200` | Maximum scalar fields accepted in one submission |
 | `MINIFORM_WEBHOOK_SIGNATURE_HEADER` | `X-Miniform-Signature` | Header used for outbound webhook signatures |
-| `MINIFORM_WEBHOOK_RETRY_LIMIT` | `3` | Maximum configured webhook delivery attempts |
-| `MINIFORM_WEBHOOK_BACKOFF_SCHEDULE` | `1,5,15,60` | Retry delays in seconds |
+| `MINIFORM_WEBHOOK_RETRY_LIMIT` | `3` | Maximum configured webhook and SMTP delivery attempts |
+| `MINIFORM_WEBHOOK_BACKOFF_SCHEDULE` | `1,5,15,60` | Webhook and SMTP retry delays in seconds |
 
 Miniform rejects unsupported log levels, invalid ports, non-positive limits, and malformed retry schedules at startup. It does not silently replace an invalid configured value with a default.
 
@@ -31,6 +31,12 @@ openssl rand -hex 32
 ```
 
 Changing the session secret signs out every user.
+
+## Network boundaries
+
+Production applies process-local limits of 30 public submissions per minute and 5 sign-in attempts per minute for each resolved client address. The counters reset when the process restarts and are disabled in development and test environments.
+
+Direct and unmanaged deployments ignore `X-Forwarded-For` and use the network peer address. A Matcha-managed production deployment trusts only the last address in that header, which is appended by its managed proxy. Keep the proxy hop private and do not expose the managed application port directly.
 
 ## Example production environment
 
@@ -55,6 +61,6 @@ Do not store production secrets in a repository, container image, shell history,
 
 ## Stored application data
 
-SMTP profiles, Turnstile credentials, forms, delivery destinations, submissions, and events are stored in SQLite. Manage them through the operator UI or the [CLI](cli.md). Protect backups accordingly.
+SMTP profiles, Turnstile credentials, forms, delivery destinations, submissions, and events are stored in SQLite. Uploaded files live beneath the data directory and are referenced by database rows. Manage records through the operator UI or the [CLI](cli.md); a complete point-in-time backup requires the stopped database and upload tree together.
 
 Use `miniform config show` to inspect the effective runtime values. Change configuration in the process manager or container environment, then restart Miniform.

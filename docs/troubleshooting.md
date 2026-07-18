@@ -51,9 +51,13 @@ Do not place the database on an unreliable network filesystem. Confirm that the 
 
 Prefer a named volume. For bind mounts, ensure the container's runtime user can write the host directory. Do not make submission storage world-writable.
 
+The entrypoint rejects non-normalized paths and any existing symlink component in the configured data, log, or database path before changing ownership. Remove the symlink or mount the intended directory directly. Restored database, WAL, log, upload-staging, and upload-deletion files must become readable and writable by UID `10001`; startup fails explicitly when that cannot be established.
+
 ## Apple Container networking
 
 Requires Apple silicon, macOS 26, and the official `container` CLI.
+
+`make apple-container-run` uses the persistent `miniform-data` volume. When the volume does not exist yet, the target copies a non-empty legacy project `storage/` directory into it before startup and leaves the source directory untouched.
 
 ```bash
 container system status
@@ -66,6 +70,8 @@ If host port forwarding resets while direct container-IP health checks work, all
 ## E2E browser installation failures
 
 Run `make test-e2e-setup`. In CI or Linux, Playwright may need system packages and therefore uses `npx playwright install --with-deps chromium`.
+
+Each E2E run creates an owned temporary data directory and removes only that directory during global teardown. Set `MINIFORM_E2E_DATA_DIR` to preserve and inspect a specific directory after the run; the teardown never removes an explicitly supplied directory.
 
 ## Asking for help
 

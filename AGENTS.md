@@ -23,6 +23,15 @@ Handlers receive `cartridge.Context`, which embeds the Fiber context and exposes
 
 **Important:** Access dependencies via fields, not `fiber.Ctx.Locals()`. Use `ctx.DB()` for database access.
 
+### Application Lifecycle
+
+`internal.App` owns the listener, logger, database manager, HTTP server, request cancellation, and background runner. Preserve the shutdown order: cancel jobs and requests, stop HTTP, wait for workers, checkpoint WAL, then close database and logger resources.
+
+- Cleanup methods must be idempotent.
+- Every goroutine must have cancellation and an owner that waits for it.
+- Do not open a second application database or start a replacement process before the previous owner stops.
+- Propagate request or job contexts into database and network operations.
+
 ### SQLite Write Handling
 
 SQLite only allows **one writer** at a time. Always wrap write operations with `dbtxn.WithRetry`:
@@ -59,6 +68,21 @@ This handles:
 - Transactions with immediate locks (`_txlock=immediate`)
 - All writes via `dbtxn.WithRetry`
 - Migrations in `internal/database/migrate.go`
+- Connection lifecycle and WAL checkpoints in `internal/database/manager.go`
+
+## Upload Patterns
+
+- Stream new files through `.upload-staging`; promote them only after the database commit.
+- Quarantine files under `.upload-deletions` before deleting their rows; restore them if the transaction fails.
+- Resolve stored paths beneath `os.Root`. Reject absolute paths, traversal, and symlink escape.
+- Keep startup recovery in `forms.RecoverUploadDeletions` aligned with create and delete choreography.
+
+## Background Job Patterns
+
+- Database event rows are the durable queue.
+- Claim work with an expiring lease before network I/O and update only the lease still owned by that worker.
+- Never hold a SQLite transaction during SMTP or HTTP calls.
+- Honor context cancellation, use bounded retries, and make webhook delivery externally idempotent.
 
 ## Testing
 
@@ -172,12 +196,12 @@ internal/
 ├── accounts/        # User context
 ├── cli/             # Administrative CLI
 ├── config/         # Configuration
-├── database/       # Migrations and seed data
+├── database/       # Connection lifecycle, migrations, and seed data
 ├── forms/          # Forms context
 ├── http/           # HTTP handlers
 ├── integrations/   # External services
 ├── jobs/           # Background jobs
-├── server/          # Server bootstrap and rendering
+├── server/          # Logging, rendering, middleware, and error behavior
 └── pkg/
     ├── dbtxn/      # Transaction helpers
     ├── sqliteerr/  # SQLite error classification
@@ -188,9 +212,15 @@ internal/
 
 - `internal/app.go` — Application bootstrap
 - `internal/routes.go` — Route definitions
+- `internal/database/manager.go` — SQLite connection ownership and checkpoints
 - `internal/database/migrate.go` — Database schema
+- `internal/forms/files.go` — Upload staging and promotion
+- `internal/forms/upload_deletions.go` — Upload quarantine and recovery
+- `internal/jobs/runner.go` — Cancellable background runner
+- `internal/jobs/retry.go` — Delivery claims, leases, and retry state
 - `internal/pkg/dbtxn/retry.go` — Write retry logic
-- `internal/server/server.go` — Server setup
+- `internal/server/logger.go` — Structured log lifecycle
+- `internal/server/server.go` — Rendering, client IP, and error behavior
 
 ## License
 

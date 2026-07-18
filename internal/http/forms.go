@@ -101,7 +101,6 @@ func AdminFormShow(ctx *cartridge.Context) error {
 		"WebhookEvents": webhooks, "EmailEvents": emails,
 		"EmailRecipient": deliveryRecipient(form.EmailDelivery),
 		"FormCode":       embed.HTML, "FormCodeWarning": embed.Warning,
-		"SDKScriptTag": formembed.SDKScriptTag(ctx.BaseURL()),
 	})
 }
 
@@ -173,8 +172,8 @@ func AdminFormsUpdate(ctx *cartridge.Context) error {
 func createFormParams(ctx *cartridge.Context) forms.CreateParams {
 	return forms.CreateParams{
 		Name: ctx.FormValue("name"), Slug: ctx.FormValue("slug"),
-		AllowedOrigins: ctx.FormValue("allowed_origins"), UseSDK: checkbox(ctx, "use_sdk"),
-		GeneratedHTML: ctx.FormValue("generated_html"), TemplateID: ctx.FormValue("template_id"),
+		AllowedOrigins: ctx.FormValue("allowed_origins"),
+		GeneratedHTML:  ctx.FormValue("generated_html"), TemplateID: ctx.FormValue("template_id"),
 		MailerProfileID:  optionalID(ctx.FormValue("mailer_profile_id")),
 		CaptchaProfileID: optionalID(ctx.FormValue("captcha_profile_id")),
 		EmailRecipient:   ctx.FormValue("email_recipient"), EmailEnabled: checkbox(ctx, "email_enabled"),
@@ -186,7 +185,6 @@ func createFormParams(ctx *cartridge.Context) forms.CreateParams {
 func updateFormParams(ctx *cartridge.Context, id uint) forms.UpdateParams {
 	return forms.UpdateParams{
 		ID: id, Name: ctx.FormValue("name"), AllowedOrigins: ctx.FormValue("allowed_origins"),
-		UseSDK:           checkbox(ctx, "use_sdk"),
 		MailerProfileID:  optionalID(ctx.FormValue("mailer_profile_id")),
 		CaptchaProfileID: optionalID(ctx.FormValue("captcha_profile_id")),
 		EmailRecipient:   ctx.FormValue("email_recipient"), EmailEnabled: checkbox(ctx, "email_enabled"),
@@ -278,7 +276,7 @@ func renderFormEditor(ctx *cartridge.Context, db *gorm.DB, form *forms.Form, tem
 func createFormDraft(params forms.CreateParams) *forms.Form {
 	form := &forms.Form{
 		Name: params.Name, Slug: params.Slug, AllowedOrigins: params.AllowedOrigins,
-		UseSDK: params.UseSDK, GeneratedHTML: params.GeneratedHTML,
+		GeneratedHTML:    params.GeneratedHTML,
 		CaptchaProfileID: params.CaptchaProfileID,
 	}
 	setDraftDeliveries(
@@ -292,7 +290,6 @@ func createFormDraft(params forms.CreateParams) *forms.Form {
 func updateFormDraft(form *forms.Form, params forms.UpdateParams) *forms.Form {
 	form.Name = params.Name
 	form.AllowedOrigins = params.AllowedOrigins
-	form.UseSDK = params.UseSDK
 	form.CaptchaProfileID = params.CaptchaProfileID
 	setDraftDeliveries(
 		form,

@@ -8,33 +8,36 @@ Background jobs process webhooks and emails asynchronously with retry logic and 
 
 `internal/jobs/`
 
-## Job Processor Structure
+## Job processor structure
 
 ```go
 type WebhookDispatcher struct {
-    cfg   *config.Config
-    http  *http.Client
-    retry *RetryStrategy
+    config  *config.Config
+    client  *http.Client
+    retries retryPlan
 }
 
-func (d *WebhookDispatcher) ProcessBatch(ctx *cartridge.JobContext) error {
-    db := ctx.DB
-    now := time.Now().UTC()
-
+func (dispatcher *WebhookDispatcher) ProcessBatch(ctx *cartridge.JobContext) error {
     var events []forms.WebhookEvent
-    if err := db.
-        Preload("Submission").
-        Preload("Submission.Form.WebhookDelivery").
-        Where("status IN ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)",
-            []string{forms.WebhookStatusPending, forms.WebhookStatusRetrying}, now).
-        Order("created_at ASC").
-        Limit(10).
-        Find(&events).Error; err != nil {
+    now := time.Now().UTC()
+    query := ctx.DB.WithContext(ctx).Preload("Submission.Form.WebhookDelivery")
+    if err := dueEvents(query, now).Limit(10).Find(&events).Error; err != nil {
         return err
     }
 
     for i := range events {
-        d.handleEvent(ctx, db, &events[i])
+        leaseUntil, err := claimEvent(ctx, ctx.DB, &forms.WebhookEvent{}, events[i].ID, time.Now().UTC())
+        if err != nil {
+            return err
+        }
+        if leaseUntil == nil {
+            continue
+        }
+        events[i].Status = forms.WebhookStatusDelivering
+        events[i].NextAttemptAt = leaseUntil
+        if err := dispatcher.deliver(ctx, &events[i]); err != nil {
+            return err
+        }
     }
     return nil
 }
@@ -45,9 +48,9 @@ func (d *WebhookDispatcher) ProcessBatch(ctx *cartridge.JobContext) error {
 Events follow a state machine:
 
 ```
-pending -> delivering -> delivered
-                     -> retrying -> delivered
-                                 -> failed
+pending/retrying/expired delivering -> delivering lease -> delivered
+                                                   \----> retrying
+                                                   \----> failed
 ```
 
 Status constants:
@@ -64,61 +67,45 @@ const (
 )
 ```
 
-## Retry Strategy
+`next_attempt_at` is the eligibility time for pending/retrying work and the one-minute lease deadline while delivering. Expired delivering rows are reclaimable.
+
+## Claim and completion
 
 ```go
-type RetryStrategy struct {
-    cfg *config.Config
-}
+leaseUntil := now.UTC().Add(time.Minute)
+err := dbtxn.WithRetry(ctx.Logger, db.WithContext(ctx), func(tx *gorm.DB) error {
+    return tx.Model(model).
+        Where("id = ?", id).
+        Where("status IN ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)", eligible, now.UTC()).
+        Updates(map[string]any{
+            "status": forms.WebhookStatusDelivering,
+            "next_attempt_at": leaseUntil,
+        }).Error
+})
 
-func (r *RetryStrategy) NextRetry(attempt int) *time.Time {
-    schedule := r.cfg.WebhookBackoff()  // e.g., [60, 300, 900] seconds
-    if len(schedule) == 0 {
-        return nil
+// After network I/O, update only the lease still owned by this worker.
+err = dbtxn.WithRetry(ctx.Logger, db.WithContext(ctx), func(tx *gorm.DB) error {
+    result := tx.Model(model).
+        Where("id = ? AND status = ? AND next_attempt_at = ?", id, forms.WebhookStatusDelivering, leaseUntil).
+        Updates(values)
+    if result.Error != nil {
+        return result.Error
     }
-    idx := attempt - 1
-    if idx >= len(schedule) {
-        idx = len(schedule) - 1
+    if result.RowsAffected != 1 {
+        return errDeliveryClaimLost
     }
-    next := time.Now().UTC().Add(time.Duration(schedule[idx]) * time.Second)
-    return &next
-}
-
-func (r *RetryStrategy) ShouldRetry(attemptCount int) bool {
-    return attemptCount < forms.DefaultRetryLimit
-}
+    return nil
+})
 ```
 
-## Event Updates with Options
+Network I/O always happens outside a database transaction. Webhooks carry a stable `Idempotency-Key` derived from the form public ID and event ID. Both SMTP and webhook requests use the configured retry limit and backoff schedule and honor cancellation.
 
-Use functional options for flexible updates:
+## Key principles
 
-```go
-type UpdateOption func(map[string]any)
-
-func WithAttemptCount(count int) UpdateOption {
-    return func(values map[string]any) { values["attempt_count"] = count }
-}
-
-func WithNextAttempt(next *time.Time) UpdateOption {
-    return func(values map[string]any) { values["next_attempt_at"] = next }
-}
-
-func (u *EventUpdater) Update(ctx *JobContext, db *gorm.DB, id uint, status string, opts ...UpdateOption) error {
-    values := map[string]any{"status": status}
-    for _, opt := range opts {
-        opt(values)
-    }
-    return dbtxn.WithRetry(ctx.Logger, db, func(tx *gorm.DB) error {
-        return tx.Model(u.model).Where("id = ?", id).Updates(values).Error
-    })
-}
-```
-
-## Key Principles
-
-1. **Batch processing**: Process multiple events per tick
-2. **Idempotent**: Safe to retry failed jobs
-3. **Backoff**: Exponential delays between retries
-4. **State tracking**: Clear status transitions
-5. **Retry with dbtxn**: All DB writes use `dbtxn.WithRetry()`
+1. **Bounded batches**: Process at most the current batch limit in deterministic order
+2. **Durable claims**: Claim with an expiring lease before network I/O
+3. **Compare-and-set**: Never let a stale worker overwrite a reclaimed event
+4. **Idempotency**: Preserve stable webhook identity across attempts
+5. **State tracking**: Record status, count, compact error, attempt time, and next eligibility
+6. **Retry transactions**: Use `dbtxn.WithRetry` for every state mutation
+7. **Cancellation**: Propagate the runner context into database, HTTP, and SMTP work

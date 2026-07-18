@@ -337,14 +337,13 @@ func TestRunner(t *testing.T) {
 		assert.Contains(t, stdout.String(), `"total_count":1`)
 	})
 
-	t.Run("form code redacts the token and includes configured SDK", func(t *testing.T) {
+	t.Run("form code redacts the token and emits native HTML", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 		form, err := forms.Create(logger, db, forms.CreateParams{
 			Name:           "Embed",
 			Slug:           "embed",
 			AllowedOrigins: "*",
-			UseSDK:         true,
 		})
 		require.NoError(t, err)
 		runner, stdout, _ := newTestRunner(t, db, "")
@@ -354,7 +353,7 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, ExitSuccess, exitCode)
 		assert.Contains(t, stdout.String(), "YOUR_FORM_TOKEN")
 		assert.NotContains(t, stdout.String(), form.Token)
-		assert.Contains(t, stdout.String(), "/assets/miniform.js")
+		assert.NotContains(t, stdout.String(), "<script")
 
 		runner, stdout, _ = newTestRunner(t, db, "")
 		exitCode = runner.Run([]string{
@@ -363,7 +362,7 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, ExitSuccess, exitCode)
 		assert.Contains(t, stdout.String(), form.Token)
 		assert.Contains(t, stdout.String(), "https://forms.example.com/forms/embed/submit")
-		assert.Contains(t, stdout.String(), "https://forms.example.com/assets/miniform.js")
+		assert.NotContains(t, stdout.String(), "includes_sdk")
 
 		runner, _, _ = newTestRunner(t, db, "")
 		exitCode = runner.Run([]string{

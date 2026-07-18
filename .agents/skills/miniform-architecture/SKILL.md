@@ -13,6 +13,7 @@ description: Apply Miniform's domain-package architecture and ownership boundari
 4. Keep `internal/http` handlers thin: parse transport input, call domain functions, map the result to HTTP.
 5. Register routes centrally in `internal/routes.go`; do not hide domain access in unrelated packages.
 6. Add shared code under `internal/pkg` only after concrete reuse exists.
+7. Preserve application ownership of its listener, logger, database manager, HTTP server, request cancellation, and background runner.
 
 ## Boundaries
 
@@ -21,7 +22,10 @@ description: Apply Miniform's domain-package architecture and ownership boundari
 - Preload GORM associations explicitly when a use case needs them.
 - Route every SQLite mutation through `$miniform-sqlite-writes`.
 - Preserve the single-process deployment model unless the user explicitly requests an architectural change.
+- Give every goroutine a cancellation path and an owner that waits for it.
+- Keep upload staging, database commit, promotion, deletion quarantine, and startup recovery as one lifecycle owned by `internal/forms`.
+- Stop replacement processes before starting the next SQLite owner; managed deployment failures require compensating rollback.
 
 ## Verification
 
-Run focused package tests, then the broader Go suite. Confirm imports do not introduce cycles and the change remains in the smallest owning package.
+Run focused package tests, then the broader Go suite. Add `make test-race` for lifecycle or concurrency changes. Confirm imports do not introduce cycles and the change remains in the smallest owning package.

@@ -31,12 +31,13 @@ Complete this checklist immediately before making the repository public.
 
 ## Release readiness
 
-- [ ] Run `make audit`, `make check`, `make test-e2e`, and `make container-test`
+- [ ] Run `make audit`, `make check`, `make test-race`, `make test-e2e`, `make release-check`, and `make container-test`
 - [ ] Validate a clean clone on macOS and Linux
 - [ ] Validate Apple Container build, health check, persistence, and stop
 - [ ] Run the release workflow in snapshot mode and inspect binaries, checksums, SBOMs, and licenses
 - [ ] Create and verify the first signed version tag
 - [ ] Confirm GHCR visibility, immutable digest, provenance, and version labels
 - [ ] Test installation and upgrade instructions exactly as written
+- [ ] Confirm `README.md`, `CHANGELOG.md`, architecture, CLI, configuration, installation, troubleshooting, and release documentation match the tagged behavior
 
 No remote repository setting or public release is changed by this checklist automatically.

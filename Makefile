@@ -13,7 +13,8 @@ PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/tmp/ms-playwright
 APPLE_CONTAINER_IMAGE ?= miniform:local
 APPLE_CONTAINER_NAME ?= miniform
 APPLE_CONTAINER_PORT ?= 8080
-APPLE_CONTAINER_STORAGE ?= $(CURDIR)/storage
+APPLE_CONTAINER_VOLUME ?= miniform-data
+APPLE_CONTAINER_LEGACY_STORAGE ?= $(CURDIR)/storage
 DEMO_DATA_DIR ?= $(CURDIR)/tmp/demo
 DEMO_PORT ?= 8080
 
@@ -365,18 +366,36 @@ apple-container-build: apple-container-start
 	container build --platform linux/arm64 --tag $(APPLE_CONTAINER_IMAGE) --file Dockerfile .
 
 apple-container-run: apple-container-build
-	@mkdir -p $(APPLE_CONTAINER_STORAGE)
+	@set -eu; \
+		if container volume inspect "$(APPLE_CONTAINER_VOLUME)" >/dev/null 2>&1; then \
+			exit 0; \
+		fi; \
+		container volume create "$(APPLE_CONTAINER_VOLUME)" >/dev/null; \
+		if test -d "$(APPLE_CONTAINER_LEGACY_STORAGE)" && \
+			test -n "$$(find "$(APPLE_CONTAINER_LEGACY_STORAGE)" -mindepth 1 -maxdepth 1 -print -quit)"; then \
+			echo ">> migrating legacy Apple Container storage to volume $(APPLE_CONTAINER_VOLUME)"; \
+			if ! container run --rm \
+				--mount "type=bind,source=$(APPLE_CONTAINER_LEGACY_STORAGE),target=/legacy,readonly" \
+				--volume "$(APPLE_CONTAINER_VOLUME):/app/storage" \
+				--entrypoint sh "$(APPLE_CONTAINER_IMAGE)" \
+				-c 'set -eu; cp -a /legacy/. /app/storage/'; then \
+				container volume delete "$(APPLE_CONTAINER_VOLUME)" >/dev/null 2>&1 || true; \
+				exit 1; \
+			fi; \
+		fi
 	container run --name $(APPLE_CONTAINER_NAME) --detach --rm \
 		--init \
 		--publish 127.0.0.1:$(APPLE_CONTAINER_PORT):8080 \
 		--env MINIFORM_ENV=development \
-		--volume $(APPLE_CONTAINER_STORAGE):/app/storage \
+		--volume $(APPLE_CONTAINER_VOLUME):/app/storage \
 		$(APPLE_CONTAINER_IMAGE)
-	@ip=$$(container inspect $(APPLE_CONTAINER_NAME) | jq -r '.[0].status.networks[0].ipv4Address | split("/")[0]'); \
+	@set -eu; \
+		ip=$$(container inspect $(APPLE_CONTAINER_NAME) | jq -er '.[0] | select(.status.state == "running") | .status.networks[0].ipv4Address | split("/")[0]'); \
 		echo "Miniform: http://$$ip:8080"
 
 apple-container-health:
-	@ip=$$(container inspect $(APPLE_CONTAINER_NAME) | jq -r '.[0].status.networks[0].ipv4Address | split("/")[0]'); \
+	@set -eu; \
+		ip=$$(container inspect $(APPLE_CONTAINER_NAME) | jq -er '.[0] | select(.status.state == "running") | .status.networks[0].ipv4Address | split("/")[0]'); \
 		curl -fsS "http://$$ip:8080/_health"; echo
 
 apple-container-stop:

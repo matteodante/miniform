@@ -12,18 +12,15 @@ import (
 )
 
 func TestBuild(t *testing.T) {
-	t.Run("redacts token and follows SDK option", func(t *testing.T) {
+	t.Run("redacts token in native form markup", func(t *testing.T) {
 		form := &forms.Form{ID: 7, PublicID: "public-id", Slug: "contact", Token: "live-token"}
 
-		result := formembed.Build(form, formembed.Options{
-			BaseURL: "https://forms.example.com/", IncludeSDK: true,
-		})
+		result := formembed.Build(form, formembed.Options{BaseURL: "https://forms.example.com/"})
 
 		assert.True(t, result.Redacted)
-		assert.True(t, result.IncludesSDK)
 		assert.Equal(t, "https://forms.example.com/forms/contact/submit?token=YOUR_FORM_TOKEN", result.Action)
 		assert.NotContains(t, result.HTML, "live-token")
-		assert.Contains(t, result.HTML, `<script src="https://forms.example.com/assets/miniform.js"></script>`)
+		assert.NotContains(t, result.HTML, "<script")
 	})
 
 	t.Run("normalizes generated HTML with the live action", func(t *testing.T) {

@@ -134,7 +134,7 @@ func TestRoutes(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	t.Cleanup(func() { slog.SetDefault(previousLogger) })
 
-	t.Run("scopes cross-origin loading to the public SDK asset", func(t *testing.T) {
+	t.Run("serves immutable same-origin assets and omits the removed SDK", func(t *testing.T) {
 		defaultLogger := slog.Default()
 		t.Cleanup(func() { slog.SetDefault(defaultLogger) })
 		dataDirectory := t.TempDir()
@@ -153,20 +153,32 @@ func TestRoutes(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, app.Close()) })
 
-		for _, testCase := range []struct {
-			path, policy, cacheControl string
-		}{
-			{"/assets/miniform.js", "cross-origin", "no-cache"},
-			{"/assets/mark.svg", "same-origin", "public, max-age=31536000"},
-		} {
-			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, testCase.path, nil)
-			response, err := app.Server.App().Test(request, -1)
-			require.NoError(t, err)
-			assert.Equal(t, http.StatusOK, response.StatusCode)
-			assert.Equal(t, testCase.policy, response.Header.Get(fiber.HeaderCrossOriginResourcePolicy))
-			assert.Equal(t, testCase.cacheControl, response.Header.Get(fiber.HeaderCacheControl))
-			require.NoError(t, response.Body.Close())
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/assets/mark.svg", nil)
+		response, err := app.Server.App().Test(request, -1)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, response.StatusCode)
+		assert.Equal(t, "same-origin", response.Header.Get(fiber.HeaderCrossOriginResourcePolicy))
+		assert.Equal(t, "public, max-age=31536000", response.Header.Get(fiber.HeaderCacheControl))
+		require.NoError(t, response.Body.Close())
+
+		request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/assets/miniform.js", nil)
+		response, err = app.Server.App().Test(request, -1)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusNotFound, response.StatusCode)
+		require.NoError(t, response.Body.Close())
+	})
+
+	t.Run("returns the public JSON error contract when rate limited", func(t *testing.T) {
+		server := testServer(t, cartridgeconfig.Production)
+		for range 30 {
+			status, _ := postForm(t, server, "/forms/missing/submit?token=invalid", "name=Ada", nil)
+			require.Equal(t, http.StatusNotFound, status)
 		}
+
+		status, body := postForm(t, server, "/forms/missing/submit?token=invalid", "name=Ada", nil)
+
+		assert.Equal(t, http.StatusTooManyRequests, status)
+		assert.JSONEq(t, `{"ok":false,"error":"rate limit exceeded"}`, body)
 	})
 
 	t.Run("reports an unavailable database as not ready", func(t *testing.T) {

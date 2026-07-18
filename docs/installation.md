@@ -11,7 +11,7 @@ Production deployments require:
 - HTTPS at a reverse proxy
 - Persistent storage for `/app/storage`
 - A stable, randomly generated `MINIFORM_SESSION_SECRET`
-- A backup process that copies the SQLite database safely
+- A backup process that copies SQLite safely and includes uploads when point-in-time recovery is required
 
 ## OCI container
 
@@ -51,9 +51,9 @@ The SQLite driver requires CGO. Do not build release binaries with `CGO_ENABLED=
 
 ## Installer
 
-The installer downloads a versioned Linux release, verifies its SHA-256 checksum, and launches that verified candidate. It replaces the installed manager only after installation succeeds. Review scripts before running them as root:
-
 Install and start Docker Engine first using the official instructions for your operating system. Miniform refuses installation when Docker is unavailable; it never pipes a remote Docker installer into a privileged shell.
+
+The installer downloads a versioned Linux release, verifies its SHA-256 checksum, and launches that verified candidate. It replaces the installed manager only after installation succeeds. Review the script before running it as root:
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/matteodante/miniform/main/install.sh
@@ -62,6 +62,8 @@ sudo bash install.sh
 ```
 
 Avoid piping remote scripts directly into a privileged shell.
+
+The managed installer currently resolves the `latest` application image only during an explicit install or `sudo miniform update`; it does not create an unattended update schedule. Use the direct OCI path with an exact version tag when every rollout must be digest- or tag-pinned.
 
 ## First boot
 

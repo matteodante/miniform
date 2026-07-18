@@ -49,33 +49,32 @@ Location: `internal/server/server.go`
 ```go
 func ErrorHandler(log *slog.Logger, cfg *config.Config) fiber.ErrorHandler {
     return func(c *fiber.Ctx, err error) error {
-        code := fiber.StatusInternalServerError
-        if e, ok := err.(*fiber.Error); ok {
-            code = e.Code
-        }
+        code, message := publicError(err, cfg.IsDevelopment())
 
-        log.Error("request failed",
-            slog.Any("error", err),
-            slog.String("path", c.Path()),
-            slog.Int("status", code),
-        )
+        log.Error("HTTP request failed", slog.Int("status", code),
+            slog.String("method", c.Method()), slog.String("path", c.Path()), slog.Any("error", err))
 
-        // JSON for API requests
         if c.Accepts(fiber.MIMEApplicationJSON) == fiber.MIMEApplicationJSON {
-            return c.Status(code).JSON(fiber.Map{
-                "error": "internal_server_error",
-                "message": err.Error(),
-            })
+            return c.Status(code).JSON(fiber.Map{"error": http.StatusText(code), "message": message})
         }
-
-        // HTML for browser requests
-        return c.Status(code).Render("layouts/base", fiber.Map{
-            "Title": "Error",
-            "ContentView": "errors/500/content",
-        }, "")
+        if code == fiber.StatusInternalServerError {
+            return c.Status(code).Render("layouts/base", fiber.Map{
+                "Title": "500 - Internal Server Error", "ContentView": "errors/500/content",
+                "DevMode": cfg.IsDevelopment(), "ErrorMessage": message,
+            }, "")
+        }
+        if code >= fiber.StatusBadRequest && code < fiber.StatusInternalServerError {
+            return c.Status(code).Render("layouts/base", fiber.Map{
+                "Title": fmt.Sprintf("%d - %s", code, http.StatusText(code)),
+                "ContentView": "errors/4xx/content", "RecoveryURL": "/admin/submissions",
+            }, "")
+        }
+        return c.Status(code).SendString(fmt.Sprintf("Error: %d - %s", code, message))
     }
 }
 ```
+
+`publicError` exposes unexpected error details only in development. Production clients receive stable public messages while structured logs retain diagnostic context.
 
 ## HTTP Error Responses
 
@@ -100,3 +99,5 @@ logger.Error("failed to create form",
     slog.Uint64("user_id", uint64(userID)),
 )
 ```
+
+Actionable admin validation and reference conflicts should be re-rendered with the submitted values. Do not turn them into plaintext global errors. HTMX failures must redirect or render a complete recovery page so no branch leaves the browser at a dead end.

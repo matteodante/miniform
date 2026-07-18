@@ -14,15 +14,6 @@ import (
 
 func mountAssets(server *cartridge.Server, cfg *config.Config) {
 	app := server.App()
-	app.Use("/assets", func(ctx *fiber.Ctx) error {
-		isSDK := ctx.Path() == "/assets/miniform.js"
-		err := ctx.Next()
-		if isSDK {
-			ctx.Set(fiber.HeaderCrossOriginResourcePolicy, "cross-origin")
-			ctx.Set(fiber.HeaderCacheControl, "no-cache")
-		}
-		return err
-	})
 
 	if cfg.IsDevelopment() {
 		app.Static("/assets", cfg.GetPublicDirectory(), fiber.Static{

@@ -66,6 +66,19 @@ type legacyForm struct {
 
 func (legacyForm) TableName() string { return "forms" }
 
+type legacySDKForm struct {
+	ID             uint   `gorm:"primaryKey"`
+	PublicID       string `gorm:"uniqueIndex"`
+	Name           string
+	Slug           string `gorm:"uniqueIndex"`
+	Token          string `gorm:"uniqueIndex"`
+	AllowedOrigins string
+	UseSDK         bool
+	GeneratedHTML  string
+}
+
+func (legacySDKForm) TableName() string { return "forms" }
+
 type legacyEmailDelivery struct {
 	ID              uint `gorm:"primaryKey"`
 	FormID          uint `gorm:"uniqueIndex;not null"`
@@ -144,6 +157,27 @@ func TestMigrate(t *testing.T) {
 		require.NoError(t, db.Model(&forms.WebhookDelivery{}).Where("form_id = ?", form.ID).Count(&webhookCount).Error)
 		require.Equal(t, int64(1), emailCount)
 		require.Equal(t, int64(1), webhookCount)
+	})
+
+	t.Run("removes the obsolete SDK preference without losing forms", func(t *testing.T) {
+		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&legacySDKForm{}))
+		require.NoError(t, db.Create(&legacySDKForm{
+			ID: 1, PublicID: "legacy-sdk", Name: "Legacy SDK", Slug: "legacy-sdk",
+			Token: "legacy-token", AllowedOrigins: "example.com", UseSDK: true,
+			GeneratedHTML: `<form><button>Send</button></form>`,
+		}).Error)
+
+		require.NoError(t, Migrate(db))
+		require.NoError(t, Migrate(db))
+
+		migrated, err := forms.GetByID(db, 1)
+		require.NoError(t, err)
+		require.Equal(t, "Legacy SDK", migrated.Name)
+		require.Equal(t, "example.com", migrated.AllowedOrigins)
+		require.Equal(t, `<form><button>Send</button></form>`, migrated.GeneratedHTML)
+		require.False(t, db.Migrator().HasColumn("forms", "use_sdk"))
 	})
 
 	t.Run("retains legacy settings for downgrade and recovery", func(t *testing.T) {
@@ -489,6 +523,7 @@ func TestMigrate(t *testing.T) {
 
 		t.Run("omits removed generic fields and tables", func(t *testing.T) {
 			require.True(t, db.Migrator().HasColumn(&forms.EmailDelivery{}, "recipient"))
+			require.False(t, db.Migrator().HasColumn(&forms.Form{}, "use_sdk"))
 			require.False(t, db.Migrator().HasColumn(&forms.EmailDelivery{}, "overrides_json"))
 			require.False(t, db.Migrator().HasColumn(&forms.Form{}, "captcha_overrides_json"))
 			require.False(t, db.Migrator().HasColumn(&forms.Submission{}, "ip_hash"))

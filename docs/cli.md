@@ -127,7 +127,7 @@ sudo miniform reload
 sudo miniform restore-db
 ```
 
-`backup` writes a verified SQLite snapshot and keeps the three newest snapshots. `update` pulls before its mandatory backup; `reload` also requires a backup. Both stop the current container before starting its replacement, so two Miniform processes never share the SQLite database. `restore-db` validates and stages the selected snapshot before stopping Miniform and atomically replacing the database. Deployment commands are serialized and return explicit errors; they do not emit JSON.
+`backup` writes a verified SQLite snapshot and keeps the three newest snapshots. It does not copy uploaded files. `update` pulls before its mandatory backup; `reload` also requires a backup. Both stop the current container before starting its replacement, so two Miniform processes never share the SQLite database. `restore-db` validates and stages the selected snapshot before stopping Miniform and atomically replacing the database. Deployment commands are serialized and return explicit errors; they do not emit JSON.
 
 ## Forms
 
@@ -157,8 +157,7 @@ miniform form create \
 miniform form update \
   --id 1 \
   --name 'Customer contact' \
-  --email-enabled=false \
-  --use-sdk=true
+  --email-enabled=false
 
 miniform --show-secrets form rotate-token --id 1 --yes
 miniform form delete --id 1 --yes
@@ -166,7 +165,7 @@ miniform form delete --id 1 --yes
 
 `form update` preserves omitted flags. Pass explicit boolean values to disable features. Clear nullable or secret values with the corresponding `--clear-*` flag.
 
-`form code` produces the final copyable HTML, including captcha markup and the optional SDK. It follows the stored `use_sdk` setting unless `--include-sdk=true|false` is passed. Set `--base-url` to emit absolute Miniform action and SDK URLs. By default the action uses `YOUR_FORM_TOKEN`; pass `--show-secrets` only when deployable HTML with the live token is required.
+`form code` produces final copyable native HTML, including captcha markup when configured. Set `--base-url` to emit an absolute Miniform action URL. By default the action uses `YOUR_FORM_TOKEN`; pass `--show-secrets` only when deployable HTML with the live token is required. See [Submitting forms to Miniform](submitting-forms.md) for HTML, `fetch`, JSON, and `curl` examples.
 
 Email forwarding requires `--email-enabled`, `--mailer-profile-id`, and `--email-recipient`. Webhook forwarding requires `--webhook-enabled` and `--webhook-url`.
 
@@ -253,7 +252,7 @@ miniform --json submission create \
   --file screenshot=./screen.png
 ```
 
-The command applies the same file-count, size, and extension limits as public HTTP submissions. It creates webhook and email events from the form delivery policy.
+The command applies the same file-count, size, and extension limits as public HTTP submissions. It requires at least one stored field or file and creates webhook and email events from the form delivery policy.
 
 List and copy uploaded files:
 

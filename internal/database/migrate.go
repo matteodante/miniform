@@ -57,6 +57,11 @@ func Migrate(db *gorm.DB) error {
 		if err := tx.AutoMigrate(Models()...); err != nil {
 			return err
 		}
+		if tx.Migrator().HasColumn("forms", "use_sdk") {
+			if err := tx.Exec(`ALTER TABLE forms DROP COLUMN use_sdk`).Error; err != nil {
+				return fmt.Errorf("drop obsolete form SDK preference: %w", err)
+			}
+		}
 		return ensureProfileDeleteGuards(tx)
 	}); err != nil {
 		return fmt.Errorf("migrate application schema: %w", err)

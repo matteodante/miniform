@@ -28,6 +28,8 @@ err := db.Create(&model).Error  // DON'T DO THIS
 - **Base delay**: 100ms
 - **Max delay**: 5 seconds
 - **Jitter**: 20% random variance to prevent thundering herd
+- **Transaction lock**: immediate
+- **Cancellation**: the GORM context interrupts retry waits
 
 ## Busy Error Detection
 
@@ -53,6 +55,14 @@ func UpdateSubmission(logger *slog.Logger, db *gorm.DB, id uint, data map[string
 }
 ```
 
+For request or job work, attach the context before entering the wrapper:
+
+```go
+err := dbtxn.WithRetry(logger, db.WithContext(ctx), func(tx *gorm.DB) error {
+    return tx.Model(&Submission{}).Where("id = ?", id).Updates(values).Error
+})
+```
+
 ## When to Use
 
 - Creating records
@@ -64,3 +74,5 @@ func UpdateSubmission(logger *slog.Logger, db *gorm.DB, id uint, data map[string
 
 - Read-only queries (SELECT)
 - Migrations (handled separately)
+
+Do not nest `WithRetry`, add another retry loop, perform network I/O inside the transaction, or close the shared database. `internal/database.Manager` owns connections and WAL checkpoints.

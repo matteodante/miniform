@@ -20,9 +20,11 @@ description: Implement and review Miniform background processing for email and w
 - Use the configured backoff and retry limit; do not add an independent retry loop.
 - Use UTC timestamps and propagate cancellation through current job contexts.
 - Avoid holding a database transaction open during network I/O.
-- Make updates conditional when needed to prevent two workers from claiming the same event.
+- Claim eligible rows with the one-minute `delivering` lease before network I/O. Expired leases are eligible for reclamation.
+- Complete an attempt only when the row still has the exact lease owned by that worker; treat a failed compare-and-set as a lost claim.
+- Preserve the stable webhook `Idempotency-Key` derived from form and event identity.
 - Log delivery failures with event identity and attempt context without exposing secrets.
 
 ## Verification
 
-Add subtests for success, retry, terminal failure, idempotent reprocessing, and invalid state where relevant. Run focused job tests and the full internal Go suite.
+Add subtests for success, retry, terminal failure, lease loss/reclamation, idempotent reprocessing, and invalid state where relevant. Run focused job tests, the full internal Go suite, and `make test-race` for ownership changes.

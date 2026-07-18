@@ -25,6 +25,8 @@ err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
 - Return the original database error from the closure so lock detection remains effective.
 - Do not add sleeps or a second retry mechanism around `WithRetry`.
 - Keep network calls and other irreversible side effects outside retried transactions.
+- Attach request or job cancellation with `db.WithContext(ctx)` before entering the retry wrapper.
+- Let `internal/database.Manager` own connections and WAL checkpoints; domain functions never close the shared database.
 - Read-only queries and the dedicated migration path do not need this wrapper.
 
 ## Verification

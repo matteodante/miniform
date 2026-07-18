@@ -34,12 +34,12 @@ func sendSMTP(ctx context.Context, config *smtpConfig, message []byte) error {
 
 	if config.Encryption == "starttls" {
 		if err := client.StartTLS(&tls.Config{ServerName: config.Host, MinVersion: tls.VersionTLS12}); err != nil {
-			return fmt.Errorf("start SMTP TLS: %w", err)
+			return smtpIOError(ctx, "start SMTP TLS", err)
 		}
 	}
 	if config.Username != "" {
 		if err := client.Auth(smtp.PlainAuth("", config.Username, config.Password, config.Host)); err != nil {
-			return fmt.Errorf("authenticate SMTP: %w", err)
+			return smtpIOError(ctx, "authenticate SMTP", err)
 		}
 	}
 
@@ -52,25 +52,25 @@ func sendSMTP(ctx context.Context, config *smtpConfig, message []byte) error {
 		return fmt.Errorf("invalid recipient: %w", err)
 	}
 	if err := client.Mail(from); err != nil {
-		return fmt.Errorf("set SMTP sender: %w", err)
+		return smtpIOError(ctx, "set SMTP sender", err)
 	}
 	if err := client.Rcpt(to); err != nil {
-		return fmt.Errorf("set SMTP recipient: %w", err)
+		return smtpIOError(ctx, "set SMTP recipient", err)
 	}
 
 	data, err := client.Data()
 	if err != nil {
-		return fmt.Errorf("start SMTP data: %w", err)
+		return smtpIOError(ctx, "start SMTP data", err)
 	}
 	if _, err := data.Write(message); err != nil {
 		_ = data.Close()
-		return fmt.Errorf("write SMTP data: %w", err)
+		return smtpIOError(ctx, "write SMTP data", err)
 	}
 	if err := data.Close(); err != nil {
-		return fmt.Errorf("finish SMTP data: %w", err)
+		return smtpIOError(ctx, "finish SMTP data", err)
 	}
 	if err := client.Quit(); err != nil {
-		return fmt.Errorf("close SMTP session: %w", err)
+		return smtpIOError(ctx, "close SMTP session", err)
 	}
 	return nil
 }
@@ -79,7 +79,7 @@ func openSMTP(ctx context.Context, config *smtpConfig) (*smtp.Client, func() boo
 	address := net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
 	connection, err := (&net.Dialer{Timeout: smtpTimeout}).DialContext(ctx, "tcp", address)
 	if err != nil {
-		return nil, nil, fmt.Errorf("connect SMTP: %w", err)
+		return nil, nil, smtpIOError(ctx, "connect SMTP", err)
 	}
 	rawConnection := connection
 	stopCancel := context.AfterFunc(ctx, func() { _ = rawConnection.Close() })
@@ -94,14 +94,14 @@ func openSMTP(ctx context.Context, config *smtpConfig) (*smtp.Client, func() boo
 	}
 	if err := connection.SetDeadline(deadline); err != nil {
 		closeConnection()
-		return nil, nil, fmt.Errorf("set SMTP deadline: %w", err)
+		return nil, nil, smtpIOError(ctx, "set SMTP deadline", err)
 	}
 
 	if config.Encryption == "tls" {
 		secure := tls.Client(connection, &tls.Config{ServerName: config.Host, MinVersion: tls.VersionTLS12})
 		if err := secure.HandshakeContext(ctx); err != nil {
 			closeConnection()
-			return nil, nil, fmt.Errorf("negotiate SMTP TLS: %w", err)
+			return nil, nil, smtpIOError(ctx, "negotiate SMTP TLS", err)
 		}
 		connection = secure
 	}
@@ -109,12 +109,16 @@ func openSMTP(ctx context.Context, config *smtpConfig) (*smtp.Client, func() boo
 	client, err := smtp.NewClient(connection, config.Host)
 	if err != nil {
 		closeConnection()
-		if ctx.Err() != nil {
-			return nil, nil, fmt.Errorf("initialize SMTP: %w", ctx.Err())
-		}
-		return nil, nil, fmt.Errorf("initialize SMTP: %w", err)
+		return nil, nil, smtpIOError(ctx, "initialize SMTP", err)
 	}
 	return client, stopCancel, nil
+}
+
+func smtpIOError(ctx context.Context, operation string, err error) error {
+	if contextErr := ctx.Err(); contextErr != nil {
+		err = contextErr
+	}
+	return fmt.Errorf("%s: %w", operation, err)
 }
 
 func envelopeAddress(value string) (string, error) {

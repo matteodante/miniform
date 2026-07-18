@@ -27,7 +27,8 @@ description: Write and run Miniform Go and Playwright tests using repository con
 - Target semantic roles, labels, stable form actions, or stable attributes rather than layout-specific selectors.
 - Assert the final URL and visible outcome; do not allow an error branch to count as success.
 - Use unique slugs or names for records created through the UI.
+- Keep Playwright sequential and let its global setup own a unique temporary data directory. Never remove a caller-supplied `MINIFORM_E2E_DATA_DIR`.
 
 ## Verification Commands
 
-Use repository Make targets when available. Otherwise run focused `go test` commands before `go test ./...`, and run the relevant Playwright spec before the full E2E suite.
+Use repository Make targets when available. Otherwise run focused `go test` commands before `go test ./...`, and run the relevant Playwright spec before the full E2E suite. Run `make test-race` for goroutine, cancellation, database-manager, lease, or shutdown changes.

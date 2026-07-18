@@ -31,23 +31,20 @@ test.describe("endpoint management", () => {
     await expect(page.locator("body")).toContainText(slug);
   });
 
-  test("shows the token and toggles the optional SDK", async ({ page, admin }) => {
-    const endpoint = await admin.createForm("SDK sample", uniqueName("sdk"));
+  test("shows the token and previews native form HTML", async ({ page, admin }) => {
+    const endpoint = await admin.createForm("Native sample", uniqueName("native"));
     await admin.open("/admin/forms");
     await Promise.all([
       page.waitForURL(`/admin/forms/${endpoint.id}`),
-      page.getByRole("link", { name: "SDK sample", exact: true }).click(),
+      page.getByRole("link", { name: "Native sample", exact: true }).click(),
     ]);
     await expect(page.locator("code").first()).toContainText(endpoint.token);
     await expect(page.locator("#form-preview")).toHaveAttribute("title", "Starter HTML preview");
 
     const source = page.locator("#form-code");
-    await expect(source).not.toContainText("miniform.js");
-    await page.locator("#include-sdk").check();
-    await expect(source).toContainText("Miniform SDK");
-    await expect(source).toContainText("miniform.js");
-    await page.locator("#include-sdk").uncheck();
-    await expect(source).not.toContainText("miniform.js");
+    await expect(source).toContainText(endpoint.token);
+    await expect(source).toContainText(`/forms/${endpoint.slug}/submit`);
+    await expect(source).toHaveAttribute("data-form-code-ready", "true");
 
     const sourceTab = page.getByRole("tab", { name: "Source" });
     const previewTab = page.getByRole("tab", { name: "Preview" });
@@ -127,7 +124,6 @@ test.describe("endpoint management", () => {
 
     await page.getByLabel("Endpoint name").fill("Unsaved endpoint");
     await page.getByLabel("Allowed origins").fill("forms.example.com");
-    await page.getByLabel("Include JavaScript SDK").check();
     await page.getByLabel("Safeguard").selectOption(String(captchaProfileID));
     await page.getByLabel("Webhook").check();
     await page.getByLabel("Destination URL").fill("https://hooks.example.com/submissions");
@@ -141,7 +137,6 @@ test.describe("endpoint management", () => {
     await expect(page.getByRole("alert")).toContainText("Webhook headers");
     await expect(page.getByLabel("Endpoint name")).toHaveValue("Unsaved endpoint");
     await expect(page.getByLabel("Allowed origins")).toHaveValue("forms.example.com");
-    await expect(page.getByLabel("Include JavaScript SDK")).toBeChecked();
     await expect(page.getByLabel("Safeguard")).toHaveValue(String(captchaProfileID));
     await expect(page.getByLabel("Destination URL")).toHaveValue("https://hooks.example.com/submissions");
     await expect(page.getByLabel("HMAC secret")).toHaveValue("");

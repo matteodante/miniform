@@ -38,13 +38,11 @@ func TestManagement(t *testing.T) {
 			Name:                "Renamed",
 			Slug:                "renamed-form",
 			AllowedOrigins:      "*.example.com",
-			UseSDK:              true,
 			GeneratedHTML:       "<form><button>Send</button></form>",
 			UpdateGeneratedHTML: true,
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "renamed-form", updated.Slug)
-		assert.True(t, updated.UseSDK)
 		assert.Contains(t, updated.GeneratedHTML, "<form>")
 
 		rotated, err := forms.RotateToken(logger, db, form.ID)

@@ -14,4 +14,6 @@ The example also demonstrates:
 
 The redirect controls and honeypot are consumed by Miniform and are not stored in the entry payload. Relative redirect paths must exist on the website serving the form; absolute redirects must match the endpoint’s allowed origins.
 
-Open `simple-form.html` through a local web server instead of `file://`, then allow that server’s host in the endpoint settings. JavaScript is optional: native forms use redirects, while the Miniform SDK or a custom `fetch` integration can handle the JSON response in place.
+Open `simple-form.html` through a local web server instead of `file://`, then allow that server’s host in the endpoint settings. A legitimate submission needs at least one regular field or uploaded file.
+
+JavaScript is optional: native forms use redirects, while a custom `fetch` integration can handle the JSON response in place. See [Submitting forms to Miniform](../docs/submitting-forms.md) for native HTML, `fetch`, JSON, file upload, and `curl` examples.

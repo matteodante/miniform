@@ -17,10 +17,12 @@ description: Add and review Miniform HTTP routes and Cartridge/Fiber handlers. U
 ## Rules
 
 - Apply session and password-change middleware to protected admin routes.
-- Restrict public form routes with the established CORS, security, rate-limit, and write-concurrency policy.
+- Restrict public form routes to `POST`/`OPTIONS`, the `Content-Type` CORS header, and the established token, origin, captcha, input, file, and rate-limit policy.
+- Key production rate limits from the direct peer unless `cfg.IsMatchaManaged()`; only that managed mode trusts the last proxy-appended address.
 - Parse and validate path, query, and form input before calling domain logic.
 - Use stable status codes, redirects, JSON shapes, and `ContentView` rendering conventions.
-- Enable write concurrency controls on routes that mutate SQLite.
+- Use `ctx.UserContext()` for cancellable database and network work.
+- Keep SQLite mutation safety in the owning domain through `dbtxn.WithRetry`; do not add route-local write semaphores.
 - Keep compatibility paths unless the user explicitly approves a breaking API change.
 
 ## Verification

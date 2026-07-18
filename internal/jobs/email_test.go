@@ -139,6 +139,16 @@ func TestEmailDelivery(t *testing.T) {
 			t.Fatal("SMTP session did not stop after cancellation")
 		}
 	})
+
+	t.Run("reports cancellation instead of connection teardown", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := smtpIOError(ctx, "read SMTP greeting", net.ErrClosed)
+
+		assert.ErrorIs(t, err, context.Canceled)
+		assert.NotErrorIs(t, err, net.ErrClosed)
+	})
 }
 
 func fakeSMTP(t *testing.T) (string, int, <-chan smtpServerResult) {

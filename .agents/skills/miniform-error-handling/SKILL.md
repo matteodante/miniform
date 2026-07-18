@@ -21,6 +21,8 @@ description: Design consistent Miniform domain and HTTP error flows. Use when ad
 - Log unexpected failures once with request or entity context; avoid duplicate logging at every layer.
 - Never log passwords, tokens, secrets, raw authorization headers, or sensitive submission payloads.
 - Return stable public messages; do not expose internal database or stack details to clients.
+- Re-render actionable admin validation and reference conflicts with the submitted values instead of returning plaintext.
+- Keep browser recovery deterministic: render the shared `4xx` page or redirect to a working admin route, and expose unexpected details only in development.
 
 ## Verification
 

@@ -17,7 +17,6 @@ type formView struct {
 	Token            string               `json:"token"`
 	Endpoint         string               `json:"endpoint"`
 	AllowedOrigins   string               `json:"allowed_origins"`
-	UseSDK           bool                 `json:"use_sdk"`
 	HasGeneratedHTML bool                 `json:"has_generated_html"`
 	GeneratedHTML    string               `json:"generated_html,omitempty"`
 	CaptchaProfileID *uint                `json:"captcha_profile_id,omitempty"`
@@ -51,12 +50,11 @@ type formTemplateView struct {
 }
 
 type formCodeView struct {
-	FormID      uint   `json:"form_id"`
-	Action      string `json:"action"`
-	HTML        string `json:"html"`
-	IncludesSDK bool   `json:"includes_sdk"`
-	Redacted    bool   `json:"redacted"`
-	Warning     string `json:"warning,omitempty"`
+	FormID   uint   `json:"form_id"`
+	Action   string `json:"action"`
+	HTML     string `json:"html"`
+	Redacted bool   `json:"redacted"`
+	Warning  string `json:"warning,omitempty"`
 }
 
 func (r *Runner) runForm(args []string) (any, error) {
@@ -92,7 +90,6 @@ func (r *Runner) formCode(args []string) (any, error) {
 	set := newFlagSet("form.code")
 	id := set.Uint("id", 0, "form id")
 	slug := set.String("slug", "", "form slug")
-	includeSDK := set.Bool("include-sdk", false, "include the optional JavaScript SDK")
 	baseURL := set.String("base-url", "", "public Miniform base URL")
 	if err := r.parseFlags(set, "form.code", args); err != nil {
 		return nil, err
@@ -117,22 +114,16 @@ func (r *Runner) formCode(args []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	useSDK := form.UseSDK
-	if flagWasSet(set, "include-sdk") {
-		useSDK = *includeSDK
-	}
 	result := formembed.Build(form, formembed.Options{
-		ShowToken:  r.ShowSecrets,
-		IncludeSDK: useSDK,
-		BaseURL:    publicBaseURL,
+		ShowToken: r.ShowSecrets,
+		BaseURL:   publicBaseURL,
 	})
 	return formCodeView{
-		FormID:      form.ID,
-		Action:      result.Action,
-		HTML:        result.HTML,
-		IncludesSDK: result.IncludesSDK,
-		Redacted:    result.Redacted,
-		Warning:     result.Warning,
+		FormID:   form.ID,
+		Action:   result.Action,
+		HTML:     result.HTML,
+		Redacted: result.Redacted,
+		Warning:  result.Warning,
 	}, nil
 }
 
@@ -163,11 +154,7 @@ func (r *Runner) formList(args []string) (any, error) {
 	}
 	views := make([]formView, 0, len(items))
 	for i := range items {
-		form, err := forms.GetByID(r.DB, items[i].ID)
-		if err != nil {
-			return nil, err
-		}
-		views = append(views, newFormView(form, r.ShowSecrets))
+		views = append(views, newFormView(&items[i], r.ShowSecrets))
 	}
 	return views, nil
 }
@@ -205,7 +192,6 @@ func (r *Runner) formCreate(args []string) (any, error) {
 	name := set.String("name", "", "form name")
 	slug := set.String("slug", "", "unique form slug")
 	origins := set.String("allowed-origins", "", "comma-separated origins or *")
-	useSDK := set.Bool("use-sdk", false, "include the JavaScript SDK")
 	generatedHTMLFile := set.String("generated-html-file", "", "path containing generated form HTML")
 	mailerID := set.Uint("mailer-profile-id", 0, "mailer profile id")
 	captchaID := set.Uint("captcha-profile-id", 0, "captcha profile id")
@@ -260,7 +246,6 @@ func (r *Runner) formCreate(args []string) (any, error) {
 		Name:               *name,
 		Slug:               *slug,
 		AllowedOrigins:     *origins,
-		UseSDK:             *useSDK,
 		GeneratedHTML:      generatedHTML,
 		TemplateID:         strings.TrimSpace(*templateID),
 		MailerProfileID:    optionalUint(*mailerID),
@@ -285,7 +270,6 @@ func (r *Runner) formUpdate(args []string) (any, error) {
 	name := set.String("name", "", "form name")
 	slug := set.String("slug", "", "unique form slug")
 	origins := set.String("allowed-origins", "", "comma-separated origins or *")
-	useSDK := set.Bool("use-sdk", false, "include the JavaScript SDK")
 	generatedHTMLFile := set.String("generated-html-file", "", "path containing generated form HTML")
 	clearGeneratedHTML := set.Bool("clear-generated-html", false, "clear generated form HTML")
 	mailerID := set.Uint("mailer-profile-id", 0, "mailer profile id")
@@ -350,9 +334,6 @@ func (r *Runner) formUpdate(args []string) (any, error) {
 	}
 	if flagWasSet(set, "allowed-origins") {
 		params.AllowedOrigins = *origins
-	}
-	if flagWasSet(set, "use-sdk") {
-		params.UseSDK = *useSDK
 	}
 	if *clearGeneratedHTML {
 		params.GeneratedHTML = ""
@@ -491,7 +472,6 @@ func updateParamsFromForm(form *forms.Form) forms.UpdateParams {
 		Name:             form.Name,
 		Slug:             form.Slug,
 		AllowedOrigins:   form.AllowedOrigins,
-		UseSDK:           form.UseSDK,
 		GeneratedHTML:    form.GeneratedHTML,
 		CaptchaProfileID: form.CaptchaProfileID,
 	}
@@ -518,7 +498,6 @@ func newFormView(form *forms.Form, showSecrets bool) formView {
 		Token:            redact(form.Token, showSecrets),
 		Endpoint:         "/forms/" + form.Slug + "/submit",
 		AllowedOrigins:   form.AllowedOrigins,
-		UseSDK:           form.UseSDK,
 		HasGeneratedHTML: strings.TrimSpace(form.GeneratedHTML) != "",
 		CaptchaProfileID: form.CaptchaProfileID,
 		CreatedAt:        form.CreatedAt,

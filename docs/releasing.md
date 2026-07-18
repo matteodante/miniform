@@ -23,14 +23,14 @@ Release tags use stable `vMAJOR.MINOR.PATCH` versions only. Prerelease and build
    git push origin v0.1.0
    ```
 
-4. The release workflow validates the tag, reruns checks, builds CGO-enabled Linux artifacts and multi-architecture OCI images, generates checksums and SBOMs, and publishes the GitHub release and GHCR image.
+4. The release workflow verifies that the tagged commit belongs to `main`, reruns checks, builds CGO-enabled Linux artifacts and multi-architecture OCI images, generates checksums and SBOMs, and publishes the GitHub release and GHCR image.
 5. Verify release checksums, provenance, image digest, first boot, database persistence, and upgrade behavior.
 
 Do not move or reuse a published tag. If a release is defective, publish a new patch version.
 
 ## Release artifacts
 
-- Linux `amd64` and `arm64` binaries with SQLite support
+- Linux `amd64` and `arm64` raw binaries and archives with SQLite support
 - SHA-256 checksums
 - SPDX JSON SBOMs
 - MIT license and third-party notices
@@ -48,3 +48,5 @@ gh attestation verify miniform-linux-arm64 --repo matteodante/miniform
 ```
 
 Compare the file hash with `checksums.txt` before installation.
+
+Before `1.0`, image tags include the exact version and `vMAJOR.MINOR`; the moving `vMAJOR` tag is intentionally omitted for `v0` releases because minor versions may contain documented breaking changes. `latest` is published only by the stable-tag workflow.

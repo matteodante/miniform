@@ -33,12 +33,14 @@ make run
 make dev
 make build
 make test-unit
+make test-race
 make test-e2e
 make check
+make audit
 make clean
 ```
 
-Run `make check` before opening a pull request. It verifies formatting, modules, generated assets, static analysis, and Go tests. User-facing flows also require `make test-e2e`.
+Run `make check` before opening a pull request. It verifies formatting, modules, generated assets, static analysis, shell scripts, workflows, dead code, and Go tests. User-facing flows also require `make test-e2e`; concurrency or lifecycle changes require `make test-race`; dependency, release, or security changes require `make audit`.
 
 ## Test conventions
 
@@ -47,6 +49,7 @@ Run `make check` before opening a pull request. It verifies formatting, modules,
 - Reuse `internal/pkg/testsupport` and in-memory SQLite.
 - Use semantic Playwright locators and assert the final visible outcome.
 - Keep E2E tests sequential unless their shared setup is redesigned.
+- Let Playwright create and own its temporary data directory. Set `MINIFORM_E2E_DATA_DIR` only when the directory must survive teardown.
 
 ## Frontend assets
 
@@ -60,7 +63,7 @@ Commit the generated `web/static/app.built.css` so normal Go and container build
 
 ## Architecture
 
-Read [architecture.md](architecture.md) before moving code across packages. Every SQLite mutation uses the retry transaction pattern. Keep handlers thin and domain ownership explicit.
+Read [architecture.md](architecture.md) before moving code across packages. Every SQLite mutation uses the retry transaction pattern. Keep handlers thin and domain ownership explicit. Preserve application shutdown order, delivery leases, upload staging/quarantine, and compensating deployment rollback when changing lifecycle code.
 
 ## Repository skills
 

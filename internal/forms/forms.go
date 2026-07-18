@@ -20,7 +20,6 @@ type CreateParams struct {
 	Name               string
 	Slug               string
 	AllowedOrigins     string
-	UseSDK             bool
 	GeneratedHTML      string
 	TemplateID         string
 	MailerProfileID    *uint
@@ -38,7 +37,6 @@ type UpdateParams struct {
 	Name                string
 	Slug                string
 	AllowedOrigins      string
-	UseSDK              bool
 	GeneratedHTML       string
 	MailerProfileID     *uint
 	CaptchaProfileID    *uint
@@ -114,7 +112,6 @@ func Create(logger *slog.Logger, db *gorm.DB, params CreateParams) (*Form, error
 		Name:             name,
 		Slug:             normalizedSlug,
 		AllowedOrigins:   origins,
-		UseSDK:           params.UseSDK,
 		GeneratedHTML:    generatedHTML,
 		Token:            token,
 		CaptchaProfileID: params.CaptchaProfileID,
@@ -190,7 +187,7 @@ func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error
 		}
 		if err := tx.Model(&Form{}).Where("id = ?", params.ID).Updates(map[string]any{
 			"name": name, "slug": slug, "allowed_origins": origins,
-			"use_sdk": params.UseSDK, "generated_html": generatedHTML,
+			"generated_html":     generatedHTML,
 			"captcha_profile_id": params.CaptchaProfileID,
 		}).Error; err != nil {
 			return err

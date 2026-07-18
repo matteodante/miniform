@@ -55,7 +55,7 @@ Handle exit codes explicitly:
 | `5` | Conflict/reference | Inspect dependencies; do not force deletion |
 | `10` | Storage/internal failure | Stop mutations and report the failure |
 
-Check `supports_json` in the command catalog. Deployment commands such as `install`, `update`, and `reload` use human-oriented output.
+Check `supports_json` in the command catalog. Deployment commands such as `install`, `update`, `reload`, `backup`, and `restore-db` use human-oriented output.
 
 ## Safety Rules
 
@@ -67,6 +67,8 @@ Check `supports_json` in the command catalog. Deployment commands such as `insta
 - Use the matching `--clear-*` flag to remove a stored optional value. Do not substitute empty strings unless the command contract says to.
 - Never modify SQLite directly to bypass validation, reference checks, retry transactions, or file cleanup.
 - Do not retry an identical failed mutation automatically unless the failure is clearly transient and the operation is idempotent.
+- Treat managed `backup` as a database snapshot only. A point-in-time disaster-recovery copy also needs the upload tree from a stopped deployment.
+- Require at least one stored field or file when creating a submission.
 
 ## Resource Routing
 

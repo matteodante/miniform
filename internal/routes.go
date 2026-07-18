@@ -61,7 +61,9 @@ func mountPublicSubmission(server *cartridge.Server, cfg *config.Config) {
 			Storage:      newRateLimitStorage(),
 			KeyGenerator: func(ctx *fiber.Ctx) string { return miniformserver.ClientIP(ctx, cfg.IsMatchaManaged()) },
 			LimitReached: func(ctx *fiber.Ctx) error {
-				return ctx.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "rate limit exceeded"})
+				return ctx.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+					"ok": false, "error": "rate limit exceeded",
+				})
 			},
 			Next: func(*fiber.Ctx) bool { return cfg.IsDevelopment() || cfg.IsTest() },
 		})},

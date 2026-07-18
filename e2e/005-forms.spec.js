@@ -105,15 +105,20 @@ test.describe("endpoint management", () => {
     await page.getByLabel("Destination URL").fill("https://example.com/webhook");
     await page.getByLabel("Email forwarding").check();
     await page.getByLabel("Email route").selectOption(String(mailerProfileID));
-    await page.getByLabel("Recipient").fill("bugs@example.com");
+    await page.getByLabel("Recipients").fill("bugs@example.com\narchive@example.com");
+    await page.getByLabel("Message format").selectOption("html");
     await Promise.all([
       page.waitForURL(`/admin/forms/${endpoint.id}`),
       page.getByRole("button", { name: "Save changes" }).click(),
     ]);
     await expect(page.locator("body")).toContainText("https://example.com/webhook");
     await expect(page.locator("body")).toContainText("bugs@example.com");
+    await expect(page.locator("body")).toContainText("archive@example.com");
+    await expect(page.locator("body")).toContainText("HTML + text");
     expect(await admin.row("SELECT captcha_profile_id FROM forms WHERE id = ?", [endpoint.id]))
       .toMatchObject({ captcha_profile_id: captchaProfileID });
+    expect(await admin.row("SELECT recipient, format FROM email_deliveries WHERE form_id = ?", [endpoint.id]))
+      .toMatchObject({ recipient: "bugs@example.com, archive@example.com", format: "html" });
   });
 
   test("preserves non-secret values after a validation error", async ({ page, admin }) => {
@@ -131,7 +136,8 @@ test.describe("endpoint management", () => {
     await page.getByLabel(/Custom headers/).fill("{");
     await page.getByLabel("Email forwarding").check();
     await page.getByLabel("Email route").selectOption(String(mailerProfileID));
-    await page.getByLabel("Recipient").fill("draft@example.com");
+    await page.getByLabel("Recipients").fill("draft@example.com\narchive@example.com");
+    await page.getByLabel("Message format").selectOption("html");
     await page.getByRole("button", { name: "Save changes" }).click();
 
     await expect(page.getByRole("alert")).toContainText("Webhook headers");
@@ -143,7 +149,8 @@ test.describe("endpoint management", () => {
     await expect(page.getByLabel(/Custom headers/)).toHaveValue("");
     await expect(page.locator("body")).not.toContainText("draft-secret");
     await expect(page.getByLabel("Email route")).toHaveValue(String(mailerProfileID));
-    await expect(page.getByLabel("Recipient")).toHaveValue("draft@example.com");
+    await expect(page.getByLabel("Recipients")).toHaveValue("draft@example.com\narchive@example.com");
+    await expect(page.getByLabel("Message format")).toHaveValue("html");
   });
 
   test("binds the HTMX lifecycle listener only once", async ({ page, admin }) => {

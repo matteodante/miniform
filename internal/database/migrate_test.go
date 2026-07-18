@@ -229,6 +229,7 @@ func TestMigrate(t *testing.T) {
 		require.NoError(t, db.First(&delivery, 1).Error)
 		require.True(t, delivery.Enabled)
 		require.Equal(t, "owner@example.com", delivery.Recipient)
+		require.Equal(t, forms.EmailFormatText, delivery.Format)
 		var overridesJSON string
 		require.NoError(t, db.Raw("SELECT overrides_json FROM email_deliveries WHERE id = 1").Row().Scan(&overridesJSON))
 		require.JSONEq(t, `{"to":"owner@example.com"}`, overridesJSON)
@@ -523,6 +524,7 @@ func TestMigrate(t *testing.T) {
 
 		t.Run("omits removed generic fields and tables", func(t *testing.T) {
 			require.True(t, db.Migrator().HasColumn(&forms.EmailDelivery{}, "recipient"))
+			require.True(t, db.Migrator().HasColumn(&forms.EmailDelivery{}, "format"))
 			require.False(t, db.Migrator().HasColumn(&forms.Form{}, "use_sdk"))
 			require.False(t, db.Migrator().HasColumn(&forms.EmailDelivery{}, "overrides_json"))
 			require.False(t, db.Migrator().HasColumn(&forms.Form{}, "captcha_overrides_json"))

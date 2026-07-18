@@ -30,6 +30,7 @@ type emailDeliveryView struct {
 	Enabled         bool   `json:"enabled"`
 	MailerProfileID *uint  `json:"mailer_profile_id,omitempty"`
 	Recipient       string `json:"recipient,omitempty"`
+	Format          string `json:"format"`
 }
 
 type webhookDeliveryView struct {
@@ -196,7 +197,8 @@ func (r *Runner) formCreate(args []string) (any, error) {
 	mailerID := set.Uint("mailer-profile-id", 0, "mailer profile id")
 	captchaID := set.Uint("captcha-profile-id", 0, "captcha profile id")
 	emailEnabled := set.Bool("email-enabled", false, "enable email forwarding")
-	emailRecipient := set.String("email-recipient", "", "email forwarding recipient")
+	emailRecipient := set.String("email-recipient", "", "comma-separated email forwarding recipients")
+	emailFormat := set.String("email-format", forms.EmailFormatText, "email body format: text or html")
 	webhookEnabled := set.Bool("webhook-enabled", false, "enable webhook forwarding")
 	webhookURL := set.String("webhook-url", "", "webhook URL")
 	webhookSecretFile := set.String("webhook-secret-file", "", "path containing webhook signing secret, or - for stdin")
@@ -251,6 +253,7 @@ func (r *Runner) formCreate(args []string) (any, error) {
 		MailerProfileID:    optionalUint(*mailerID),
 		CaptchaProfileID:   optionalUint(*captchaID),
 		EmailRecipient:     *emailRecipient,
+		EmailFormat:        *emailFormat,
 		EmailEnabled:       *emailEnabled,
 		WebhookEnabled:     *webhookEnabled,
 		WebhookURL:         *webhookURL,
@@ -277,7 +280,8 @@ func (r *Runner) formUpdate(args []string) (any, error) {
 	captchaID := set.Uint("captcha-profile-id", 0, "captcha profile id")
 	clearCaptcha := set.Bool("clear-captcha-profile", false, "remove captcha profile assignment")
 	emailEnabled := set.Bool("email-enabled", false, "enable email forwarding")
-	emailRecipient := set.String("email-recipient", "", "email forwarding recipient")
+	emailRecipient := set.String("email-recipient", "", "comma-separated email forwarding recipients")
+	emailFormat := set.String("email-format", "", "email body format: text or html")
 	webhookEnabled := set.Bool("webhook-enabled", false, "enable webhook forwarding")
 	webhookURL := set.String("webhook-url", "", "webhook URL")
 	webhookSecretFile := set.String("webhook-secret-file", "", "path containing webhook signing secret, or - for stdin")
@@ -360,6 +364,9 @@ func (r *Runner) formUpdate(args []string) (any, error) {
 	}
 	if flagWasSet(set, "email-recipient") {
 		params.EmailRecipient = *emailRecipient
+	}
+	if flagWasSet(set, "email-format") {
+		params.EmailFormat = *emailFormat
 	}
 	if flagWasSet(set, "webhook-enabled") {
 		params.WebhookEnabled = *webhookEnabled
@@ -479,6 +486,7 @@ func updateParamsFromForm(form *forms.Form) forms.UpdateParams {
 		params.EmailEnabled = form.EmailDelivery.Enabled
 		params.MailerProfileID = form.EmailDelivery.MailerProfileID
 		params.EmailRecipient = form.EmailDelivery.Recipient
+		params.EmailFormat = form.EmailDelivery.Format
 	}
 	if form.WebhookDelivery != nil {
 		params.WebhookEnabled = form.WebhookDelivery.Enabled
@@ -511,6 +519,7 @@ func newFormView(form *forms.Form, showSecrets bool) formView {
 			Enabled:         form.EmailDelivery.Enabled,
 			MailerProfileID: form.EmailDelivery.MailerProfileID,
 			Recipient:       form.EmailDelivery.Recipient,
+			Format:          normalizedEmailFormat(form.EmailDelivery.Format),
 		}
 	}
 	if form.WebhookDelivery != nil {
@@ -522,6 +531,14 @@ func newFormView(form *forms.Form, showSecrets bool) formView {
 		}
 	}
 	return view
+}
+
+func normalizedEmailFormat(value string) string {
+	format, err := forms.NormalizeEmailFormat(value)
+	if err != nil {
+		return forms.EmailFormatText
+	}
+	return format
 }
 
 func newFormTemplateView(template *forms.FormTemplate, action string, includeHTML bool) formTemplateView {

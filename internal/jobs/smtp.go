@@ -1,15 +1,23 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
+	"mime"
+	"mime/multipart"
+	"mime/quotedprintable"
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/matteodante/miniform/internal/forms"
 )
 
 const smtpTimeout = 15 * time.Second
@@ -21,7 +29,16 @@ type smtpConfig struct {
 	Password   string
 	Encryption string
 	From       string
-	To         string
+	Recipients []string
+}
+
+type outboundEmail struct {
+	From     string
+	To       []string
+	Subject  string
+	Format   string
+	TextBody string
+	HTMLBody string
 }
 
 func sendSMTP(ctx context.Context, config *smtpConfig, message []byte) error {
@@ -47,15 +64,23 @@ func sendSMTP(ctx context.Context, config *smtpConfig, message []byte) error {
 	if err != nil {
 		return fmt.Errorf("invalid sender: %w", err)
 	}
-	to, err := envelopeAddress(config.To)
-	if err != nil {
-		return fmt.Errorf("invalid recipient: %w", err)
+	if len(config.Recipients) == 0 {
+		return fmt.Errorf("recipient missing")
+	}
+	recipients := make([]string, len(config.Recipients))
+	for i := range config.Recipients {
+		recipients[i], err = envelopeAddress(config.Recipients[i])
+		if err != nil {
+			return fmt.Errorf("invalid recipient: %w", err)
+		}
 	}
 	if err := client.Mail(from); err != nil {
 		return smtpIOError(ctx, "set SMTP sender", err)
 	}
-	if err := client.Rcpt(to); err != nil {
-		return smtpIOError(ctx, "set SMTP recipient", err)
+	for _, recipient := range recipients {
+		if err := client.Rcpt(recipient); err != nil {
+			return smtpIOError(ctx, "set SMTP recipient", err)
+		}
 	}
 
 	data, err := client.Data()
@@ -129,21 +154,83 @@ func envelopeAddress(value string) (string, error) {
 	return address.Address, nil
 }
 
-func buildSMTPMessage(from, to, subject, body string) []byte {
-	var message strings.Builder
-	fmt.Fprintf(&message, "From: %s\r\n", safeHeader(from))
-	fmt.Fprintf(&message, "To: %s\r\n", safeHeader(to))
-	fmt.Fprintf(&message, "Subject: %s\r\n", safeHeader(subject))
+func buildSMTPMessage(email outboundEmail) ([]byte, error) {
+	format, err := forms.NormalizeEmailFormat(email.Format)
+	if err != nil {
+		return nil, err
+	}
+
+	var body bytes.Buffer
+	contentType := "text/plain; charset=utf-8"
+	transferEncoding := "quoted-printable"
+	if format == forms.EmailFormatHTML {
+		writer := multipart.NewWriter(&body)
+		contentType = mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": writer.Boundary()})
+		transferEncoding = ""
+		if err := writeEmailPart(writer, "text/plain; charset=utf-8", email.TextBody); err != nil {
+			return nil, err
+		}
+		if err := writeEmailPart(writer, "text/html; charset=utf-8", email.HTMLBody); err != nil {
+			return nil, err
+		}
+		if err := writer.Close(); err != nil {
+			return nil, fmt.Errorf("finish multipart email: %w", err)
+		}
+	} else if err := writeQuotedPrintable(&body, email.TextBody); err != nil {
+		return nil, err
+	}
+
+	var message bytes.Buffer
+	fmt.Fprintf(&message, "From: %s\r\n", safeHeader(email.From))
+	fmt.Fprintf(&message, "To: %s\r\n", recipientHeader(email.To))
+	fmt.Fprintf(&message, "Subject: %s\r\n", mime.QEncoding.Encode("UTF-8", safeHeader(email.Subject)))
 	fmt.Fprintf(&message, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
 	message.WriteString("MIME-Version: 1.0\r\n")
-	message.WriteString("Content-Type: text/plain; charset=utf-8\r\n\r\n")
-	message.WriteString(crlf(body))
+	fmt.Fprintf(&message, "Content-Type: %s\r\n", contentType)
+	if transferEncoding != "" {
+		fmt.Fprintf(&message, "Content-Transfer-Encoding: %s\r\n", transferEncoding)
+	}
 	message.WriteString("\r\n")
-	return []byte(message.String())
+	message.Write(body.Bytes())
+	if !bytes.HasSuffix(body.Bytes(), []byte("\r\n")) {
+		message.WriteString("\r\n")
+	}
+	return message.Bytes(), nil
+}
+
+func writeEmailPart(writer *multipart.Writer, contentType, body string) error {
+	part, err := writer.CreatePart(textproto.MIMEHeader{
+		"Content-Type":              {contentType},
+		"Content-Transfer-Encoding": {"quoted-printable"},
+	})
+	if err != nil {
+		return fmt.Errorf("create email part: %w", err)
+	}
+	return writeQuotedPrintable(part, body)
+}
+
+func writeQuotedPrintable(writer io.Writer, body string) error {
+	encoded := quotedprintable.NewWriter(writer)
+	if _, err := encoded.Write([]byte(crlf(body))); err != nil {
+		_ = encoded.Close()
+		return fmt.Errorf("encode email body: %w", err)
+	}
+	if err := encoded.Close(); err != nil {
+		return fmt.Errorf("finish email body: %w", err)
+	}
+	return nil
 }
 
 func safeHeader(value string) string {
 	return strings.Join(strings.Fields(strings.ReplaceAll(value, "\x00", "")), " ")
+}
+
+func recipientHeader(recipients []string) string {
+	safe := make([]string, len(recipients))
+	for i := range recipients {
+		safe[i] = safeHeader(recipients[i])
+	}
+	return strings.Join(safe, ",\r\n\t")
 }
 
 func crlf(value string) string {

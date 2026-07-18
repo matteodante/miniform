@@ -18,6 +18,7 @@ Miniform accepts submissions and file uploads from any HTML form, stores them in
 - Honeypot, rate limiting, origin checks, and per-endpoint Turnstile
 - Crash-recoverable uploads, durable delivery queues, and SQLite persistence in a single process
 - Native HTML forms and direct HTTP requests with no client library
+- Per-form SMTP notifications in plain text or safe HTML, with multiple recipients
 
 ## Quick start from source
 

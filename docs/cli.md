@@ -167,7 +167,18 @@ miniform form delete --id 1 --yes
 
 `form code` produces final copyable native HTML, including captcha markup when configured. Set `--base-url` to emit an absolute Miniform action URL. By default the action uses `YOUR_FORM_TOKEN`; pass `--show-secrets` only when deployable HTML with the live token is required. See [Submitting forms to Miniform](submitting-forms.md) for HTML, `fetch`, JSON, and `curl` examples.
 
-Email forwarding requires `--email-enabled`, `--mailer-profile-id`, and `--email-recipient`. Webhook forwarding requires `--webhook-enabled` and `--webhook-url`.
+Email forwarding requires `--email-enabled`, `--mailer-profile-id`, and `--email-recipient`. The recipient flag accepts an RFC 5322 comma-separated list; use `--email-format text` for plain text or `--email-format html` for HTML with an automatic text fallback:
+
+```bash
+miniform form update \
+  --id 1 \
+  --email-enabled=true \
+  --mailer-profile-id 1 \
+  --email-recipient 'owner@example.com, archive@example.com' \
+  --email-format html
+```
+
+Omitted update flags preserve the current recipients and format. Duplicate addresses are removed case-insensitively. Webhook forwarding requires `--webhook-enabled` and `--webhook-url`.
 
 Complex form values come from files:
 

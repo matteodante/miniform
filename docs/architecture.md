@@ -49,7 +49,7 @@ Miniform stores and exchanges instants canonically in UTC. SQLite compares the c
 
 Webhook and email dispatchers run in process under the application context. Database rows are the durable queue and delivery history. `next_attempt_at` is both the queue eligibility field and, while delivering, an expiring lease. A worker claims one row transactionally, performs network I/O outside the transaction, and updates only the lease it still owns. Expired work is reclaimable; terminal events set `next_attempt_at` to `NULL`.
 
-Webhook requests carry a stable idempotency key. SMTP and webhook calls honor cancellation, use bounded attempts, compact stored errors, and never keep a database transaction open during network I/O. A manual retry resets the durable event; delivery still requires a running server process.
+Webhook requests carry a stable idempotency key. SMTP and webhook calls honor cancellation, use bounded attempts, compact stored errors, and never keep a database transaction open during network I/O. Email delivery validates every envelope recipient before issuing `MAIL FROM`, sends one `RCPT TO` per configured recipient, and renders either quoted-printable text or escaped `multipart/alternative` HTML with a text fallback. A manual retry resets the durable event; delivery still requires a running server process.
 
 ## Upload lifecycle
 

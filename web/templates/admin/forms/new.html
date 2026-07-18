@@ -120,8 +120,15 @@
                             {{ range .MailerProfiles }}<option value="{{ .ID }}" {{ if eq $.SelectedMailerProfileID .ID }}selected{{ end }}>{{ .Name }}</option>{{ end }}
                         </select>
                     </label>
-                    <label class="grid gap-2 text-sm font-medium text-ink" for="email_recipient">Recipient
-                        <input class="mf-input w-full" id="email_recipient" name="email_recipient" type="email" value="{{ .EmailRecipient }}" placeholder="team@example.com">
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="email_recipient">Recipients
+                        <textarea class="mf-input w-full font-mono text-sm" id="email_recipient" name="email_recipient" rows="3" placeholder="team@example.com&#10;archive@example.com">{{ .EmailRecipient }}</textarea>
+                        <span class="text-xs font-normal text-ink-muted">Separate addresses with commas or new lines. Duplicate addresses are removed.</span>
+                    </label>
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="email_format">Message format
+                        <select class="mf-input w-full" id="email_format" name="email_format">
+                            <option value="text" {{ if eq .EmailFormat "text" }}selected{{ end }}>Plain text</option>
+                            <option value="html" {{ if eq .EmailFormat "html" }}selected{{ end }}>HTML with text fallback</option>
+                        </select>
                     </label>
                     <a class="text-xs font-semibold text-moss" href="/admin/settings/mailers">Manage email routes →</a>
                 </div>

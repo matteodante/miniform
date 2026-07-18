@@ -49,6 +49,17 @@ Edit `.env` before a production start, set `MINIFORM_ENV=production`, and provid
 
 The SQLite driver requires CGO. Do not build release binaries with `CGO_ENABLED=0`.
 
+## Railway
+
+The repository includes `railway.json`, which builds the production `Dockerfile`, checks `/_health`, and runs one replica. Attach a persistent volume at `/app/storage`, generate a public domain, and set at least:
+
+```text
+MINIFORM_ENV=production
+MINIFORM_SESSION_SECRET=<stable-random-secret>
+```
+
+The container already defaults to port `8080` and stores both the SQLite database and uploads below `/app/storage`. Do not deploy without the volume: a replacement would lose submissions and integration configuration. Keep SMTP credentials in Miniform's access-controlled persistent storage, not in the static site that submits the form.
+
 ## Installer
 
 Install and start Docker Engine first using the official instructions for your operating system. Miniform refuses installation when Docker is unavailable; it never pipes a remote Docker installer into a privileged shell.

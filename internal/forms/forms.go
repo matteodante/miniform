@@ -25,6 +25,7 @@ type CreateParams struct {
 	MailerProfileID    *uint
 	CaptchaProfileID   *uint
 	EmailRecipient     string
+	EmailFormat        string
 	EmailEnabled       bool
 	WebhookEnabled     bool
 	WebhookURL         string
@@ -42,6 +43,7 @@ type UpdateParams struct {
 	CaptchaProfileID    *uint
 	UpdateGeneratedHTML bool
 	EmailRecipient      string
+	EmailFormat         string
 	EmailEnabled        bool
 	WebhookEnabled      bool
 	WebhookURL          string
@@ -60,6 +62,7 @@ func (err *ValidationError) Error() string {
 
 type deliveryValues struct {
 	emailRecipient string
+	emailFormat    string
 	webhookURL     string
 	webhookSecret  string
 	webhookHeaders string
@@ -83,7 +86,7 @@ func Create(logger *slog.Logger, db *gorm.DB, params CreateParams) (*Form, error
 		return nil, err
 	}
 
-	delivery, err := prepareDelivery(params.EmailEnabled, params.MailerProfileID, params.EmailRecipient, params.WebhookEnabled, params.WebhookURL, params.WebhookSecret, params.WebhookHeadersJSON)
+	delivery, err := prepareDelivery(params.EmailEnabled, params.MailerProfileID, params.EmailRecipient, params.EmailFormat, params.WebhookEnabled, params.WebhookURL, params.WebhookSecret, params.WebhookHeadersJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +122,7 @@ func Create(logger *slog.Logger, db *gorm.DB, params CreateParams) (*Form, error
 			Enabled:         params.EmailEnabled,
 			MailerProfileID: params.MailerProfileID,
 			Recipient:       delivery.emailRecipient,
+			Format:          delivery.emailFormat,
 		},
 		WebhookDelivery: &WebhookDelivery{
 			Enabled:     params.WebhookEnabled,
@@ -155,7 +159,7 @@ func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error
 	if form.EmailDelivery == nil || form.WebhookDelivery == nil {
 		return nil, fmt.Errorf("form %d has incomplete delivery configuration", params.ID)
 	}
-	delivery, err := prepareDelivery(params.EmailEnabled, params.MailerProfileID, params.EmailRecipient, params.WebhookEnabled, params.WebhookURL, params.WebhookSecret, params.WebhookHeadersJSON)
+	delivery, err := prepareDelivery(params.EmailEnabled, params.MailerProfileID, params.EmailRecipient, params.EmailFormat, params.WebhookEnabled, params.WebhookURL, params.WebhookSecret, params.WebhookHeadersJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +198,7 @@ func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error
 		}
 		if err := tx.Model(&EmailDelivery{}).Where("id = ?", form.EmailDelivery.ID).Updates(map[string]any{
 			"enabled": params.EmailEnabled, "mailer_profile_id": params.MailerProfileID,
-			"recipient": delivery.emailRecipient,
+			"recipient": delivery.emailRecipient, "format": delivery.emailFormat,
 		}).Error; err != nil {
 			return err
 		}
@@ -323,20 +327,31 @@ func recentEvents[T any](db *gorm.DB, formID uint, limit int) ([]T, error) {
 	return events, nil
 }
 
-func prepareDelivery(emailEnabled bool, mailerID *uint, recipient string, webhookEnabled bool, webhookURL, webhookSecret, webhookHeaders string) (deliveryValues, error) {
+func prepareDelivery(emailEnabled bool, mailerID *uint, recipient, emailFormat string, webhookEnabled bool, webhookURL, webhookSecret, webhookHeaders string) (deliveryValues, error) {
 	values := deliveryValues{
 		webhookURL:    strings.TrimSpace(webhookURL),
 		webhookSecret: strings.TrimSpace(webhookSecret),
 	}
-	recipient = strings.TrimSpace(recipient)
-	values.emailRecipient = recipient
-	if emailEnabled && (mailerID == nil || recipient == "") {
-		return values, invalid("email", "Mailer profile and email recipient required when email forwarding is enabled")
+	format, err := NormalizeEmailFormat(emailFormat)
+	if err != nil {
+		return values, invalid("email_format", "Email format must be text or html")
 	}
-	if emailEnabled {
-		if _, err := mail.ParseAddress(recipient); err != nil {
-			return values, invalid("email", "Email recipient must be a valid address")
+	values.emailFormat = format
+
+	recipient = strings.TrimSpace(recipient)
+	if recipient != "" {
+		recipients, err := ParseEmailRecipients(recipient)
+		if err != nil {
+			return values, invalid("email", "Email recipients must be valid addresses")
 		}
+		formatted := make([]string, len(recipients))
+		for i := range recipients {
+			formatted[i] = FormatEmailRecipient(recipients[i])
+		}
+		values.emailRecipient = strings.Join(formatted, ", ")
+	}
+	if emailEnabled && (mailerID == nil || values.emailRecipient == "") {
+		return values, invalid("email", "Mailer profile and email recipient required when email forwarding is enabled")
 	}
 	if webhookEnabled && values.webhookURL == "" {
 		return values, invalid("webhook", "Webhook URL required when webhook delivery is enabled")
@@ -349,9 +364,52 @@ func prepareDelivery(emailEnabled bool, mailerID *uint, recipient string, webhoo
 		}
 	}
 
-	var err error
 	values.webhookHeaders, err = canonicalWebhookHeaders(webhookHeaders)
 	return values, err
+}
+
+func NormalizeEmailFormat(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return EmailFormatText, nil
+	}
+	if value != EmailFormatText && value != EmailFormatHTML {
+		return "", fmt.Errorf("unsupported email format %q", value)
+	}
+	return value, nil
+}
+
+func ParseEmailRecipients(value string) ([]*mail.Address, error) {
+	lines := strings.FieldsFunc(value, func(r rune) bool { return r == '\r' || r == '\n' })
+	if len(lines) == 0 {
+		return nil, fmt.Errorf("email recipients missing")
+	}
+	recipients, err := mail.ParseAddressList(strings.Join(lines, ","))
+	if err != nil {
+		return nil, err
+	}
+	if len(recipients) == 0 {
+		return nil, fmt.Errorf("email recipients missing")
+	}
+
+	unique := recipients[:0]
+	seen := make(map[string]struct{}, len(recipients))
+	for _, recipient := range recipients {
+		key := strings.ToLower(recipient.Address)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, recipient)
+	}
+	return unique, nil
+}
+
+func FormatEmailRecipient(recipient *mail.Address) string {
+	if recipient.Name == "" {
+		return recipient.Address
+	}
+	return recipient.String()
 }
 
 func canonicalWebhookHeaders(value string) (string, error) {

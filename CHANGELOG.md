@@ -19,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Browser acceptance coverage for onboarding, form management, native submissions, settings, error recovery, and logout history
 - A complete submission guide for native HTML, `fetch`, JSON, file uploads, and `curl`
 - An opt-in stress suite for HTTP ingestion, SQLite contention, uploads, webhook leases, graceful restart, and idle/load resource budgets
+- A Railway deployment manifest and persistent-volume installation guidance
+- Per-form plain-text or escaped HTML email notifications with text fallback and multiple SMTP recipients
 
 ### Changed
 

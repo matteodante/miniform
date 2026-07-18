@@ -35,7 +35,8 @@ func TestForms(t *testing.T) {
 
 		created, err := forms.Create(logger, db, forms.CreateParams{
 			Name: "  Contact us  ", Slug: "Contact Form", AllowedOrigins: " example.com ",
-			MailerProfileID: &profile.ID, EmailRecipient: "owner@example.com", EmailEnabled: true,
+			MailerProfileID: &profile.ID, EmailRecipient: "Owner <owner@example.com>\nteam@example.com, OWNER@example.com",
+			EmailFormat: forms.EmailFormatHTML, EmailEnabled: true,
 			WebhookEnabled: true, WebhookURL: "https://hooks.example.com/forms",
 			WebhookHeadersJSON: `{"X-Source":"miniform"}`,
 		})
@@ -50,6 +51,8 @@ func TestForms(t *testing.T) {
 		require.NotNil(t, loaded.EmailDelivery)
 		require.NotNil(t, loaded.WebhookDelivery)
 		assert.True(t, loaded.EmailDelivery.Enabled)
+		assert.Equal(t, `"Owner" <owner@example.com>, team@example.com`, loaded.EmailDelivery.Recipient)
+		assert.Equal(t, forms.EmailFormatHTML, loaded.EmailDelivery.Format)
 		assert.True(t, loaded.WebhookDelivery.Enabled)
 
 		_, err = forms.Create(logger, db, forms.CreateParams{
@@ -60,6 +63,27 @@ func TestForms(t *testing.T) {
 		assert.Equal(t, "slug", validation.Field)
 
 		_, err = forms.GetBySlug(db, "missing")
+		assert.Error(t, err)
+	})
+
+	t.Run("normalizes email formats and recipient lists", func(t *testing.T) {
+		format, err := forms.NormalizeEmailFormat(" HTML ")
+		require.NoError(t, err)
+		assert.Equal(t, forms.EmailFormatHTML, format)
+		format, err = forms.NormalizeEmailFormat("")
+		require.NoError(t, err)
+		assert.Equal(t, forms.EmailFormatText, format)
+		_, err = forms.NormalizeEmailFormat("markdown")
+		assert.Error(t, err)
+
+		recipients, err := forms.ParseEmailRecipients("Alice <alice@example.com>\r\nbob@example.com, ALICE@example.com")
+		require.NoError(t, err)
+		require.Len(t, recipients, 2)
+		assert.Equal(t, "alice@example.com", recipients[0].Address)
+		assert.Equal(t, "bob@example.com", recipients[1].Address)
+		_, err = forms.ParseEmailRecipients("not-an-address")
+		assert.Error(t, err)
+		_, err = forms.ParseEmailRecipients("Undisclosed:;")
 		assert.Error(t, err)
 	})
 
@@ -401,7 +425,8 @@ func TestForms(t *testing.T) {
 
 		updated, err := forms.Update(logger, db, forms.UpdateParams{
 			ID: form.ID, Name: "After", AllowedOrigins: "new.example.com",
-			EmailEnabled: true, MailerProfileID: &profile.ID, EmailRecipient: "team@example.com",
+			EmailEnabled: true, MailerProfileID: &profile.ID,
+			EmailRecipient: "team@example.com\narchive@example.com", EmailFormat: forms.EmailFormatHTML,
 			WebhookEnabled: true, WebhookURL: "https://new.example.com/hook",
 			WebhookSecret: "secret", WebhookHeadersJSON: `{"Authorization":"Bearer token"}`,
 		})
@@ -412,7 +437,8 @@ func TestForms(t *testing.T) {
 		require.NotNil(t, updated.EmailDelivery)
 		require.NotNil(t, updated.WebhookDelivery)
 		assert.True(t, updated.EmailDelivery.Enabled)
-		assert.Equal(t, "team@example.com", updated.EmailDelivery.Recipient)
+		assert.Equal(t, "team@example.com, archive@example.com", updated.EmailDelivery.Recipient)
+		assert.Equal(t, forms.EmailFormatHTML, updated.EmailDelivery.Format)
 		assert.Equal(t, "secret", updated.WebhookDelivery.Secret)
 		assert.JSONEq(t, `{"Authorization":"Bearer token"}`, updated.WebhookDelivery.HeadersJSON)
 
@@ -423,6 +449,7 @@ func TestForms(t *testing.T) {
 			{"blank name", "name", forms.UpdateParams{ID: form.ID, Name: "  "}},
 			{"incomplete email", "email", forms.UpdateParams{ID: form.ID, Name: "After", EmailEnabled: true}},
 			{"invalid email recipient", "email", forms.UpdateParams{ID: form.ID, Name: "After", EmailEnabled: true, MailerProfileID: &profile.ID, EmailRecipient: "not-an-email"}},
+			{"invalid email format", "email_format", forms.UpdateParams{ID: form.ID, Name: "After", EmailFormat: "markdown"}},
 			{"missing webhook URL", "webhook", forms.UpdateParams{ID: form.ID, Name: "After", WebhookEnabled: true}},
 			{"invalid webhook URL", "webhook", forms.UpdateParams{ID: form.ID, Name: "After", WebhookEnabled: true, WebhookURL: "://missing"}},
 			{"invalid headers", "webhook_headers", forms.UpdateParams{ID: form.ID, Name: "After", WebhookEnabled: true, WebhookURL: "https://example.com", WebhookHeadersJSON: "{"}},

@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -261,6 +262,54 @@ func TestRoutes(t *testing.T) {
 			"email=admin@miniform.local&password=miniform",
 			map[string]string{"Sec-Fetch-Site": "same-origin"})
 		assert.Equal(t, 302, status)
+	})
+
+	t.Run("configures multiple email recipients and HTML from the admin editor", func(t *testing.T) {
+		server := testServer(t, cartridgeconfig.Test)
+		createAdmin(t, server)
+		mailer, err := integrations.CreateMailerProfile(slog.Default(), server.DB.GetConnection(), integrations.MailerProfileParams{
+			Name: "SMTP", DefaultFromEmail: "forms@example.com", SMTPHost: "smtp.example.com",
+		})
+		require.NoError(t, err)
+
+		login := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/login",
+			strings.NewReader("email=admin@miniform.local&password=miniform"))
+		login.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		login.Header.Set("Sec-Fetch-Site", "same-origin")
+		loginResponse, err := server.App.Test(login, -1)
+		require.NoError(t, err)
+		require.NoError(t, loginResponse.Body.Close())
+		require.NotEmpty(t, loginResponse.Cookies())
+
+		values := url.Values{
+			"name": {"Email"}, "slug": {"email"}, "allowed_origins": {"*"},
+			"email_enabled": {"on"}, "mailer_profile_id": {fmt.Sprint(mailer.ID)},
+			"email_recipient": {"owner@example.com\narchive@example.com"}, "email_format": {"html"},
+		}
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/forms", strings.NewReader(values.Encode()))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.Header.Set("Sec-Fetch-Site", "same-origin")
+		request.AddCookie(loginResponse.Cookies()[0])
+		response, err := server.App.Test(request, -1)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		assert.Equal(t, http.StatusFound, response.StatusCode)
+
+		created, err := forms.GetBySlug(server.DB.GetConnection(), "email")
+		require.NoError(t, err)
+		require.NotNil(t, created.EmailDelivery)
+		assert.Equal(t, "owner@example.com, archive@example.com", created.EmailDelivery.Recipient)
+		assert.Equal(t, forms.EmailFormatHTML, created.EmailDelivery.Format)
+
+		edit := httptest.NewRequestWithContext(t.Context(), http.MethodGet, fmt.Sprintf("/admin/forms/%d/edit", created.ID), nil)
+		edit.AddCookie(loginResponse.Cookies()[0])
+		editResponse, err := server.App.Test(edit, -1)
+		require.NoError(t, err)
+		body, err := io.ReadAll(editResponse.Body)
+		require.NoError(t, err)
+		require.NoError(t, editResponse.Body.Close())
+		assert.Contains(t, string(body), "owner@example.com, archive@example.com")
+		assert.Contains(t, string(body), `option value="html" selected`)
 	})
 
 	t.Run("sends temporary accounts to password settings", func(t *testing.T) {

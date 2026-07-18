@@ -44,6 +44,11 @@ func TestRunner(t *testing.T) {
 		assert.Greater(t, len(envelope.Data), 25)
 		assert.Contains(t, commandNames(envelope.Data), "backup")
 		assert.Contains(t, commandNames(envelope.Data), "form create")
+		for _, command := range envelope.Data {
+			if command.Name == "form update" {
+				assert.Contains(t, command.Flags, "--email-format text|html")
+			}
+		}
 	})
 
 	t.Run("recognizes global flags before the resource", func(t *testing.T) {
@@ -335,6 +340,38 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, ExitSuccess, exitCode)
 		assert.Contains(t, stdout.String(), `"email":"user@example.com"`)
 		assert.Contains(t, stdout.String(), `"total_count":1`)
+	})
+
+	t.Run("configures multiple email recipients and message format", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		profile, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
+			Name: "SMTP", DefaultFromEmail: "forms@example.com", SMTPHost: "smtp.example.com",
+		})
+		require.NoError(t, err)
+		runner, stdout, _ := newTestRunner(t, db, "")
+
+		exitCode := runner.Run([]string{
+			"form", "create", "--json", "--name", "Email", "--slug", "email", "--allowed-origins", "*",
+			"--email-enabled", "--mailer-profile-id", uintString(profile.ID),
+			"--email-recipient", "owner@example.com, archive@example.com", "--email-format", "html",
+		})
+
+		assert.Equal(t, ExitSuccess, exitCode)
+		assert.Contains(t, stdout.String(), `"recipient":"owner@example.com, archive@example.com"`)
+		assert.Contains(t, stdout.String(), `"format":"html"`)
+		created, err := forms.GetBySlug(db, "email")
+		require.NoError(t, err)
+		require.NotNil(t, created.EmailDelivery)
+		assert.Equal(t, forms.EmailFormatHTML, created.EmailDelivery.Format)
+
+		runner, _, _ = newTestRunner(t, db, "")
+		exitCode = runner.Run([]string{"form", "update", "--id", uintString(created.ID), "--email-format", "text"})
+		assert.Equal(t, ExitSuccess, exitCode)
+		updated, err := forms.GetByID(db, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, forms.EmailFormatText, updated.EmailDelivery.Format)
+		assert.Equal(t, "owner@example.com, archive@example.com", updated.EmailDelivery.Recipient)
 	})
 
 	t.Run("form code redacts the token and emits native HTML", func(t *testing.T) {

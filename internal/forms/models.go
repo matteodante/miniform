@@ -21,6 +21,8 @@ const (
 	WebhookStatusRetrying   = "retrying"
 	WebhookStatusFailed     = "failed"
 	DefaultRetryLimit       = 3
+	EmailFormatText         = "text"
+	EmailFormatHTML         = "html"
 )
 
 type Form struct {
@@ -49,6 +51,7 @@ type EmailDelivery struct {
 	MailerProfileID *uint                       `gorm:"index"`
 	MailerProfile   *integrations.MailerProfile `gorm:"constraint:OnDelete:RESTRICT"`
 	Recipient       string                      `gorm:"size:320"`
+	Format          string                      `gorm:"size:16;not null;default:text"`
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }

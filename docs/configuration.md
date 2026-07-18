@@ -32,6 +32,14 @@ openssl rand -hex 32
 
 Changing the session secret signs out every user.
 
+## Email notifications
+
+Mailer profiles contain the SMTP connection and sender identity. Each form independently selects a mailer profile, one or more recipients, and either plain text or HTML output. HTML notifications are fixed Miniform templates rendered with Go's context-aware escaping and always include a plain-text alternative; submitted values never become SMTP headers.
+
+Recipient lists accept comma-separated addresses in the admin UI or CLI. The admin UI also accepts one address per line. Miniform validates and deduplicates the list before storing it, then sends one SMTP `RCPT TO` command per recipient in a single message transaction.
+
+Notifications use the same durable event queue, expiring lease, bounded retry limit, and backoff schedule as webhooks. Changing a form's delivery settings affects queued attempts that have not yet been sent. Disabling email forwarding prevents new email events and causes an already queued event to finish as failed rather than silently disappear.
+
 ## Network boundaries
 
 Production applies process-local limits of 30 public submissions per minute and 5 sign-in attempts per minute for each resolved client address. The counters reset when the process restarts and are disabled in development and test environments.

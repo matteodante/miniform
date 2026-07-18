@@ -176,7 +176,8 @@ func createFormParams(ctx *cartridge.Context) forms.CreateParams {
 		GeneratedHTML:  ctx.FormValue("generated_html"), TemplateID: ctx.FormValue("template_id"),
 		MailerProfileID:  optionalID(ctx.FormValue("mailer_profile_id")),
 		CaptchaProfileID: optionalID(ctx.FormValue("captcha_profile_id")),
-		EmailRecipient:   ctx.FormValue("email_recipient"), EmailEnabled: checkbox(ctx, "email_enabled"),
+		EmailRecipient:   ctx.FormValue("email_recipient"), EmailFormat: ctx.FormValue("email_format"),
+		EmailEnabled:   checkbox(ctx, "email_enabled"),
 		WebhookEnabled: checkbox(ctx, "webhook_enabled"), WebhookURL: ctx.FormValue("webhook_url"),
 		WebhookSecret: ctx.FormValue("webhook_secret"), WebhookHeadersJSON: ctx.FormValue("webhook_headers"),
 	}
@@ -187,7 +188,8 @@ func updateFormParams(ctx *cartridge.Context, id uint) forms.UpdateParams {
 		ID: id, Name: ctx.FormValue("name"), AllowedOrigins: ctx.FormValue("allowed_origins"),
 		MailerProfileID:  optionalID(ctx.FormValue("mailer_profile_id")),
 		CaptchaProfileID: optionalID(ctx.FormValue("captcha_profile_id")),
-		EmailRecipient:   ctx.FormValue("email_recipient"), EmailEnabled: checkbox(ctx, "email_enabled"),
+		EmailRecipient:   ctx.FormValue("email_recipient"), EmailFormat: ctx.FormValue("email_format"),
+		EmailEnabled:   checkbox(ctx, "email_enabled"),
 		WebhookEnabled: checkbox(ctx, "webhook_enabled"), WebhookURL: ctx.FormValue("webhook_url"),
 		WebhookSecret: ctx.FormValue("webhook_secret"), WebhookHeadersJSON: ctx.FormValue("webhook_headers"),
 	}
@@ -258,6 +260,7 @@ func renderFormEditor(ctx *cartridge.Context, db *gorm.DB, form *forms.Form, tem
 	data["EmailDelivery"] = email
 	data["WebhookDelivery"] = webhook
 	data["EmailRecipient"] = deliveryRecipient(email)
+	data["EmailFormat"] = deliveryFormat(email)
 	if email != nil && email.MailerProfileID != nil {
 		data["SelectedMailerProfileID"] = *email.MailerProfileID
 	}
@@ -281,7 +284,7 @@ func createFormDraft(params forms.CreateParams) *forms.Form {
 	}
 	setDraftDeliveries(
 		form,
-		params.EmailEnabled, params.MailerProfileID, params.EmailRecipient,
+		params.EmailEnabled, params.MailerProfileID, params.EmailRecipient, params.EmailFormat,
 		params.WebhookEnabled, params.WebhookURL,
 	)
 	return form
@@ -293,15 +296,15 @@ func updateFormDraft(form *forms.Form, params forms.UpdateParams) *forms.Form {
 	form.CaptchaProfileID = params.CaptchaProfileID
 	setDraftDeliveries(
 		form,
-		params.EmailEnabled, params.MailerProfileID, params.EmailRecipient,
+		params.EmailEnabled, params.MailerProfileID, params.EmailRecipient, params.EmailFormat,
 		params.WebhookEnabled, params.WebhookURL,
 	)
 	return form
 }
 
-func setDraftDeliveries(form *forms.Form, emailEnabled bool, mailerID *uint, recipient string, webhookEnabled bool, webhookURL string) {
+func setDraftDeliveries(form *forms.Form, emailEnabled bool, mailerID *uint, recipient, emailFormat string, webhookEnabled bool, webhookURL string) {
 	form.EmailDelivery = &forms.EmailDelivery{
-		Enabled: emailEnabled, MailerProfileID: mailerID, Recipient: recipient,
+		Enabled: emailEnabled, MailerProfileID: mailerID, Recipient: recipient, Format: emailFormat,
 	}
 	form.WebhookDelivery = &forms.WebhookDelivery{
 		Enabled: webhookEnabled, URL: webhookURL,
@@ -313,6 +316,17 @@ func deliveryRecipient(delivery *forms.EmailDelivery) string {
 		return ""
 	}
 	return delivery.Recipient
+}
+
+func deliveryFormat(delivery *forms.EmailDelivery) string {
+	if delivery == nil {
+		return forms.EmailFormatText
+	}
+	format, err := forms.NormalizeEmailFormat(delivery.Format)
+	if err != nil {
+		return forms.EmailFormatText
+	}
+	return format
 }
 
 func requestedForm(ctx *cartridge.Context, db *gorm.DB) (*forms.Form, error) {

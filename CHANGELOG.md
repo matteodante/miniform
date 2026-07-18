@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Crash-recoverable upload staging and deletion quarantine, including startup reconciliation against committed database state
 - Browser acceptance coverage for onboarding, form management, native submissions, settings, error recovery, and logout history
 - A complete submission guide for native HTML, `fetch`, JSON, file uploads, and `curl`
+- An opt-in stress suite for HTTP ingestion, SQLite contention, uploads, webhook leases, graceful restart, and idle/load resource budgets
 
 ### Changed
 

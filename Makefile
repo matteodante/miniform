@@ -9,6 +9,9 @@ INSTALLER_BINARY ?= $(BIN_DIR)/miniform-linux
 INSTALLER_BINARY_DIR = $(abspath $(dir $(INSTALLER_BINARY)))
 INSTALLER_BINARY_NAME = $(notdir $(INSTALLER_BINARY))
 E2E_BINARY ?= $(BIN_DIR)/miniform-e2e
+STRESS_BINARY ?= $(BIN_DIR)/miniform-stress
+STRESS_REQUESTS ?= 500
+STRESS_CONCURRENCY ?= 16
 PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/tmp/ms-playwright
 APPLE_CONTAINER_IMAGE ?= miniform:local
 APPLE_CONTAINER_NAME ?= miniform
@@ -32,7 +35,7 @@ GOLANGCI_LINT_STAMP = $(TOOLS_DIR)/.golangci-lint-$(GOLANGCI_LINT_VERSION)
 DEADCODE_STAMP = $(TOOLS_DIR)/.deadcode-$(DEADCODE_VERSION)
 SHELLCHECK_STAMP = $(TOOLS_DIR)/.shellcheck-$(SHELLCHECK_VERSION)
 
-.PHONY: help bootstrap build installer-binary run seed dev demo test test-unit test-race test-e2e test-e2e-setup test-integration test-release-binaries tidy fmt fmt-check lint shell-lint workflow-lint check audit audit-secrets audit-licenses licenses audit-node audit-security verify-generated clean deps release release-check vendor css css-watch container-build container-test apple-container-start apple-container-build apple-container-run apple-container-health apple-container-stop
+.PHONY: help bootstrap build installer-binary run seed dev demo test test-unit test-race test-stress test-e2e test-e2e-setup test-integration test-release-binaries tidy fmt fmt-check lint shell-lint workflow-lint check audit audit-secrets audit-licenses licenses audit-node audit-security verify-generated clean deps release release-check vendor css css-watch container-build container-test apple-container-start apple-container-build apple-container-run apple-container-health apple-container-stop
 
 help:
 	@echo "Available targets:"
@@ -48,6 +51,7 @@ help:
 	@echo "  test         - run unit & e2e tests"
 	@echo "  test-unit    - run all non-VM Go tests"
 	@echo "  test-race    - run Go tests with the race detector"
+	@echo "  test-stress  - stress the real HTTP, SQLite, delivery, and resource lifecycle"
 	@echo "  test-e2e     - run Playwright end-to-end tests in e2e/"
 	@echo "  test-e2e-setup - install Playwright dependencies"
 	@echo "  test-integration - run VM-based installer integration tests (requires OrbStack)"
@@ -145,6 +149,16 @@ endif
 test-race: deps
 	@echo ">> go test -race ./..."
 	MINIFORM_ENV=test GOCACHE=$(GOCACHE) go test -race -count=1 ./...
+
+test-stress: deps
+	@echo ">> building stress-test server"
+	MINIFORM_ENV=test GOCACHE=$(GOCACHE) go build -trimpath -o $(STRESS_BINARY) ./cmd/$(APP)
+	@echo ">> stressing core lifecycle ($(STRESS_REQUESTS) requests, concurrency $(STRESS_CONCURRENCY))"
+	MINIFORM_RUN_STRESS=1 \
+		MINIFORM_STRESS_BINARY=$(abspath $(STRESS_BINARY)) \
+		MINIFORM_STRESS_REQUESTS=$(STRESS_REQUESTS) \
+		MINIFORM_STRESS_CONCURRENCY=$(STRESS_CONCURRENCY) \
+		GOCACHE=$(GOCACHE) go test -v -count=1 -timeout 10m ./tests/stress
 
 test-e2e-setup:
 	@echo ">> installing Playwright dependencies"

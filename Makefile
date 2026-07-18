@@ -294,7 +294,7 @@ container-test: container-build
 		docker run --rm --user 0:0 --entrypoint sh \
 			--volume "$$volume":/app/storage miniform:local \
 			-c 'set -eu; umask 077; \
-				mkdir -p /app/storage/logs /app/storage/uploads/restored /app/storage/.upload-staging/restored /app/storage/.upload-deletions/restored; \
+				mkdir -p /app/storage/logs /app/storage/uploads/restored /app/storage/.upload-staging/restored/uploads/restored /app/storage/.upload-deletions/restored/uploads/restored; \
 				: > /app/storage/restored.db; \
 				: > /app/storage/restored.db-wal; \
 				: > /app/storage/restored.db-shm; \
@@ -303,8 +303,8 @@ container-test: container-build
 				ln -s /etc/passwd /app/storage/logs/outside-link; \
 				printf restored > /app/storage/uploads/restored/attachment.txt; \
 				ln -s /etc/passwd /app/storage/uploads/restored/outside-link; \
-				printf staged > /app/storage/.upload-staging/restored/attachment.txt; \
-				printf quarantined > /app/storage/.upload-deletions/restored/attachment.txt; \
+				printf staged > /app/storage/.upload-staging/restored/uploads/restored/attachment.txt; \
+				printf quarantined > /app/storage/.upload-deletions/restored/uploads/restored/attachment.txt; \
 				ln -s /tmp/miniform-outside /app/storage/unsafe-parent'; \
 		for unsafe_env in \
 			'MINIFORM_DATA_DIR=/app/storage/unsafe-parent/data' \
@@ -328,8 +328,8 @@ container-test: container-build
 			miniform:local sh -c 'set -eu; \
 				test "$$(stat -c %u /app/storage/logs/miniform.log)" = 10001; \
 				test "$$(stat -c %u /app/storage/uploads/restored/attachment.txt)" = 10001; \
-				test "$$(stat -c %u /app/storage/.upload-staging/restored/attachment.txt)" = 10001; \
-				test "$$(stat -c %u /app/storage/.upload-deletions/restored/attachment.txt)" = 10001; \
+				test "$$(stat -c %u /app/storage/.upload-staging/restored/uploads/restored/attachment.txt)" = 10001; \
+				test "$$(stat -c %u /app/storage/.upload-deletions/restored/uploads/restored/attachment.txt)" = 10001; \
 				test "$$(stat -c %u /etc/passwd)" = 0; \
 				test -L /app/storage/logs/outside-link; \
 				test -L /app/storage/uploads/restored/outside-link; \

@@ -51,7 +51,7 @@ The SQLite driver requires CGO. Do not build release binaries with `CGO_ENABLED=
 
 ## Railway
 
-The repository includes `railway.json`, which builds the production `Dockerfile`, checks `/_health`, and runs one replica. Attach a persistent volume at `/app/storage`, generate a public domain, and set at least:
+The repository includes `railway.json`, which builds the Go application with Railpack, starts the generated `./out` binary, checks `/_health`, and runs one replica. Attach a persistent volume at `/app/storage`, generate a public domain, and set at least:
 
 ```text
 MINIFORM_ENV=production

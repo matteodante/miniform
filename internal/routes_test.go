@@ -256,6 +256,21 @@ func TestRoutes(t *testing.T) {
 		}
 	})
 
+	t.Run("redirects the legacy favicon route to the bundled mark", func(t *testing.T) {
+		server := testServer(t, cartridgeconfig.Test)
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			t.Run(method, func(t *testing.T) {
+				request := httptest.NewRequestWithContext(t.Context(), method, "/favicon.ico", nil)
+				response, err := server.App.Test(request, -1)
+				require.NoError(t, err)
+				defer response.Body.Close()
+
+				assert.Equal(t, http.StatusPermanentRedirect, response.StatusCode)
+				assert.Equal(t, "/assets/mark.svg", response.Header.Get("Location"))
+			})
+		}
+	})
+
 	t.Run("accepts same-origin login", func(t *testing.T) {
 		server := testServer(t, cartridgeconfig.Test)
 		createAdmin(t, server)

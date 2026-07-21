@@ -42,6 +42,11 @@ func mountUtilityRoutes(server *cartridge.Server, cfg *config.Config) {
 	}
 	server.Get("/_health", health)
 	server.Head("/_health", health)
+	favicon := func(ctx *cartridge.Context) error {
+		return ctx.Redirect("/assets/mark.svg", fiber.StatusPermanentRedirect)
+	}
+	server.Get("/favicon.ico", favicon)
+	server.Head("/favicon.ico", favicon)
 	server.Get("/", func(ctx *cartridge.Context) error { return ctx.Redirect("/admin/submissions") })
 	if cfg.IsDevelopment() || cfg.IsTest() {
 		server.Get("/_demo", handlers.DemoContactForm)

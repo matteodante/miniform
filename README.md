@@ -10,7 +10,7 @@
 
 Miniform accepts submissions and file uploads from any HTML form, stores them in SQLite, and forwards them to webhooks or SMTP. It ships as one Go binary and one OCI image, with no hosted account or external database.
 
-The current stable release is [`v0.2.0`](https://github.com/matteodante/miniform/releases/tag/v0.2.0). Pin an exact release or image digest in production; `main` remains the development branch.
+The current stable release is [`v0.2.1`](https://github.com/matteodante/miniform/releases/tag/v0.2.1). Pin an exact release or image digest in production; `main` remains the development branch.
 
 ## Why Miniform
 
@@ -49,13 +49,13 @@ Open <http://127.0.0.1:8080/_demo>. The isolated admin account is `admin@minifor
 The public multi-architecture image supports Linux `amd64` and `arm64`:
 
 ```bash
-docker pull ghcr.io/matteodante/miniform:v0.2.0
+docker pull ghcr.io/matteodante/miniform:v0.2.1
 docker volume create miniform-data
 docker run --rm --name miniform \
   --publish 8080:8080 \
   --env MINIFORM_ENV=development \
   --volume miniform-data:/app/storage \
-  ghcr.io/matteodante/miniform:v0.2.0
+  ghcr.io/matteodante/miniform:v0.2.1
 ```
 
 To build the same OCI-compatible image locally, run `docker build --tag miniform:local .`.

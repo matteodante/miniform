@@ -1,0 +1,58 @@
+version: "2"
+
+run:
+  timeout: 5m
+  relative-path-mode: gomod
+
+linters:
+  default: none
+  enable:
+    - bidichk
+    - bodyclose
+    - durationcheck
+    - errcheck
+    - errchkjson
+    - errorlint
+    - gocheckcompilerdirectives
+    - gocyclo
+    - govet
+    - ineffassign
+    - loggercheck
+    - misspell
+    - nilerr
+    - nilnesserr
+    - noctx
+    - nolintlint
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - staticcheck
+    - testifylint
+    - thelper
+    - unconvert
+    - unused
+  settings:
+    gocyclo:
+      min-complexity: 25
+    staticcheck:
+      checks:
+        - all
+        - -QF1008
+    testifylint:
+      disable-all: true
+      enable:
+        - go-require
+  exclusions:
+    warn-unused: true
+    presets:
+      - comments
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gocyclo
+          - revive
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

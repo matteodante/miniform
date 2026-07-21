@@ -1,0 +1,568 @@
+package forms_test
+
+import (
+	"errors"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+
+	"github.com/matteodante/miniform/internal/forms"
+	"github.com/matteodante/miniform/internal/pkg/dbtxn"
+	"github.com/matteodante/miniform/internal/pkg/testsupport"
+)
+
+func TestManagement(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	t.Run("updates advanced form fields and rotates its token", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form, err := forms.Create(logger, db, forms.CreateParams{
+			Name:           "Original",
+			Slug:           "original",
+			AllowedOrigins: "example.com",
+		})
+		require.NoError(t, err)
+		originalToken := form.Token
+
+		updated, err := forms.Update(logger, db, forms.UpdateParams{
+			ID:                  form.ID,
+			Name:                "Renamed",
+			Slug:                "renamed-form",
+			AllowedOrigins:      "*.example.com",
+			GeneratedHTML:       "<form><button>Send</button></form>",
+			UpdateGeneratedHTML: true,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "renamed-form", updated.Slug)
+		assert.Contains(t, updated.GeneratedHTML, "<form>")
+
+		rotated, err := forms.RotateToken(logger, db, form.ID)
+		require.NoError(t, err)
+		assert.NotEqual(t, originalToken, rotated.Token)
+	})
+
+	t.Run("refuses a manual retry while delivery is claimed", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Claimed", Slug: "claimed", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		submission, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"ok": true}, "test", "", nil)
+		require.NoError(t, err)
+		leaseUntil := time.Now().UTC().Add(time.Minute)
+		event := &forms.WebhookEvent{
+			SubmissionID:  submission.ID,
+			Status:        forms.WebhookStatusDelivering,
+			AttemptCount:  1,
+			NextAttemptAt: &leaseUntil,
+		}
+		require.NoError(t, dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+			return tx.Create(event).Error
+		}))
+
+		err = forms.RetryWebhookEvent(logger, db, event.ID)
+		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+
+		var stored forms.WebhookEvent
+		require.NoError(t, db.First(&stored, event.ID).Error)
+		assert.Equal(t, forms.WebhookStatusDelivering, stored.Status)
+		assert.Equal(t, 1, stored.AttemptCount)
+		require.NotNil(t, stored.NextAttemptAt)
+		assert.WithinDuration(t, leaseUntil, *stored.NextAttemptAt, time.Millisecond)
+	})
+
+	t.Run("retries only failed deliveries and never duplicates a delivered event", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Retry state", Slug: "retry-state", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		submission, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"ok": true}, "test", "", nil)
+		require.NoError(t, err)
+		failed := &forms.WebhookEvent{SubmissionID: submission.ID, Status: forms.WebhookStatusFailed, AttemptCount: 3, LastAttemptErr: "failed"}
+		delivered := &forms.WebhookEvent{SubmissionID: submission.ID, Status: forms.WebhookStatusDelivered, AttemptCount: 1}
+		require.NoError(t, dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+			return tx.Create([]*forms.WebhookEvent{failed, delivered}).Error
+		}))
+
+		require.NoError(t, forms.RetryWebhookEvent(logger, db, failed.ID))
+		assert.ErrorIs(t, forms.RetryWebhookEvent(logger, db, delivered.ID), gorm.ErrRecordNotFound)
+
+		require.NoError(t, db.First(failed, failed.ID).Error)
+		assert.Equal(t, forms.WebhookStatusPending, failed.Status)
+		assert.Zero(t, failed.AttemptCount)
+		assert.Empty(t, failed.LastAttemptErr)
+		require.NoError(t, db.First(delivered, delivered.ID).Error)
+		assert.Equal(t, forms.WebhookStatusDelivered, delivered.Status)
+		assert.Equal(t, 1, delivered.AttemptCount)
+	})
+
+	t.Run("deletes a submission with events metadata and uploaded files", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		dataDir := t.TempDir()
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Inbox", Slug: "inbox", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		submission, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"email": "user@example.com"}, "test", "", nil)
+		require.NoError(t, err)
+
+		formDirectory := strconv.FormatUint(uint64(form.ID), 10)
+		submissionDirectory := strconv.FormatUint(uint64(submission.ID), 10)
+		filePath := filepath.Join("uploads", formDirectory, submissionDirectory, "brief.txt")
+		require.NoError(t, os.MkdirAll(filepath.Join(dataDir, filepath.Dir(filePath)), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, filePath), []byte("brief"), 0o600))
+		require.NoError(t, dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+			if err := tx.Create(&forms.WebhookEvent{SubmissionID: submission.ID, Status: forms.WebhookStatusFailed}).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(&forms.EmailEvent{SubmissionID: submission.ID, Status: forms.WebhookStatusFailed}).Error; err != nil {
+				return err
+			}
+			return tx.Create(&forms.SubmissionFile{
+				SubmissionID: submission.ID,
+				FieldName:    "attachment",
+				Filename:     "brief.txt",
+				Size:         5,
+				StoragePath:  filePath,
+				CreatedAt:    time.Now().UTC(),
+			}).Error
+		}))
+
+		require.NoError(t, forms.DeleteSubmission(logger, db, dataDir, submission.ID))
+		assertRecordCount(t, db, &forms.Submission{}, 0)
+		assertRecordCount(t, db, &forms.WebhookEvent{}, 0)
+		assertRecordCount(t, db, &forms.EmailEvent{}, 0)
+		assertRecordCount(t, db, &forms.SubmissionFile{}, 0)
+		_, err = os.Stat(filepath.Join(dataDir, "uploads", formDirectory, submissionDirectory))
+		assert.True(t, os.IsNotExist(err))
+		assertNoFiles(t, dataDir)
+	})
+
+	t.Run("restores submission uploads when database deletion fails", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		dataDir := t.TempDir()
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Restore", Slug: "restore", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		submission, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"ok": true}, "test", dataDir, []*forms.UploadedFile{{
+			FieldName: "attachment",
+			Filename:  "brief.txt",
+			Data:      strings.NewReader("brief"),
+		}})
+		require.NoError(t, err)
+		files := submission.Files
+		require.Len(t, files, 1)
+		require.NoError(t, dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+			return tx.Exec(`CREATE TRIGGER fail_submission_delete
+				BEFORE DELETE ON submissions
+				BEGIN SELECT RAISE(ABORT, 'forced submission delete failure'); END`).Error
+		}))
+
+		err = forms.DeleteSubmission(logger, db, dataDir, submission.ID)
+
+		assert.ErrorContains(t, err, "forced submission delete failure")
+		_, err = forms.GetSubmissionByID(db, submission.ID)
+		assert.NoError(t, err)
+		preserved, err := forms.GetSubmissionFile(db, submission.ID, files[0].ID)
+		require.NoError(t, err)
+		source, err := forms.OpenSubmissionFile(dataDir, preserved)
+		require.NoError(t, err)
+		defer func() { _ = source.Close() }()
+		content, err := io.ReadAll(source)
+		require.NoError(t, err)
+		assert.Equal(t, "brief", string(content))
+	})
+
+	t.Run("waits for an active upload before deleting its form", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		dataDir := t.TempDir()
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Uploading", Slug: "uploading", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		uploadStarted := make(chan struct{})
+		releaseUpload := make(chan struct{})
+		uploadResult := make(chan submissionResult, 1)
+		go func() {
+			submission, err := forms.CreateSubmissionWithFiles(
+				logger,
+				db,
+				form,
+				map[string]any{"ok": true},
+				"test",
+				dataDir,
+				[]*forms.UploadedFile{{
+					FieldName: "attachment",
+					Filename:  "brief.txt",
+					Data: &gatedReader{
+						started: uploadStarted,
+						release: releaseUpload,
+						reader:  strings.NewReader("brief"),
+					},
+				}},
+			)
+			uploadResult <- submissionResult{submission: submission, err: err}
+		}()
+		select {
+		case <-uploadStarted:
+		case <-time.After(5 * time.Second):
+			t.Fatal("upload did not start")
+		}
+
+		formDeleteStarted := make(chan struct{})
+		formDeleteResult := make(chan error, 1)
+		go func() {
+			close(formDeleteStarted)
+			formDeleteResult <- forms.DeleteForm(logger, db, dataDir, form.ID)
+		}()
+		<-formDeleteStarted
+
+		select {
+		case err := <-formDeleteResult:
+			t.Fatalf("form deletion completed during upload: %v", err)
+		case <-time.After(100 * time.Millisecond):
+		}
+
+		withoutFilesResult := make(chan submissionResult, 1)
+		go func() {
+			created, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"without": "files"}, "test", "", nil)
+			withoutFilesResult <- submissionResult{submission: created, err: err}
+		}()
+		withoutFiles := receiveWithin(t, withoutFilesResult)
+		require.NoError(t, withoutFiles.err)
+		require.NotNil(t, withoutFiles.submission)
+
+		close(releaseUpload)
+		created := receiveWithin(t, uploadResult)
+		require.NoError(t, created.err)
+		require.NotNil(t, created.submission)
+		assert.NoError(t, receiveWithin(t, formDeleteResult))
+		_, err = forms.GetByID(db, form.ID)
+		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+		_, err = forms.GetSubmissionByID(db, created.submission.ID)
+		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+		assertNoFiles(t, dataDir)
+	})
+
+	t.Run("removes uploads when records disappear outside deletion coordination", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		dataDir := t.TempDir()
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Bypass", Slug: "bypass", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		uploadStarted := make(chan struct{})
+		releaseUpload := make(chan struct{})
+		uploadResult := make(chan submissionResult, 1)
+		go func() {
+			submission, err := forms.CreateSubmissionWithFiles(
+				logger,
+				db,
+				form,
+				map[string]any{"ok": true},
+				"test",
+				dataDir,
+				[]*forms.UploadedFile{{
+					FieldName: "attachment",
+					Filename:  "brief.txt",
+					Data: &gatedReader{
+						started: uploadStarted,
+						release: releaseUpload,
+						reader:  strings.NewReader("brief"),
+					},
+				}},
+			)
+			uploadResult <- submissionResult{submission: submission, err: err}
+		}()
+		select {
+		case <-uploadStarted:
+		case <-time.After(5 * time.Second):
+			t.Fatal("upload did not start")
+		}
+
+		require.NoError(t, dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+			return tx.Delete(&forms.Form{}, form.ID).Error
+		}))
+		close(releaseUpload)
+
+		created := receiveWithin(t, uploadResult)
+		assert.Error(t, created.err)
+		assert.Nil(t, created.submission)
+		var submissionCount int64
+		require.NoError(t, db.Model(&forms.Submission{}).Count(&submissionCount).Error)
+		assert.Zero(t, submissionCount)
+		assertNoFiles(t, dataDir)
+	})
+
+	t.Run("serializes concurrent submission deletions", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		dataDir := t.TempDir()
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Concurrent", Slug: "concurrent", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		submission, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"ok": true}, "test", dataDir, []*forms.UploadedFile{{
+			FieldName: "attachment", Filename: "brief.txt", Data: strings.NewReader("brief"),
+		}})
+		require.NoError(t, err)
+
+		results := runConcurrently(t,
+			func() error { return forms.DeleteSubmission(logger, db, dataDir, submission.ID) },
+			func() error { return forms.DeleteSubmission(logger, db, dataDir, submission.ID) },
+		)
+
+		successes := 0
+		notFound := 0
+		for _, result := range results {
+			switch {
+			case result == nil:
+				successes++
+			case errors.Is(result, gorm.ErrRecordNotFound):
+				notFound++
+			default:
+				assert.NoError(t, result)
+			}
+		}
+		assert.Equal(t, 1, successes)
+		assert.Equal(t, 1, notFound)
+		_, err = forms.GetSubmissionByID(db, submission.ID)
+		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+		assertNoFiles(t, dataDir)
+	})
+
+	t.Run("keeps database records and outside files safe when upload staging fails", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		dataDir := t.TempDir()
+		outsideDir := t.TempDir()
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Retry", Slug: "retry", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		submission, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"ok": true}, "test", "", nil)
+		require.NoError(t, err)
+
+		formDirectory := strconv.FormatUint(uint64(form.ID), 10)
+		require.NoError(t, os.MkdirAll(filepath.Join(dataDir, "uploads"), 0o700))
+		linkPath := filepath.Join(dataDir, "uploads", formDirectory)
+		require.NoError(t, os.Symlink(outsideDir, linkPath))
+		outsideFile := filepath.Join(outsideDir, "keep.txt")
+		require.NoError(t, os.WriteFile(outsideFile, []byte("keep"), 0o600))
+		storagePath := filepath.Join("uploads", formDirectory, strconv.FormatUint(uint64(submission.ID), 10), "keep.txt")
+		require.NoError(t, dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+			return tx.Create(&forms.SubmissionFile{
+				SubmissionID: submission.ID, FieldName: "attachment", Filename: "keep.txt", StoragePath: storagePath,
+			}).Error
+		}))
+
+		err = forms.DeleteSubmission(logger, db, dataDir, submission.ID)
+
+		assert.ErrorContains(t, err, "stage submission uploads")
+		preserved, err := forms.GetSubmissionByID(db, submission.ID)
+		require.NoError(t, err)
+		assert.Len(t, preserved.Files, 1)
+		assert.FileExists(t, outsideFile)
+
+		require.NoError(t, os.Remove(linkPath))
+	})
+
+	t.Run("recovers only quarantined uploads according to committed database state", func(t *testing.T) {
+		for _, stagingRoot := range []string{".upload-staging", ".upload-deletions"} {
+			t.Run(stagingRoot, func(t *testing.T) {
+				db := testsupport.SetupTestDB(t)
+				dataDir := t.TempDir()
+				form, err := forms.Create(logger, db, forms.CreateParams{Name: "Recovery", Slug: "recovery", AllowedOrigins: "*"})
+				require.NoError(t, err)
+				submission, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"ok": true}, "test", dataDir, []*forms.UploadedFile{{
+					FieldName: "attachment", Filename: "brief.txt", Data: strings.NewReader("brief"),
+				}})
+				require.NoError(t, err)
+				require.Len(t, submission.Files, 1)
+				file := submission.Files[0]
+				original := filepath.Join(dataDir, file.StoragePath)
+				quarantined := filepath.Join(dataDir, stagingRoot, "interrupted", file.StoragePath)
+				require.NoError(t, os.MkdirAll(filepath.Dir(quarantined), 0o700))
+				require.NoError(t, os.Rename(original, quarantined))
+
+				require.NoError(t, forms.RecoverUploadDeletions(db, dataDir))
+				assert.FileExists(t, original)
+				assert.NoFileExists(t, quarantined)
+
+				require.NoError(t, os.MkdirAll(filepath.Dir(quarantined), 0o700))
+				require.NoError(t, os.Rename(original, quarantined))
+				require.NoError(t, dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+					return tx.Delete(&forms.SubmissionFile{}, file.ID).Error
+				}))
+
+				require.NoError(t, forms.RecoverUploadDeletions(db, dataDir))
+				assert.NoFileExists(t, original)
+				assert.NoFileExists(t, quarantined)
+			})
+		}
+	})
+
+	t.Run("deletes a form and all owned records", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		dataDir := t.TempDir()
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Disposable", Slug: "disposable", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		submission, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"ok": true}, "test", dataDir, []*forms.UploadedFile{{
+			FieldName: "attachment", Filename: "brief.txt", Data: strings.NewReader("brief"),
+		}})
+		require.NoError(t, err)
+		require.NoError(t, dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+			return tx.Create(&forms.WebhookEvent{SubmissionID: submission.ID, Status: forms.WebhookStatusFailed}).Error
+		}))
+
+		require.NoError(t, forms.DeleteForm(logger, db, dataDir, form.ID))
+		assertRecordCount(t, db, &forms.Form{}, 0)
+		assertRecordCount(t, db, &forms.Submission{}, 0)
+		assertRecordCount(t, db, &forms.WebhookDelivery{}, 0)
+		assertRecordCount(t, db, &forms.EmailDelivery{}, 0)
+		assertRecordCount(t, db, &forms.WebhookEvent{}, 0)
+		assertNoFiles(t, dataDir)
+	})
+
+	t.Run("restores form uploads when database deletion fails", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		dataDir := t.TempDir()
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Restore form", Slug: "restore-form", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		submission, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"ok": true}, "test", dataDir, []*forms.UploadedFile{{
+			FieldName: "attachment",
+			Filename:  "brief.txt",
+			Data:      strings.NewReader("brief"),
+		}})
+		require.NoError(t, err)
+		files := submission.Files
+		require.Len(t, files, 1)
+		require.NoError(t, dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+			return tx.Exec(`CREATE TRIGGER fail_form_delete
+				BEFORE DELETE ON forms
+				BEGIN SELECT RAISE(ABORT, 'forced form delete failure'); END`).Error
+		}))
+
+		err = forms.DeleteForm(logger, db, dataDir, form.ID)
+
+		assert.ErrorContains(t, err, "forced form delete failure")
+		_, err = forms.GetByID(db, form.ID)
+		assert.NoError(t, err)
+		_, err = forms.GetSubmissionByID(db, submission.ID)
+		assert.NoError(t, err)
+		preserved, err := forms.GetSubmissionFile(db, submission.ID, files[0].ID)
+		require.NoError(t, err)
+		source, err := forms.OpenSubmissionFile(dataDir, preserved)
+		require.NoError(t, err)
+		defer func() { _ = source.Close() }()
+		content, err := io.ReadAll(source)
+		require.NoError(t, err)
+		assert.Equal(t, "brief", string(content))
+	})
+
+	t.Run("serializes a failed form deletion with a submission deletion", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		dataDir := t.TempDir()
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Partial restore", Slug: "partial-restore", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		deletedSubmission, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"kind": "deleted"}, "test", dataDir, []*forms.UploadedFile{{
+			FieldName: "attachment", Filename: "deleted.txt", Data: strings.NewReader("deleted"),
+		}})
+		require.NoError(t, err)
+		survivingSubmission, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"kind": "surviving"}, "test", dataDir, []*forms.UploadedFile{{
+			FieldName: "attachment", Filename: "surviving.txt", Data: strings.NewReader("surviving"),
+		}})
+		require.NoError(t, err)
+
+		deletedFile := filepath.Join(dataDir, deletedSubmission.Files[0].StoragePath)
+		survivingFile := filepath.Join(dataDir, survivingSubmission.Files[0].StoragePath)
+		require.NoError(t, dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+			return tx.Exec(`CREATE TRIGGER fail_form_delete
+				BEFORE DELETE ON forms
+				BEGIN SELECT RAISE(ABORT, 'forced form delete failure'); END`).Error
+		}))
+
+		results := runConcurrently(t,
+			func() error { return forms.DeleteForm(logger, db, dataDir, form.ID) },
+			func() error { return forms.DeleteSubmission(logger, db, dataDir, deletedSubmission.ID) },
+		)
+
+		assert.ErrorContains(t, results[0], "forced form delete failure")
+		assert.NoError(t, results[1])
+		_, err = forms.GetByID(db, form.ID)
+		assert.NoError(t, err)
+		_, err = forms.GetSubmissionByID(db, deletedSubmission.ID)
+		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+		_, err = forms.GetSubmissionByID(db, survivingSubmission.ID)
+		assert.NoError(t, err)
+		assert.NoFileExists(t, deletedFile)
+		content, err := os.ReadFile(survivingFile)
+		require.NoError(t, err)
+		assert.Equal(t, "surviving", string(content))
+		var remainingFiles []string
+		require.NoError(t, filepath.WalkDir(dataDir, func(path string, entry os.DirEntry, err error) error {
+			if err == nil && !entry.IsDir() {
+				remainingFiles = append(remainingFiles, path)
+			}
+			return err
+		}))
+		assert.Equal(t, []string{survivingFile}, remainingFiles)
+	})
+}
+
+func runConcurrently(t *testing.T, operations ...func() error) []error {
+	t.Helper()
+	type result struct {
+		index int
+		err   error
+	}
+	start := make(chan struct{})
+	resultChannel := make(chan result, len(operations))
+	for index, operation := range operations {
+		go func() {
+			<-start
+			resultChannel <- result{index: index, err: operation()}
+		}()
+	}
+	close(start)
+
+	results := make([]error, len(operations))
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for range operations {
+		select {
+		case result := <-resultChannel:
+			results[result.index] = result.err
+		case <-timer.C:
+			t.Fatal("concurrent deletions did not finish")
+		}
+	}
+	return results
+}
+
+func receiveWithin[T any](t *testing.T, channel <-chan T) T {
+	t.Helper()
+	select {
+	case result := <-channel:
+		return result
+	case <-time.After(5 * time.Second):
+		t.Fatal("operation did not finish")
+		var zero T
+		return zero
+	}
+}
+
+func assertRecordCount(t *testing.T, db *gorm.DB, model any, expected int64) {
+	t.Helper()
+	var count int64
+	require.NoError(t, db.Model(model).Count(&count).Error)
+	assert.Equal(t, expected, count)
+}
+
+func assertNoFiles(t *testing.T, directory string) {
+	t.Helper()
+	var files []string
+	require.NoError(t, filepath.WalkDir(directory, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			files = append(files, path)
+		}
+		return nil
+	}))
+	assert.Empty(t, files)
+}

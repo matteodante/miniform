@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and deployment help
+    url: https://github.com/matteodante/miniform/discussions
+    about: Ask the community before opening a bug report.
+  - name: Report a vulnerability privately
+    url: https://github.com/matteodante/miniform/security/advisories/new
+    about: Never disclose vulnerability details in a public issue.

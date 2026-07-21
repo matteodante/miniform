@@ -1,0 +1,210 @@
+{{ define "layouts/base" }}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="A self-hosted inbox for every form on your websites.">
+    <meta name="theme-color" content="#171A2B">
+    <meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>
+    <title>{{ if .Title }}{{ .Title }} · Miniform{{ else }}Miniform{{ end }}</title>
+    <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/assets/app.built.css?v={{ assetVersion }}">
+</head>
+
+<body hx-boost="true" hx-history="false" class="min-h-screen bg-paper font-sans text-ink antialiased">
+    <a href="#content"
+        class="sr-only z-[80] rounded-lg bg-ink px-4 py-2 text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4">
+        Skip to content
+    </a>
+    <div id="page-loader" aria-hidden="true"></div>
+
+    {{ if .HideHeaderActions }}
+    <div class="flex min-h-screen flex-col">
+        <header class="mf-auth-header">
+            <a href="/admin/login" class="mf-auth-brand" aria-label="Miniform sign in">
+                <img src="/assets/mark.svg" alt="" class="mf-brand-mark">
+                <span>
+                    <span class="block font-display text-2xl font-bold leading-none tracking-[-0.035em]">Miniform</span>
+                    <span class="mt-1 block font-mono text-[0.625rem] uppercase tracking-[0.18em] text-ink-muted">signal desk</span>
+                </span>
+            </a>
+            <span class="hidden items-center gap-2 font-mono text-[0.625rem] uppercase tracking-[0.16em] text-ink-muted sm:inline-flex">
+                <span class="h-2 w-2 rounded-full bg-green-600"></span>
+                Self-hosted
+            </span>
+        </header>
+
+        <main id="content" class="mf-auth-main">
+            {{ if .ContentView }}
+            {{ render .ContentView . }}
+            {{ end }}
+        </main>
+
+        <footer class="px-5 pb-6 text-center font-mono text-[0.625rem] uppercase tracking-[0.16em] text-ink-muted sm:px-8">
+            Your server. Your responses.
+        </footer>
+    </div>
+    {{ else }}
+    <div class="mf-app-shell">
+        <aside class="mf-sidebar" aria-label="Workspace navigation">
+            <a href="{{ if .PasswordChangeRequired }}/admin/settings{{ else }}/admin/submissions{{ end }}" class="mf-brand" aria-label="Miniform inbox">
+                <img src="/assets/mark.svg" alt="" class="mf-brand-mark">
+                <span>
+                    <span class="block font-display text-2xl font-bold leading-none tracking-[-0.035em]">Miniform</span>
+                    <span class="mt-1 block font-mono text-[0.625rem] uppercase tracking-[0.18em] text-gray-400">signal desk</span>
+                </span>
+            </a>
+
+            <nav class="mf-route-nav" aria-label="Primary navigation">
+				{{ if not .PasswordChangeRequired }}
+                <a href="/admin/submissions" data-nav class="mf-route-link">
+                    <span class="mf-route-port" aria-hidden="true"></span>
+                    <span>Inbox</span>
+                    <span class="ml-auto hidden font-mono text-[0.5625rem] uppercase tracking-wider opacity-50 lg:block">receive</span>
+                </a>
+                <a href="/admin/forms" data-nav class="mf-route-link">
+                    <span class="mf-route-port" aria-hidden="true"></span>
+                    <span>Endpoints</span>
+                    <span class="ml-auto hidden font-mono text-[0.5625rem] uppercase tracking-wider opacity-50 lg:block">route</span>
+                </a>
+                <a href="/admin/settings/mailers" data-nav class="mf-route-link">
+                    <span class="mf-route-port" aria-hidden="true"></span>
+                    <span>Delivery</span>
+                    <span class="ml-auto hidden font-mono text-[0.5625rem] uppercase tracking-wider opacity-50 lg:block">send</span>
+                </a>
+                <a href="/admin/settings/captcha" data-nav class="mf-route-link">
+                    <span class="mf-route-port" aria-hidden="true"></span>
+                    <span>Safeguards</span>
+                    <span class="ml-auto hidden font-mono text-[0.5625rem] uppercase tracking-wider opacity-50 lg:block">filter</span>
+                </a>
+				{{ end }}
+                <a href="/admin/settings" data-nav class="mf-route-link">
+                    <span class="mf-route-port" aria-hidden="true"></span>
+                    <span>Workspace</span>
+                    <span class="ml-auto hidden font-mono text-[0.5625rem] uppercase tracking-wider opacity-50 lg:block">access</span>
+                </a>
+            </nav>
+
+			{{ if not .PasswordChangeRequired }}
+            <div class="mf-sidebar-status">
+                <div class="flex items-center gap-2">
+                    <span class="relative flex h-2.5 w-2.5">
+                        <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-40"></span>
+                        <span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500"></span>
+                    </span>
+                    <span class="text-xs font-semibold text-white">Ingress ready</span>
+                </div>
+                <p class="mt-2 text-xs leading-5 text-gray-400">Responses are landing on this server.</p>
+            </div>
+			{{ end }}
+        </aside>
+
+        <section class="mf-workspace flex min-h-screen flex-col">
+            <header class="mf-topbar">
+                <div>
+                    <p class="font-mono text-[0.625rem] font-semibold uppercase tracking-[0.18em] text-ink-muted">Operator console</p>
+                    <p class="mt-0.5 text-sm font-semibold text-ink">Private workspace · <span data-timezone-label>browser time</span></p>
+                </div>
+                <form action="/admin/logout" method="post">
+                    <button type="submit" class="mf-button-secondary px-3 py-2 text-xs">Sign out</button>
+                </form>
+            </header>
+
+            <main id="content" class="mf-main">
+                {{ if .ContentView }}
+                {{ render .ContentView . }}
+                {{ end }}
+            </main>
+
+            <footer class="mf-footer">
+                <div class="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-2">
+                    <span>Miniform keeps every response on your server.</span>
+                    <a href="https://github.com/matteodante/miniform" target="_blank" rel="noopener"
+                        class="font-mono font-semibold underline decoration-rule underline-offset-4 hover:decoration-moss">Source ↗</a>
+                </div>
+            </footer>
+        </section>
+    </div>
+    {{ end }}
+
+    <script src="/assets/vendor/htmx.min.js?v={{ assetVersion }}"></script>
+    <script>
+        function clearHTMXHistoryCache() {
+            try {
+                window.localStorage.removeItem('htmx-history-cache');
+            } catch (_) {
+                // Storage can be disabled; history caching remains disabled by hx-history.
+            }
+        }
+
+        function validatePasswordConfirmation(event) {
+            const input = event.target;
+            if (!(input instanceof HTMLInputElement) ||
+                (input.id !== 'new_password' && input.id !== 'confirm_password')) return;
+
+            const form = input.form;
+            const newPassword = form && form.querySelector('#new_password');
+            const confirmation = form && form.querySelector('#confirm_password');
+            if (!newPassword || !confirmation) return;
+
+            confirmation.setCustomValidity(
+                confirmation.value && newPassword.value !== confirmation.value ? 'Passwords do not match' : ''
+            );
+        }
+
+        clearHTMXHistoryCache();
+        function markCurrentNavigation() {
+            const path = window.location.pathname;
+            const links = Array.from(document.querySelectorAll('[data-nav]'));
+            const matches = links.filter((link) => path === link.pathname || path.startsWith(link.pathname + '/'));
+            const current = matches.sort((a, b) => b.pathname.length - a.pathname.length)[0];
+            links.forEach((link) => link.removeAttribute('aria-current'));
+            if (current) current.setAttribute('aria-current', 'page');
+        }
+
+        function localizeTimes(root = document) {
+            const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local time';
+
+            root.querySelectorAll('[data-timezone-label]').forEach((label) => {
+                label.textContent = timeZone;
+            });
+
+            root.querySelectorAll('time[data-local-time]').forEach((element) => {
+                const timestamp = new Date(element.dateTime);
+                if (Number.isNaN(timestamp.getTime())) return;
+
+                const options = {};
+                if (element.dataset.dateStyle) options.dateStyle = element.dataset.dateStyle;
+                if (element.dataset.timeStyle) options.timeStyle = element.dataset.timeStyle;
+
+                element.textContent = new Intl.DateTimeFormat(undefined, options).format(timestamp);
+                element.title = `${new Intl.DateTimeFormat(undefined, {
+                    dateStyle: 'full',
+                    timeStyle: 'long',
+                }).format(timestamp)} · ${timeZone}`;
+            });
+        }
+
+        markCurrentNavigation();
+        localizeTimes();
+        if (!document.body.dataset.miniformLifecycleBound) {
+            document.body.dataset.miniformLifecycleBound = 'true';
+            document.body.addEventListener('input', validatePasswordConfirmation);
+            document.body.addEventListener('htmx:afterSwap', (event) => {
+                clearHTMXHistoryCache();
+                markCurrentNavigation();
+                localizeTimes(event.target);
+            });
+            document.body.addEventListener('htmx:beforeSwap', (event) => {
+                if (event.detail.xhr.status < 500) return;
+                event.detail.shouldSwap = true;
+                event.detail.isError = false;
+            });
+        }
+    </script>
+</body>
+
+</html>
+{{ end }}

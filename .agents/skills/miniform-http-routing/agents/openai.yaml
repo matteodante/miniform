@@ -1,0 +1,4 @@
+interface:
+  display_name: "Miniform HTTP Routing"
+  short_description: "Add secure Miniform Fiber routes and handlers"
+  default_prompt: "Use $miniform-http-routing to add or review this Miniform HTTP endpoint."

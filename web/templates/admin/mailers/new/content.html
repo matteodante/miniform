@@ -1,0 +1,88 @@
+{{ define "admin/mailers/new/content" }}
+<div class="mx-auto max-w-4xl space-y-6">
+    <header>
+        <p class="mf-kicker">Email routes</p>
+        <h1 class="mt-2 text-3xl font-bold text-ink">{{ if .IsEdit }}Edit email route{{ else }}New email route{{ end }}</h1>
+        <p class="mt-2 text-sm text-ink-muted">Connect an SMTP server once, then reuse it across forms.</p>
+    </header>
+
+    {{ if .Error }}
+    <div role="alert" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{{ .Error }}</div>
+    {{ end }}
+
+    <form method="POST" action="{{ if .IsEdit }}/admin/settings/mailers/{{ .Profile.ID }}{{ else }}/admin/settings/mailers{{ end }}" class="space-y-5">
+        <section class="mf-panel p-6">
+            <div class="grid gap-5">
+                <label class="grid gap-2 text-sm font-medium text-ink" for="name">
+                    Profile name
+                    <input class="mf-input w-full" id="name" name="name" type="text" required
+                        value="{{ if .Profile }}{{ .Profile.Name }}{{ end }}" placeholder="Support delivery">
+                </label>
+            </div>
+        </section>
+
+        <section class="mf-panel p-6">
+            <h2 class="text-lg font-semibold text-ink">SMTP connection</h2>
+            <div class="mt-5 grid gap-5 sm:grid-cols-2">
+                <label class="grid gap-2 text-sm font-medium text-ink sm:col-span-2" for="smtp_host">
+                    SMTP host
+                    <input class="mf-input w-full" id="smtp_host" name="smtp_host" type="text" required
+                        value="{{ if .Profile }}{{ .Profile.SMTPHost }}{{ end }}" placeholder="smtp.example.com">
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="smtp_port">
+                    Port
+                    <input class="mf-input w-full" id="smtp_port" name="smtp_port" type="number"
+                        value="{{ if and .Profile .Profile.SMTPPort }}{{ .Profile.SMTPPort }}{{ else }}587{{ end }}">
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="smtp_encryption">
+                    Encryption
+                    <select class="mf-input w-full" id="smtp_encryption" name="smtp_encryption">
+                        <option value="starttls" {{ if and .Profile (eq .Profile.SMTPEncryption "starttls") }}selected{{ end }}>STARTTLS</option>
+                        <option value="tls" {{ if and .Profile (eq .Profile.SMTPEncryption "tls") }}selected{{ end }}>Implicit TLS</option>
+                        <option value="none" {{ if and .Profile (eq .Profile.SMTPEncryption "none") }}selected{{ end }}>None</option>
+                    </select>
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="smtp_username">
+                    Username <span class="text-xs font-normal text-ink-muted">Optional for trusted relays</span>
+                    <input class="mf-input w-full" id="smtp_username" name="smtp_username" type="text"
+                        value="{{ if .Profile }}{{ .Profile.SMTPUsername }}{{ end }}" placeholder="user@example.com">
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="smtp_password">
+                    Password
+                    <input class="mf-input w-full font-mono text-sm" id="smtp_password" name="smtp_password" type="password"
+						autocomplete="new-password">
+					{{ if and .IsEdit .HasStoredSMTPPassword }}
+					<span class="text-xs font-normal text-ink-muted">A password is stored. Leave this blank to keep it.</span>
+					{{ end }}
+                </label>
+				{{ if and .IsEdit .HasStoredSMTPPassword }}
+				<label class="flex items-center gap-2 text-xs text-ink" for="clear_smtp_password">
+					<input id="clear_smtp_password" name="clear_smtp_password" type="checkbox" {{ if .ClearSMTPPassword }}checked{{ end }}> Remove stored password
+				</label>
+				{{ end }}
+            </div>
+        </section>
+
+        <section class="mf-panel p-6">
+            <h2 class="text-lg font-semibold text-ink">Sender defaults</h2>
+            <div class="mt-5 grid gap-5 sm:grid-cols-2">
+                <label class="grid gap-2 text-sm font-medium text-ink" for="default_from_name">
+                    From name
+                    <input class="mf-input w-full" id="default_from_name" name="default_from_name" type="text"
+                        value="{{ if .Profile }}{{ .Profile.DefaultFromName }}{{ end }}" placeholder="Miniform">
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="default_from_email">
+                    From email
+                    <input class="mf-input w-full" id="default_from_email" name="default_from_email" type="email" required
+                        value="{{ if .Profile }}{{ .Profile.DefaultFromEmail }}{{ end }}" placeholder="no-reply@example.com">
+                </label>
+            </div>
+        </section>
+
+        <div class="flex justify-end gap-3">
+            <a class="mf-button-secondary" href="/admin/settings/mailers">Cancel</a>
+            <button class="mf-button" type="submit">{{ if .IsEdit }}Save changes{{ else }}Create email route{{ end }}</button>
+        </div>
+    </form>
+</div>
+{{ end }}

@@ -1,0 +1,247 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: 1.26.5
+  GORELEASER_VERSION: v2.17.0
+  NODE_VERSION: 24
+
+jobs:
+  quality:
+    name: Quality and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run repository checks
+        run: make check
+
+  race:
+    name: Race detector
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run Go race detector
+        run: make test-race
+
+  security:
+    name: Security and licenses
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Scan secrets and repository history
+        run: make audit-secrets
+
+      - name: Audit licenses
+        run: make audit-licenses
+
+      - name: Audit Node.js test dependencies
+        run: make audit-node
+
+      - name: Scan Go code and dependencies
+        run: make audit-security
+
+  e2e:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/ms-playwright
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install browser dependencies
+        run: |
+          cd e2e
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run browser tests
+        run: make test-e2e
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-failure-${{ github.run_id }}
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  container:
+    name: OCI image health
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Build and test image
+        run: make container-test
+
+  installer:
+    name: Installer integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build current installer and test image
+        run: |
+          CGO_ENABLED=1 go build -trimpath -o "$RUNNER_TEMP/miniform" ./cmd/miniform
+          go test -c -o "$RUNNER_TEMP/installation.test" ./tests/integration
+          docker run --detach --name miniform-test-registry --publish 127.0.0.1:5000:5000 registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+          docker build --tag "localhost:5000/miniform:${GITHUB_SHA}" .
+          docker push "localhost:5000/miniform:${GITHUB_SHA}"
+
+      - name: Run installer as root
+        run: |
+          sudo env \
+            BINARY_PATH="$RUNNER_TEMP/miniform" \
+            ENV=test \
+            GITHUB_ACTIONS=true \
+            MINIFORM_INSTALLER_TEST_IMAGE="localhost:5000/miniform:${GITHUB_SHA}" \
+            MINIFORM_RUN_INSTALLATION_TEST=1 \
+            "$RUNNER_TEMP/installation.test" -test.v -test.timeout=15m
+
+  release-build:
+    name: Release binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install CGO cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes gcc-aarch64-linux-gnu libc6-dev libc6-dev-arm64-cross
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+
+      - name: Validate release configuration
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: ${{ env.GORELEASER_VERSION }}
+          args: check
+
+      - name: Build release binaries
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: ${{ env.GORELEASER_VERSION }}
+          args: build --snapshot --clean
+
+      - name: Test release binaries on Alpine
+        run: make test-release-binaries
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request' && github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          deny-licenses: AGPL-1.0-only, AGPL-1.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later, GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later

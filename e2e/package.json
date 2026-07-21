@@ -1,0 +1,22 @@
+{
+  "name": "miniform-e2e",
+  "version": "1.0.0",
+  "description": "Miniform browser acceptance tests",
+  "scripts": {
+    "test": "playwright test",
+    "test:unit": "node --test global-teardown.test.js",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "sqlite3": "^6.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
+  },
+  "overrides": {
+    "tar": "^7.5.11",
+    "minimatch": "^10.2.1",
+    "glob": "^11.0.0"
+  }
+}

@@ -1,0 +1,19 @@
+title = "Miniform secret scanning configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated, local, and dependency directories"
+paths = [
+  '''(^|/)\.git/''',
+  '''(^|/)\.gocache/''',
+  '''(^|/)\.gopath/''',
+  '''(^|/)bin/''',
+  '''(^|/)dist/''',
+  '''(^|/)e2e/node_modules/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)output/''',
+  '''(^|/)storage/''',
+  '''(^|/)tmp/''',
+]

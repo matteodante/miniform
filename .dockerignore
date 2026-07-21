@@ -1,0 +1,54 @@
+# Version control
+.git
+.gitignore
+.github
+
+# Build artifacts
+.gocache
+bin
+/miniform
+
+# Runtime data
+storage
+logs
+tmp
+*.db
+*.db-shm
+*.db-wal
+
+# Tests
+tests
+e2e
+*.test
+
+# Node/Frontend
+node_modules
+dist
+.vite
+.astro
+
+# Documentation is excluded except for redistributed license notices.
+*.md
+docs
+!LICENSE
+!THIRD_PARTY_NOTICES.md
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Scripts (not needed in container)
+scripts
+Makefile
+
+# Misc
+*.log
+.env
+.env.*

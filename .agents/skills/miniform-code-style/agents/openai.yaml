@@ -1,0 +1,4 @@
+interface:
+  display_name: "Miniform Code Style"
+  short_description: "Keep Miniform Go code simple and clear"
+  default_prompt: "Use $miniform-code-style to implement this change in the preferred Miniform Go style."

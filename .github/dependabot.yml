@@ -1,0 +1,57 @@
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    groups:
+      go-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "deps(go)"
+
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:15"
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    groups:
+      e2e-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "deps(e2e)"
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: Europe/Rome
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps(container)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:45"
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(actions)"

@@ -1,0 +1,42 @@
+{{ define "admin/captcha/new/content" }}
+<div class="mx-auto max-w-4xl space-y-6">
+    <header>
+        <p class="mf-kicker">Safeguards</p>
+        <h1 class="mt-2 text-3xl font-bold text-ink">{{ if .IsEdit }}Edit safeguard{{ else }}New safeguard{{ end }}</h1>
+        <p class="mt-2 text-sm text-ink-muted">Configure one Cloudflare Turnstile widget.</p>
+    </header>
+
+    {{ if .Error }}
+    <div role="alert" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{{ .Error }}</div>
+    {{ end }}
+
+    <form method="POST" action="{{ if .IsEdit }}/admin/settings/captcha/{{ .Profile.ID }}{{ else }}/admin/settings/captcha{{ end }}" class="space-y-5">
+        <section class="mf-panel p-6">
+            <div class="grid gap-5">
+                <label class="grid gap-2 text-sm font-medium text-ink" for="name">
+                    Profile name
+                    <input class="mf-input w-full" id="name" name="name" type="text" required
+                        value="{{ if .Profile }}{{ .Profile.Name }}{{ end }}" placeholder="Public forms">
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="site_key">
+                    Site key
+                    <input class="mf-input w-full font-mono text-sm" id="site_key" name="site_key" type="text" required
+                        value="{{ if .Profile }}{{ .Profile.SiteKey }}{{ end }}" placeholder="0x4A...">
+                    <span class="text-xs font-normal text-ink-muted">Public key rendered in protected forms.</span>
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="secret_key">
+                    Secret key
+                    <input class="mf-input w-full font-mono text-sm" id="secret_key" name="secret_key" type="password"
+                        {{ if not .IsEdit }}required{{ end }} placeholder="0x4A...">
+                    <span class="text-xs font-normal text-ink-muted">Used only for server-side verification.{{ if .IsEdit }} Leave blank to keep the current key.{{ end }}</span>
+                </label>
+            </div>
+        </section>
+
+        <div class="flex justify-end gap-3">
+            <a class="mf-button-secondary" href="/admin/settings/captcha">Cancel</a>
+            <button class="mf-button" type="submit">{{ if .IsEdit }}Save changes{{ else }}Create safeguard{{ end }}</button>
+        </div>
+    </form>
+</div>
+{{ end }}

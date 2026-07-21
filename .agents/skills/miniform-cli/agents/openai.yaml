@@ -1,0 +1,4 @@
+interface:
+  display_name: "Miniform CLI"
+  short_description: "Operate Miniform safely through its CLI"
+  default_prompt: "Use $miniform-cli to inspect and safely manage this Miniform instance through deterministic JSON commands."

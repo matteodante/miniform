@@ -1,0 +1,227 @@
+{{ define "admin/forms/new/content" }}
+{{ $form := .Form }}
+{{ $webhook := .WebhookDelivery }}
+{{ $email := .EmailDelivery }}
+{{ $preview := .PreviewHTML }}
+{{ $action := "/admin/forms" }}
+{{ if .IsEdit }}{{ $action = printf "/admin/forms/%d" $form.ID }}{{ end }}
+<div class="mx-auto max-w-5xl space-y-6">
+    <header>
+        <p class="mf-kicker">Endpoints</p>
+        <h1 class="mt-2 text-3xl font-bold text-ink">{{ if .IsEdit }}Edit endpoint{{ else }}Create endpoint{{ end }}</h1>
+        <p class="mt-2 text-sm text-ink-muted">Accept arbitrary form fields, then choose where accepted entries are delivered.</p>
+    </header>
+
+    {{ if .Error }}
+    <div role="alert" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{{ .Error }}</div>
+    {{ end }}
+
+    <form action="{{ $action }}" method="post" class="space-y-5">
+        {{ if and .TemplateID (not .IsEdit) }}<input type="hidden" name="template_id" value="{{ .TemplateID }}">{{ end }}
+
+        <section class="mf-panel p-6">
+            <div>
+                <h2 class="text-lg font-semibold text-ink">Identity and access</h2>
+                <p class="text-sm text-ink-muted">The slug becomes the public route; origins restrict who can submit.</p>
+            </div>
+            <div class="mt-5 grid gap-5 sm:grid-cols-2">
+                <label class="grid gap-2 text-sm font-medium text-ink" for="name">
+                    Endpoint name
+                    <input class="mf-input w-full" id="name" name="name" type="text" required
+                        value="{{ if $form }}{{ $form.Name }}{{ else }}{{ .FormName }}{{ end }}">
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="slug">
+                    Slug <span class="font-mono text-xs font-normal text-ink-muted">/forms/:slug/submit</span>
+                    <input class="mf-input w-full font-mono {{ if .IsEdit }}cursor-not-allowed bg-gray-100{{ end }}" id="slug" name="slug" type="text" required
+                        value="{{ if $form }}{{ $form.Slug }}{{ else }}{{ .DefaultSlug }}{{ end }}" {{ if .IsEdit }}disabled{{ end }}>
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink sm:col-span-2" for="allowed_origins">
+                    Allowed origins
+                    <input class="mf-input w-full font-mono text-sm" id="allowed_origins" name="allowed_origins" type="text" required
+                        value="{{ if $form }}{{ $form.AllowedOrigins }}{{ end }}" placeholder="example.com, *.example.com">
+                    <span class="text-xs font-normal text-ink-muted">Comma-separated domains; <code>*</code> allows every origin and is best kept for local testing.</span>
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="captcha_profile_id">
+                    Safeguard
+                    <select class="mf-input w-full" id="captcha_profile_id" name="captcha_profile_id">
+                        <option value="">No captcha</option>
+                        {{ range .CaptchaProfiles }}<option value="{{ .ID }}" {{ if eq $.SelectedCaptchaProfileID .ID }}selected{{ end }}>{{ .Name }}</option>{{ end }}
+                    </select>
+                    <span class="text-xs font-normal text-ink-muted">Selecting a safeguard requires Turnstile on every submission.</span>
+                    <a class="text-xs font-semibold text-moss" href="/admin/settings/captcha">Manage safeguards →</a>
+                </label>
+            </div>
+        </section>
+
+        {{ if $preview }}
+        <section class="mf-panel overflow-hidden">
+            <div class="flex flex-col gap-3 border-b border-rule p-6 sm:flex-row sm:items-end sm:justify-between">
+                <div><h2 class="text-lg font-semibold text-ink">Starter HTML</h2><p class="text-sm text-ink-muted">Preview it now; customize the copied markup after creation.</p></div>
+                <div class="flex rounded-xl bg-gray-100 p-1" role="tablist" aria-label="Starter HTML view">
+                    <button class="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-ink shadow-sm" id="embed-tab-preview" type="button" role="tab" aria-selected="true" aria-controls="embed-panel-preview" tabindex="0" data-embed-tab="preview">Preview</button>
+                    <button class="rounded-lg px-3 py-2 text-xs font-semibold text-ink-muted" id="embed-tab-code" type="button" role="tab" aria-selected="false" aria-controls="embed-panel-code" tabindex="-1" data-embed-tab="code">Source</button>
+                </div>
+            </div>
+            <div class="p-6">
+                <div id="embed-panel-preview" role="tabpanel" aria-labelledby="embed-tab-preview"><iframe id="formEmbedPreviewFrame" title="Starter HTML preview" class="min-h-[26rem] w-full rounded-xl border border-rule bg-white" sandbox></iframe></div>
+                <div id="embed-panel-code" role="tabpanel" aria-labelledby="embed-tab-code" hidden>
+                    <div class="mb-3 flex items-center justify-end gap-3">
+                        <span id="copyEmbedCodeStatus" role="status" aria-atomic="true" class="text-xs text-ink-muted"></span>
+                        <button class="mf-button-secondary !px-3 !py-1.5 text-xs" id="copyEmbedCodeBtn" type="button">Copy source</button>
+                    </div>
+                    <pre class="max-h-[38rem] overflow-auto rounded-xl bg-gray-900 p-4 font-mono text-xs text-gray-100"><code id="formEmbedCode"></code></pre>
+                </div>
+            </div>
+        </section>
+        <textarea id="formEmbedHTMLSource" hidden>{{ $preview }}</textarea>
+        {{ end }}
+
+        <div class="grid gap-5 lg:grid-cols-2">
+            <section class="mf-panel p-6">
+                <label class="flex items-center gap-3" for="webhook_enabled">
+                    <input class="h-4 w-4 rounded border-gray-300" id="webhook_enabled" name="webhook_enabled" type="checkbox" {{ if and $webhook $webhook.Enabled }}checked{{ end }}>
+                    <span><strong class="block text-lg font-semibold text-ink">Webhook</strong><span class="text-sm text-ink-muted">POST accepted entries to a backend.</span></span>
+                </label>
+                <div class="mt-5 space-y-4">
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="webhook_url">Destination URL
+                        <input class="mf-input w-full font-mono text-sm" id="webhook_url" name="webhook_url" type="url"
+                            value="{{ if $webhook }}{{ $webhook.URL }}{{ end }}" placeholder="https://api.example.com/hooks">
+                    </label>
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="webhook_secret">HMAC secret
+						<input class="mf-input w-full font-mono text-sm" id="webhook_secret" name="webhook_secret" type="password" autocomplete="new-password">
+						{{ if and .IsEdit .HasStoredWebhookSecret }}<span class="text-xs font-normal text-ink-muted">A secret is stored. Leave this blank to keep it.</span>{{ end }}
+                    </label>
+					{{ if and .IsEdit .HasStoredWebhookSecret }}
+					<label class="flex items-center gap-2 text-xs text-ink" for="clear_webhook_secret">
+						<input id="clear_webhook_secret" name="clear_webhook_secret" type="checkbox" {{ if .ClearWebhookSecret }}checked{{ end }}> Remove stored secret
+					</label>
+					{{ end }}
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="webhook_headers">Custom headers <span class="font-mono text-xs font-normal text-ink-muted">JSON object</span>
+						<textarea class="mf-input w-full font-mono text-sm" id="webhook_headers" name="webhook_headers" rows="4" placeholder='{"Authorization":"Bearer token"}'></textarea>
+						{{ if and .IsEdit .HasStoredWebhookHeaders }}<span class="text-xs font-normal text-ink-muted">Custom headers are stored. Leave this blank to keep them.</span>{{ end }}
+                    </label>
+					{{ if and .IsEdit .HasStoredWebhookHeaders }}
+					<label class="flex items-center gap-2 text-xs text-ink" for="clear_webhook_headers">
+						<input id="clear_webhook_headers" name="clear_webhook_headers" type="checkbox" {{ if .ClearWebhookHeaders }}checked{{ end }}> Remove stored headers
+					</label>
+					{{ end }}
+                </div>
+            </section>
+
+            <section class="mf-panel p-6">
+                <label class="flex items-center gap-3" for="email_enabled">
+                    <input class="h-4 w-4 rounded border-gray-300" id="email_enabled" name="email_enabled" type="checkbox" {{ if and $email $email.Enabled }}checked{{ end }}>
+                    <span><strong class="block text-lg font-semibold text-ink">Primary email notification</strong><span class="text-sm text-ink-muted">Send one configurable message for each accepted entry.</span></span>
+                </label>
+                <div class="mt-5 space-y-4">
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="email_name">Notification name
+                        <input class="mf-input w-full" id="email_name" name="email_name" type="text" value="{{ .EmailName }}" placeholder="Internal notification">
+                    </label>
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="mailer_profile_id">Email route
+                        <select class="mf-input w-full" id="mailer_profile_id" name="mailer_profile_id">
+                            <option value="">Select a route</option>
+                            {{ range .MailerProfiles }}<option value="{{ .ID }}" {{ if eq $.SelectedMailerProfileID .ID }}selected{{ end }}>{{ .Name }}</option>{{ end }}
+                        </select>
+                    </label>
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="email_recipient_source">Recipient source
+                        <select class="mf-input w-full" id="email_recipient_source" name="email_recipient_source">
+                            <option value="static" {{ if eq .EmailRecipientSource "static" }}selected{{ end }}>Static addresses</option>
+                            <option value="field" {{ if eq .EmailRecipientSource "field" }}selected{{ end }}>Submission field</option>
+                        </select>
+                    </label>
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="email_recipient">Recipients
+                        <textarea class="mf-input w-full font-mono text-sm" id="email_recipient" name="email_recipient" rows="3" placeholder="team@example.com&#10;archive@example.com">{{ .EmailRecipient }}</textarea>
+                        <span class="text-xs font-normal text-ink-muted">Enter comma-separated addresses, or a field name such as <code>email</code> when using a submission field.</span>
+                    </label>
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="email_reply_to_source">Reply-To source
+                        <select class="mf-input w-full" id="email_reply_to_source" name="email_reply_to_source">
+                            <option value="none" {{ if eq .EmailReplyToSource "none" }}selected{{ end }}>No Reply-To</option>
+                            <option value="static" {{ if eq .EmailReplyToSource "static" }}selected{{ end }}>Static address</option>
+                            <option value="field" {{ if eq .EmailReplyToSource "field" }}selected{{ end }}>Submission field</option>
+                        </select>
+                    </label>
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="email_reply_to">Reply-To value
+                        <input class="mf-input w-full font-mono text-sm" id="email_reply_to" name="email_reply_to" type="text" value="{{ .EmailReplyTo }}" placeholder="email or support@example.com">
+                    </label>
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="email_subject">Subject template
+                        <input class="mf-input w-full font-mono text-sm" id="email_subject" name="email_subject" type="text" value="{{ .EmailSubject }}">
+                    </label>
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="email_format">Message format
+                        <select class="mf-input w-full" id="email_format" name="email_format">
+                            <option value="text" {{ if eq .EmailFormat "text" }}selected{{ end }}>Plain text</option>
+                            <option value="html" {{ if eq .EmailFormat "html" }}selected{{ end }}>HTML with text fallback</option>
+                        </select>
+                    </label>
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="email_text">Text template
+                        <textarea class="mf-input w-full font-mono text-xs" id="email_text" name="email_text" rows="10">{{ .EmailText }}</textarea>
+                    </label>
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="email_html">HTML template
+                        <textarea class="mf-input w-full font-mono text-xs" id="email_html" name="email_html" rows="10">{{ .EmailHTML }}</textarea>
+                    </label>
+                    <p class="text-xs text-ink-muted">Templates use Go syntax: <code>{{ "{{.FormName}}" }}</code>, <code>{{ "{{.SubmittedAt}}" }}</code>, <code>{{ "{{.Fields.email}}" }}</code>, or <code>{{ "{{index .Fields \"field-name\"}}" }}</code>.</p>
+                    {{ if .IsEdit }}<a class="block text-xs font-semibold text-moss" href="/admin/forms/{{ $form.ID }}#email-notifications">Manage additional notifications →</a>{{ end }}
+                    <a class="text-xs font-semibold text-moss" href="/admin/settings/mailers">Manage email routes →</a>
+                </div>
+            </section>
+        </div>
+
+        <div class="flex justify-end gap-3">
+            <a class="mf-button-secondary" href="/admin/forms">Cancel</a>
+            <button class="mf-button" type="submit">{{ if .IsEdit }}Save changes{{ else }}Create endpoint{{ end }}</button>
+        </div>
+    </form>
+</div>
+
+{{ if $preview }}
+<script>
+(() => {
+    const source = document.getElementById("formEmbedHTMLSource").value.trim();
+    const frame = document.getElementById("formEmbedPreviewFrame");
+    frame.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>body{margin:0;padding:24px;font-family:system-ui;background:#f7f8fc}</style></head><body>${source}</body></html>`;
+    document.getElementById("formEmbedCode").textContent = source;
+
+    const activateTab = (button) => {
+        const target = button.dataset.embedTab;
+        document.getElementById("embed-panel-preview").hidden = target !== "preview";
+        document.getElementById("embed-panel-code").hidden = target !== "code";
+        tabs.forEach(item => {
+            const active = item === button;
+            item.setAttribute("aria-selected", String(active));
+            item.tabIndex = active ? 0 : -1;
+            item.classList.toggle("bg-white", active);
+            item.classList.toggle("text-ink", active);
+            item.classList.toggle("shadow-sm", active);
+            item.classList.toggle("text-ink-muted", !active);
+        });
+    };
+    const tabs = Array.from(document.querySelectorAll("[data-embed-tab]"));
+    tabs.forEach((button, index) => {
+        button.addEventListener("click", () => activateTab(button));
+        button.addEventListener("keydown", (event) => {
+            let nextIndex;
+            if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+            else if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+            else if (event.key === "Home") nextIndex = 0;
+            else if (event.key === "End") nextIndex = tabs.length - 1;
+            else return;
+            event.preventDefault();
+            activateTab(tabs[nextIndex]);
+            tabs[nextIndex].focus();
+        });
+    });
+
+    const copyStatus = document.getElementById("copyEmbedCodeStatus");
+    document.getElementById("copyEmbedCodeBtn").addEventListener("click", async () => {
+        copyStatus.textContent = "";
+        try {
+            if (typeof navigator.clipboard?.writeText !== "function") throw new Error("Clipboard API unavailable");
+            await navigator.clipboard.writeText(source);
+            copyStatus.textContent = "Source copied.";
+        } catch {
+            copyStatus.textContent = "Copy failed. Select the source and copy it manually.";
+        }
+    });
+})();
+</script>
+{{ end }}
+{{ end }}

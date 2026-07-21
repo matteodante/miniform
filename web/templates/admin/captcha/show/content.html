@@ -1,0 +1,54 @@
+{{ define "admin/captcha/show/content" }}
+<div class="mx-auto max-w-5xl space-y-6">
+    <header class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+            <p class="mf-kicker">Safeguard profile</p>
+            <h1 class="mt-2 text-3xl font-bold text-ink">{{ .Profile.Name }}</h1>
+            <p class="mt-2 text-sm text-ink-muted">Turnstile credentials and current usage.</p>
+        </div>
+        <div class="flex gap-2">
+            <a class="mf-button-secondary" href="/admin/settings/captcha/{{ .Profile.ID }}/edit">Edit</a>
+            <button class="mf-button-secondary !border-rose-200 !text-rose-700 hover:!bg-rose-50" type="button" onclick="deleteCaptchaProfile()">Delete</button>
+        </div>
+    </header>
+
+    {{ if .Error }}
+    <div role="alert" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{{ .Error }}</div>
+    {{ end }}
+
+    <section class="mf-panel p-6">
+        <h2 class="text-lg font-semibold text-ink">Connection</h2>
+        <dl class="mt-5 grid gap-5 sm:grid-cols-2">
+            <div>
+                <dt class="text-xs font-bold uppercase tracking-wider text-ink-muted">Site key</dt>
+                <dd class="mt-2 break-all font-mono text-sm text-ink">{{ .Profile.SiteKey }}</dd>
+            </div>
+            <div>
+                <dt class="text-xs font-bold uppercase tracking-wider text-ink-muted">Secret key</dt>
+                <dd class="mt-2 font-mono text-sm text-ink">••••••••••••••••••••</dd>
+            </div>
+        </dl>
+    </section>
+
+    <section class="mf-panel p-6">
+        <h2 class="text-lg font-semibold text-ink">Usage</h2>
+        <p class="mt-4 text-3xl font-bold text-ink">{{ .UsageCount }}</p>
+        <p class="text-sm text-ink-muted">{{ if eq .UsageCount 1 }}form uses{{ else }}forms use{{ end }} this safeguard.</p>
+        {{ if gt .UsageCount 0 }}<p class="mt-4 text-xs font-medium text-rose-700">Detach it from every form before deletion.</p>{{ end }}
+    </section>
+
+    <a class="inline-flex text-sm font-semibold text-moss hover:text-moss-dark" href="/admin/settings/captcha">← Back to safeguards</a>
+</div>
+
+<form id="deleteForm" method="POST" action="/admin/settings/captcha/{{ .Profile.ID }}/delete" hidden></form>
+<script>
+function deleteCaptchaProfile() {
+    const usage = {{ .UsageCount }};
+    if (usage > 0) {
+        window.alert(`This safeguard is still used by ${usage} form${usage === 1 ? "" : "s"}.`);
+        return;
+    }
+    if (window.confirm("Delete this safeguard profile permanently?")) document.getElementById("deleteForm").submit();
+}
+</script>
+{{ end }}

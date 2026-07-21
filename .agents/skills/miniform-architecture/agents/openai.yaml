@@ -1,0 +1,4 @@
+interface:
+  display_name: "Miniform Architecture"
+  short_description: "Apply Miniform domain-package architecture"
+  default_prompt: "Use $miniform-architecture to place this change in the correct Miniform domain."

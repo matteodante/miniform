@@ -1,0 +1,108 @@
+version: 2
+
+before:
+  hooks:
+    - go mod verify
+
+builds:
+  - id: linux-amd64
+    main: ./cmd/miniform
+    binary: miniform
+    goos: [linux]
+    goarch: [amd64]
+    goamd64: [v1]
+    env:
+      - CGO_ENABLED=1
+      - CC=gcc
+    flags:
+      - -trimpath
+    tags:
+      - netgo
+      - osusergo
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w -linkmode external -extldflags "-static"
+      - -X main.version={{ .Tag }}
+      - -X main.commit={{ .FullCommit }}
+      - -X github.com/matteodante/miniform/internal/server.buildCommit={{ .FullCommit }}
+
+  - id: linux-arm64
+    main: ./cmd/miniform
+    binary: miniform
+    goos: [linux]
+    goarch: [arm64]
+    env:
+      - CGO_ENABLED=1
+      - CC=aarch64-linux-gnu-gcc
+    flags:
+      - -trimpath
+    tags:
+      - netgo
+      - osusergo
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w -linkmode external -extldflags "-static"
+      - -X main.version={{ .Tag }}
+      - -X main.commit={{ .FullCommit }}
+      - -X github.com/matteodante/miniform/internal/server.buildCommit={{ .FullCommit }}
+
+archives:
+  - id: release
+    ids: [linux-amd64, linux-arm64]
+    formats: [tar.gz, binary]
+    name_template: "miniform-linux-{{ .Arch }}"
+    wrap_in_directory: true
+    builds_info:
+      mode: 0755
+      mtime: "{{ .CommitDate }}"
+    files:
+      - README.md
+      - LICENSE
+      - THIRD_PARTY_NOTICES.md
+      - third_party_licenses/**/*
+
+checksum:
+  name_template: checksums.txt
+
+sboms:
+  - id: archives
+    artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.spdx.json"
+  - id: binaries
+    artifacts: binary
+    documents:
+      - "{{ .ArtifactName }}.spdx.json"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs(?:\([^)]*\))?:'
+      - '^test(?:\([^)]*\))?:'
+      - '^chore(?:\([^)]*\))?:'
+      - '^ci(?:\([^)]*\))?:'
+      - "^Merge "
+  groups:
+    - title: Features
+      regexp: '^.*?feat(?:\([^)]+\))?!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(?:\([^)]+\))?!?:.+$'
+      order: 1
+    - title: Other changes
+      order: 999
+
+release:
+  draft: true
+  prerelease: auto
+  mode: append
+  header: |
+    ## Miniform {{ .Tag }}
+
+    A quiet, self-hosted inbox for form submissions.
+
+    Read the [changelog](https://github.com/matteodante/miniform/blob/{{ .Tag }}/CHANGELOG.md) and [installation guide](https://github.com/matteodante/miniform/blob/{{ .Tag }}/docs/installation.md) before upgrading.
+  footer: |
+    Verify downloads with `checksums.txt` and GitHub artifact attestations. OCI images are published at `ghcr.io/matteodante/miniform`.

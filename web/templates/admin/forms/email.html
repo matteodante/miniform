@@ -1,0 +1,89 @@
+{{ define "admin/forms/email/content" }}
+{{ $delivery := .Delivery }}
+{{ $action := printf "/admin/forms/%d/emails" .Form.ID }}
+{{ if .IsEdit }}{{ $action = printf "/admin/forms/%d/emails/%d" .Form.ID $delivery.ID }}{{ end }}
+<div class="mx-auto max-w-4xl space-y-6">
+    <header>
+        <p class="mf-kicker">Email notifications</p>
+        <h1 class="mt-2 text-3xl font-bold text-ink">{{ if .IsEdit }}Edit notification{{ else }}Add notification{{ end }}</h1>
+        <p class="mt-2 text-sm text-ink-muted">{{ .Form.Name }} · each notification has its own recipient, Reply-To, templates, delivery status, and retries.</p>
+    </header>
+
+    {{ if .Error }}
+    <div role="alert" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{{ .Error }}</div>
+    {{ end }}
+
+    <form action="{{ $action }}" method="post" class="space-y-5">
+        <section class="mf-panel p-6">
+            <div class="flex items-start justify-between gap-4">
+                <div><h2 class="text-lg font-semibold text-ink">Delivery</h2><p class="text-sm text-ink-muted">Choose the SMTP route and where this message goes.</p></div>
+                <label class="flex items-center gap-2 text-sm font-semibold text-ink" for="enabled">
+                    <input class="h-4 w-4 rounded border-gray-300" id="enabled" name="enabled" type="checkbox" {{ if $delivery.Enabled }}checked{{ end }}> Enabled
+                </label>
+            </div>
+            <div class="mt-5 grid gap-5 sm:grid-cols-2">
+                <label class="grid gap-2 text-sm font-medium text-ink" for="name">Notification name
+                    <input class="mf-input w-full" id="name" name="name" type="text" required value="{{ $delivery.Name }}" placeholder="Customer confirmation">
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="mailer_profile_id">Email route
+                    <select class="mf-input w-full" id="mailer_profile_id" name="mailer_profile_id">
+                        <option value="">Select a route</option>
+                        {{ range .MailerProfiles }}<option value="{{ .ID }}" {{ if eq $.SelectedMailerProfileID .ID }}selected{{ end }}>{{ .Name }}</option>{{ end }}
+                    </select>
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="recipient_source">Recipient source
+                    <select class="mf-input w-full" id="recipient_source" name="recipient_source">
+                        <option value="static" {{ if eq $delivery.RecipientSource "static" }}selected{{ end }}>Static addresses</option>
+                        <option value="field" {{ if eq $delivery.RecipientSource "field" }}selected{{ end }}>Submission field</option>
+                    </select>
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="recipient">Recipient value
+                    <textarea class="mf-input w-full font-mono text-sm" id="recipient" name="recipient" rows="3" placeholder="team@example.com or email">{{ $delivery.Recipient }}</textarea>
+                    <span class="text-xs font-normal text-ink-muted">Static mode accepts comma-separated addresses. Field mode accepts one field name, for example <code>email</code>.</span>
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="reply_to_source">Reply-To source
+                    <select class="mf-input w-full" id="reply_to_source" name="reply_to_source">
+                        <option value="none" {{ if eq $delivery.ReplyToSource "none" }}selected{{ end }}>No Reply-To</option>
+                        <option value="static" {{ if eq $delivery.ReplyToSource "static" }}selected{{ end }}>Static address</option>
+                        <option value="field" {{ if eq $delivery.ReplyToSource "field" }}selected{{ end }}>Submission field</option>
+                    </select>
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="reply_to">Reply-To value
+                    <input class="mf-input w-full font-mono text-sm" id="reply_to" name="reply_to" type="text" value="{{ $delivery.ReplyTo }}" placeholder="support@example.com or email">
+                </label>
+            </div>
+        </section>
+
+        <section class="mf-panel p-6">
+            <div><h2 class="text-lg font-semibold text-ink">Message</h2><p class="text-sm text-ink-muted">HTML is context-escaped and always includes the text alternative below.</p></div>
+            <div class="mt-5 space-y-5">
+                <label class="grid gap-2 text-sm font-medium text-ink" for="subject_template">Subject template
+                    <input class="mf-input w-full font-mono text-sm" id="subject_template" name="subject_template" type="text" required value="{{ .SubjectTemplate }}">
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="format">Message format
+                    <select class="mf-input w-full" id="format" name="format">
+                        <option value="text" {{ if eq $delivery.Format "text" }}selected{{ end }}>Plain text</option>
+                        <option value="html" {{ if eq $delivery.Format "html" }}selected{{ end }}>HTML with text fallback</option>
+                    </select>
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="text_template">Text template
+                    <textarea class="mf-input w-full font-mono text-xs" id="text_template" name="text_template" rows="12" required>{{ .TextTemplate }}</textarea>
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-ink" for="html_template">HTML template
+                    <textarea class="mf-input w-full font-mono text-xs" id="html_template" name="html_template" rows="16">{{ .HTMLTemplate }}</textarea>
+                </label>
+                <div class="rounded-xl border border-rule bg-gray-50 p-4 text-xs text-ink-muted">
+                    <p class="font-semibold text-ink">Available template data</p>
+                    <p class="mt-2 font-mono">{{ "{{.FormName}}" }} · {{ "{{.SubmittedAt}}" }} · {{ "{{.Fields.email}}" }} · {{ "{{index .Fields \"field-name\"}}" }}</p>
+                    <p class="mt-2">Use <code>{{ "{{range .FieldList}}" }}...{{ "{{end}}" }}</code> to render every submitted value.</p>
+                </div>
+            </div>
+        </section>
+
+        <div class="flex justify-end gap-3">
+            <a class="mf-button-secondary" href="/admin/forms/{{ .Form.ID }}#email-notifications">Cancel</a>
+            <button class="mf-button" type="submit">{{ if .IsEdit }}Save notification{{ else }}Add notification{{ end }}</button>
+        </div>
+    </form>
+</div>
+{{ end }}

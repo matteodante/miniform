@@ -1,0 +1,71 @@
+name: Bug report
+description: Report a reproducible problem in Miniform
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. Do not include secrets, submission contents, personal data, or vulnerability details. Security reports belong in the private process described in SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release version, image digest, or commit SHA.
+      placeholder: v0.1.0 or abc1234
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - OCI container
+        - Linux binary
+        - Source build on Linux
+        - Source build on macOS
+        - Apple Container
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, architecture, browser if relevant, reverse proxy, and storage type.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest deterministic sequence that demonstrates the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs or screenshots
+      description: Remove credentials, tokens, cookies, form contents, email addresses, IP addresses, and filesystem paths.
+      render: shell
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched existing issues and discussions.
+          required: true
+        - label: This report does not contain a security vulnerability or sensitive data.
+          required: true

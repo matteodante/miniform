@@ -1,0 +1,4 @@
+interface:
+  display_name: "Miniform Testing"
+  short_description: "Write focused Miniform Go and E2E tests"
+  default_prompt: "Use $miniform-testing to add regression coverage for this Miniform change."

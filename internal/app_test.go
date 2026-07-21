@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -146,7 +147,8 @@ func TestAppLifecycle(t *testing.T) {
 		require.NoError(t, os.WriteFile(untrackedUpload, []byte("attachment"), 0o600))
 		require.NoError(t, RunMigrations(context.Background(), app))
 		assert.FileExists(t, untrackedUpload)
-		assert.GreaterOrEqual(t, app.Server.App().Server().MaxRequestBodySize, forms.MaxTotalFiles*forms.MaxFileSize)
+		assert.Equal(t, forms.MaxRequestBodySize, app.Server.App().Server().MaxRequestBodySize)
+		assert.Equal(t, 32, app.Server.App().Server().Concurrency)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan error, 1)
@@ -165,14 +167,14 @@ func TestAppLifecycle(t *testing.T) {
 			_ = response.Body.Close()
 			return response.StatusCode == http.StatusOK
 		}, 3*time.Second, 20*time.Millisecond)
-		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://127.0.0.1:"+port+"/forms/missing/submit?token=x", bytes.NewReader(make([]byte, 5*1024*1024)))
-		require.NoError(t, err)
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/forms/missing/submit?token=x", bytes.NewReader(make([]byte, forms.MaxRequestBodySize+1)))
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", "https://example.com")
-		response, err := http.DefaultClient.Do(request)
-		require.NoError(t, err)
-		defer response.Body.Close()
-		assert.Equal(t, http.StatusNotFound, response.StatusCode)
+		response, err := app.Server.App().Test(request, -1)
+		require.ErrorContains(t, err, "body size exceeds the given limit")
+		if response != nil {
+			require.NoError(t, response.Body.Close())
+		}
 
 		requestDone := make(chan struct{})
 		waitingRequest, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:"+port+"/_test/wait", nil)

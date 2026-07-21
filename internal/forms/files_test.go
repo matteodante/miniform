@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"mime/multipart"
+	"net/http/httptest"
 	"net/textproto"
 	"os"
 	"path/filepath"
@@ -24,7 +25,7 @@ func TestFiles(t *testing.T) {
 		}{
 			{"image", "photo.JPG", 1 << 20, ""},
 			{"document", "report.pdf", 5 << 20, ""},
-			{"office file", "sheet.xlsx", 1024, ""},
+			{"office file", "sheet.xlsx", 1024, "not allowed"},
 			{"too large", "archive.pdf", MaxFileSize + 1, "maximum size"},
 			{"unsupported", "program.exe", 1024, "not allowed"},
 			{"missing extension", "README", 1024, "no extension"},
@@ -69,6 +70,25 @@ func TestFiles(t *testing.T) {
 		}
 		_, err = ExtractFiles(&multipart.Form{File: map[string][]*multipart.FileHeader{"attachment": headers}})
 		assert.ErrorContains(t, err, "too many files for field")
+	})
+
+	t.Run("verifies file signatures instead of trusting the extension", func(t *testing.T) {
+		valid := multipartUpload(t, "report.pdf", []byte("%PDF-1.7\nvalid document"))
+		files, err := ExtractFiles(valid)
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		assert.Equal(t, "application/pdf", files[0].ContentType)
+		CloseFiles(files)
+
+		disguised := multipartUpload(t, "malware.pdf", []byte("plain text executable content"))
+		_, err = ExtractFiles(disguised)
+		assert.ErrorContains(t, err, "does not match extension")
+	})
+
+	t.Run("rejects dangerous and oversized file names", func(t *testing.T) {
+		assert.ErrorContains(t, ValidateFile(&multipart.FileHeader{Filename: "payload.svg", Size: 10}), "not allowed")
+		assert.ErrorContains(t, ValidateFile(&multipart.FileHeader{Filename: "bad\nname.txt", Size: 10}), "control")
+		assert.ErrorContains(t, ValidateFile(&multipart.FileHeader{Filename: string(make([]byte, MaxFilenameBytes+1)) + ".txt", Size: 10}), "between")
 	})
 
 	t.Run("stores private uploads and returns their metadata", func(t *testing.T) {
@@ -169,4 +189,20 @@ func TestFiles(t *testing.T) {
 		assert.True(t, os.IsNotExist(statErr))
 	})
 
+}
+
+func multipartUpload(t *testing.T, filename string, content []byte) *multipart.Form {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("attachment", filename)
+	require.NoError(t, err)
+	_, err = part.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	request := httptest.NewRequestWithContext(t.Context(), "POST", "/", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	require.NoError(t, request.ParseMultipartForm(MaxRequestBodySize))
+	t.Cleanup(func() { _ = request.MultipartForm.RemoveAll() })
+	return request.MultipartForm
 }

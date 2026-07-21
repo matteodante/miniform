@@ -10,7 +10,7 @@ Location: `internal/routes.go`
 
 ```go
 func MountRoutes(server *cartridge.Server, cfg *config.Config) {
-    requireSession := handlers.RequireSession(server.Session())
+    requireSession := handlers.RequireSession(server.Session(), server.GetDBManager(), cfg)
     requirePasswordChanged := handlers.RequirePasswordChanged(server.Session(), server.GetDBManager())
     authenticated := &cartridge.RouteConfig{
         CustomMiddleware: []fiber.Handler{requireSession, requirePasswordChanged},
@@ -29,7 +29,7 @@ func MountRoutes(server *cartridge.Server, cfg *config.Config) {
                 Max: 30, Expiration: time.Minute,
                 Storage: newRateLimitStorage(),
                 KeyGenerator: func(ctx *fiber.Ctx) string {
-                    return miniformserver.ClientIP(ctx, cfg.IsMatchaManaged())
+                    return miniformserver.ClientIP(ctx, cfg.ProxyMode())
                 },
                 Next: func(*fiber.Ctx) bool { return cfg.IsDevelopment() || cfg.IsTest() },
             }),
@@ -125,7 +125,7 @@ limiter.New(limiter.Config{
     Max: 30, Expiration: time.Minute,
     Storage: newRateLimitStorage(),
     KeyGenerator: func(ctx *fiber.Ctx) string {
-        return miniformserver.ClientIP(ctx, cfg.IsMatchaManaged())
+        return miniformserver.ClientIP(ctx, cfg.ProxyMode())
     },
     Next: func(*fiber.Ctx) bool { return cfg.IsDevelopment() || cfg.IsTest() },
 })
@@ -135,4 +135,4 @@ limiter.New(limiter.Config{
 
 Route middleware does not serialize SQLite mutations. The owning domain wraps each write with `dbtxn.WithRetry`, while handlers pass `ctx.UserContext()` into cancellable database or network work. The application cancels all request contexts during shutdown.
 
-Production rate limits use in-process storage. Direct deployments ignore `X-Forwarded-For`; only a Matcha-managed deployment trusts the last address appended by its proxy.
+Production rate limits use in-process storage with global and per-client layers. Direct deployments ignore forwarding headers; Matcha trusts only the last address appended to `X-Forwarded-For`, while Railway uses its `X-Real-IP` contract. The application also owns the body and concurrency caps plus CSP/security-header middleware.

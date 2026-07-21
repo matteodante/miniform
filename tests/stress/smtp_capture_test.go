@@ -279,7 +279,7 @@ func validateSMTPCapture(t *testing.T, snapshot smtpCaptureSnapshot, sequences [
 			assert.Contains(t, htmlBody, "&lt;script&gt;alert(&#34;smtp&#34;)&lt;/script&gt; &amp; &#34;quotes&#34;")
 			assert.NotContains(t, htmlBody, "<script>")
 		case strings.HasPrefix(subject, "Customer "):
-			assert.Equal(t, []string{customer}, captured.to)
+			assert.Equal(t, []string{"qa-customer@recipient.invalid"}, captured.to)
 			replyTo, err := mail.ParseAddress(message.Header.Get("Reply-To"))
 			require.NoError(t, err)
 			assert.Equal(t, "Support", replyTo.Name)

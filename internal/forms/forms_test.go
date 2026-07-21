@@ -248,11 +248,15 @@ func TestForms(t *testing.T) {
 
 	t.Run("schedules one durable event for each enabled email notification", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
+		captcha, err := integrations.CreateCaptchaProfile(logger, db, integrations.CaptchaProfileParams{
+			Name: "Turnstile", SiteKey: "site", SecretKey: "secret",
+		})
+		require.NoError(t, err)
 		profile, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
 			Name: "SMTP", DefaultFromEmail: "forms@example.com", SMTPHost: "smtp.example.com",
 		})
 		require.NoError(t, err)
-		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Booking", Slug: "booking", AllowedOrigins: "*"})
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Booking", Slug: "booking", AllowedOrigins: "*", CaptchaProfileID: &captcha.ID})
 		require.NoError(t, err)
 
 		internal, err := forms.CreateEmailDelivery(logger, db, forms.EmailDeliveryParams{
@@ -569,6 +573,96 @@ func TestForms(t *testing.T) {
 			assert.Zero(t, count, name)
 		}
 		assert.ErrorIs(t, forms.DeleteForm(logger, db, dataDir, form.ID), gorm.ErrRecordNotFound)
+	})
+
+	t.Run("rejects uploads beyond the persistent storage quota atomically", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		dataDir := t.TempDir()
+		form, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "Quota", Slug: "quota", AllowedOrigins: "*", UploadsEnabled: true,
+		})
+		require.NoError(t, err)
+
+		_, err = forms.CreateSubmissionWithLimits(
+			logger, db, form, map[string]any{"message": "hello"}, "Browser", dataDir,
+			[]*forms.UploadedFile{{
+				FieldName: "attachment", Filename: "note.txt", ContentType: "text/plain; charset=utf-8",
+				Size: 4, Data: bytes.NewBufferString("test"),
+			}}, forms.SubmissionLimits{MaxUploadStorageBytes: 3},
+		)
+
+		assert.ErrorIs(t, err, forms.ErrUploadStorageQuotaExceeded)
+		var submissions, files int64
+		require.NoError(t, db.Model(&forms.Submission{}).Count(&submissions).Error)
+		require.NoError(t, db.Model(&forms.SubmissionFile{}).Count(&files).Error)
+		assert.Zero(t, submissions)
+		assert.Zero(t, files)
+	})
+
+	t.Run("requires Turnstile before a public field can choose the email recipient", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		mailer, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
+			Name: "SMTP", DefaultFromEmail: "forms@example.com", SMTPHost: "smtp.example.com",
+		})
+		require.NoError(t, err)
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Public", Slug: "public", AllowedOrigins: "*"})
+		require.NoError(t, err)
+
+		_, err = forms.CreateEmailDelivery(logger, db, forms.EmailDeliveryParams{
+			FormID: form.ID, Enabled: true, MailerProfileID: &mailer.ID,
+			RecipientSource: forms.EmailRecipientField, Recipient: "email",
+		})
+		assert.ErrorContains(t, err, "Turnstile safeguard")
+
+		legacy := forms.EmailDelivery{
+			FormID: form.ID, Name: "Legacy", Enabled: true, MailerProfileID: &mailer.ID,
+			RecipientSource: forms.EmailRecipientField, Recipient: "email",
+		}
+		require.NoError(t, db.Create(&legacy).Error)
+		form, err = forms.GetByID(db, form.ID)
+		require.NoError(t, err)
+		_, err = forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"email": "victim@example.com"}, "Browser", "", nil)
+		require.NoError(t, err)
+		var events int64
+		require.NoError(t, db.Model(&forms.EmailEvent{}).Count(&events).Error)
+		assert.Zero(t, events)
+	})
+
+	t.Run("prevents removing Turnstile while another dynamic recipient is enabled", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		mailer, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
+			Name: "SMTP", DefaultFromEmail: "forms@example.com", SMTPHost: "smtp.example.com",
+		})
+		require.NoError(t, err)
+		captcha, err := integrations.CreateCaptchaProfile(logger, db, integrations.CaptchaProfileParams{
+			Name: "Turnstile", SiteKey: "site", SecretKey: "secret",
+		})
+		require.NoError(t, err)
+		form, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "Protected", Slug: "protected", AllowedOrigins: "*", CaptchaProfileID: &captcha.ID,
+			EmailEnabled: true, MailerProfileID: &mailer.ID,
+			EmailRecipientType: forms.EmailRecipientStatic, EmailRecipient: "team@example.com",
+		})
+		require.NoError(t, err)
+		_, err = forms.CreateEmailDelivery(logger, db, forms.EmailDeliveryParams{
+			FormID: form.ID, Name: "Confirmation", Enabled: true, MailerProfileID: &mailer.ID,
+			RecipientSource: forms.EmailRecipientField, Recipient: "email",
+		})
+		require.NoError(t, err)
+
+		_, err = forms.Update(logger, db, forms.UpdateParams{
+			ID: form.ID, Name: form.Name, AllowedOrigins: form.AllowedOrigins,
+			EmailEnabled: true, MailerProfileID: &mailer.ID,
+			EmailRecipientType: forms.EmailRecipientStatic, EmailRecipient: "team@example.com",
+		})
+
+		var validation *forms.ValidationError
+		require.ErrorAs(t, err, &validation)
+		assert.Equal(t, "captcha_profile_id", validation.Field)
+		persisted, getErr := forms.GetByID(db, form.ID)
+		require.NoError(t, getErr)
+		require.NotNil(t, persisted.CaptchaProfileID)
+		assert.Equal(t, captcha.ID, *persisted.CaptchaProfileID)
 	})
 }
 

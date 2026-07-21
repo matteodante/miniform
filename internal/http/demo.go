@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/matteodante/miniform/internal/forms"
+	miniformserver "github.com/matteodante/miniform/internal/server"
 )
 
 func DemoContactForm(ctx *cartridge.Context) error {
@@ -24,5 +25,7 @@ func DemoContactForm(ctx *cartridge.Context) error {
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
-	return ctx.Render("demo", fiber.Map{"FormName": form.Name, "FormSlug": form.Slug, "FormToken": form.Token}, "")
+	return ctx.Render("demo", miniformserver.TemplateSecurity(ctx.Ctx, fiber.Map{
+		"FormName": form.Name, "FormSlug": form.Slug, "FormToken": form.Token,
+	}), "")
 }

@@ -10,15 +10,15 @@
 
 Miniform accepts submissions and file uploads from any HTML form, stores them in SQLite, and forwards them to webhooks or SMTP. It ships as one Go binary and one OCI image, with no hosted account or external database.
 
-The current stable release is [`v0.2.1`](https://github.com/matteodante/miniform/releases/tag/v0.2.1). Pin an exact release or image digest in production; `main` remains the development branch.
+The current stable release is [`v0.2.2`](https://github.com/matteodante/miniform/releases/tag/v0.2.2). Pin an exact release or image digest in production; `main` remains the development branch.
 
 ## Why Miniform
 
 - Private, searchable inbox for submissions and files
 - Independent forms with tokens and allowed-origin policies
 - Retried webhook and email delivery with visible history
-- Honeypot, rate limiting, origin checks, and per-endpoint Turnstile
-- Crash-recoverable uploads, durable delivery queues, and SQLite persistence in a single process
+- Bounded request resources, dual rate limiting, origin checks, security headers, and per-endpoint Turnstile
+- Opt-in signature-validated uploads with a storage quota, durable delivery queues, and SQLite persistence in a single process
 - Native HTML forms and direct HTTP requests with no client library
 - Multiple per-form SMTP notifications with independent recipients, Reply-To, templates, status, and retries
 
@@ -49,13 +49,13 @@ Open <http://127.0.0.1:8080/_demo>. The isolated admin account is `admin@minifor
 The public multi-architecture image supports Linux `amd64` and `arm64`:
 
 ```bash
-docker pull ghcr.io/matteodante/miniform:v0.2.1
+docker pull ghcr.io/matteodante/miniform:v0.2.2
 docker volume create miniform-data
 docker run --rm --name miniform \
   --publish 8080:8080 \
   --env MINIFORM_ENV=development \
   --volume miniform-data:/app/storage \
-  ghcr.io/matteodante/miniform:v0.2.1
+  ghcr.io/matteodante/miniform:v0.2.2
 ```
 
 To build the same OCI-compatible image locally, run `docker build --tag miniform:local .`.

@@ -305,11 +305,11 @@ func seedStressForms(t *testing.T, databasePath, webhookURL, smtpHost string, sm
 	})
 	require.NoError(t, err)
 	loadForm, err := forms.Create(logger, db, forms.CreateParams{
-		Name: "Stress ingestion", Slug: "stress-ingestion", AllowedOrigins: "*",
+		Name: "Stress ingestion", Slug: "stress-ingestion", AllowedOrigins: "*", UploadsEnabled: true,
 	})
 	require.NoError(t, err)
 	deliveryForm, err := forms.Create(logger, db, forms.CreateParams{
-		Name: "Stress delivery", Slug: "stress-delivery", AllowedOrigins: "*",
+		Name: "Stress delivery", Slug: "stress-delivery", AllowedOrigins: "*", UploadsEnabled: true,
 		WebhookEnabled: true, WebhookURL: webhookURL,
 		MailerProfileID: &profile.ID, EmailEnabled: true, EmailName: "Internal stress notification",
 		EmailRecipientType: forms.EmailRecipientStatic,
@@ -322,7 +322,7 @@ func seedStressForms(t *testing.T, databasePath, webhookURL, smtpHost string, sm
 	require.NoError(t, err)
 	_, err = forms.CreateEmailDelivery(logger, db, forms.EmailDeliveryParams{
 		FormID: deliveryForm.ID, Name: "Customer stress confirmation", Enabled: true,
-		MailerProfileID: &profile.ID, RecipientSource: forms.EmailRecipientField, Recipient: "email",
+		MailerProfileID: &profile.ID, RecipientSource: forms.EmailRecipientStatic, Recipient: "qa-customer@recipient.invalid",
 		ReplyToSource: forms.EmailReplyToStatic, ReplyTo: "Support <support@sender.invalid>",
 		SubjectTemplate: "Customer {{.Fields.sequence}}", Format: forms.EmailFormatText,
 		TextTemplate: "Confirmation for {{.Fields.name}}",
@@ -541,7 +541,8 @@ func startServer(t *testing.T, binary, port, dataDir, databasePath string) *serv
 		"MINIFORM_DATABASE_PATH="+databasePath,
 		"MINIFORM_LOGS_DIR="+filepath.Join(dataDir, "logs"),
 		"MINIFORM_LOG_LEVEL=error",
-		"MINIFORM_SESSION_SECRET=stress-secret",
+		"MINIFORM_SESSION_SECRET=stress-session-secret-32-characters",
+		"MINIFORM_PUBLIC_GLOBAL_RATE_LIMIT=1000",
 		"MINIFORM_WEBHOOK_BACKOFF_SCHEDULE=1",
 		"MATCHA_MANAGER_VERSION=stress",
 	)

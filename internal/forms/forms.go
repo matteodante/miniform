@@ -22,6 +22,7 @@ type CreateParams struct {
 	Slug               string
 	AllowedOrigins     string
 	GeneratedHTML      string
+	UploadsEnabled     bool
 	TemplateID         string
 	MailerProfileID    *uint
 	CaptchaProfileID   *uint
@@ -50,6 +51,7 @@ type UpdateParams struct {
 	MailerProfileID     *uint
 	CaptchaProfileID    *uint
 	UpdateGeneratedHTML bool
+	UploadsEnabled      bool
 	EmailName           string
 	EmailRecipientType  string
 	EmailRecipient      string
@@ -103,6 +105,9 @@ func Create(logger *slog.Logger, db *gorm.DB, params CreateParams) (*Form, error
 	if err != nil {
 		return nil, err
 	}
+	if err := validateDynamicRecipientSafeguard(email, params.CaptchaProfileID); err != nil {
+		return nil, err
+	}
 	webhook, err := prepareWebhookDelivery(params.WebhookEnabled, params.WebhookURL, params.WebhookSecret, params.WebhookHeadersJSON)
 	if err != nil {
 		return nil, err
@@ -133,6 +138,7 @@ func Create(logger *slog.Logger, db *gorm.DB, params CreateParams) (*Form, error
 		Slug:             normalizedSlug,
 		AllowedOrigins:   origins,
 		GeneratedHTML:    generatedHTML,
+		UploadsEnabled:   params.UploadsEnabled,
 		Token:            token,
 		CaptchaProfileID: params.CaptchaProfileID,
 		WebhookDelivery: &WebhookDelivery{
@@ -177,6 +183,9 @@ func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error
 	if err != nil {
 		return nil, err
 	}
+	if err := validateDynamicRecipientSafeguard(email, params.CaptchaProfileID); err != nil {
+		return nil, err
+	}
 	webhook, err := prepareWebhookDelivery(params.WebhookEnabled, params.WebhookURL, params.WebhookSecret, params.WebhookHeadersJSON)
 	if err != nil {
 		return nil, err
@@ -203,18 +212,26 @@ func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error
 			return nil, err
 		}
 	}
+	primary := PrimaryEmailDelivery(form)
+	primaryID := uint(0)
+	if primary != nil {
+		primaryID = primary.ID
+	}
 	err = dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
 		if err := validateProfileReferences(tx, params.MailerProfileID, params.CaptchaProfileID); err != nil {
+			return err
+		}
+		if err := validateAdditionalDynamicRecipients(tx, form.ID, primaryID, params.CaptchaProfileID); err != nil {
 			return err
 		}
 		if err := tx.Model(&Form{}).Where("id = ?", params.ID).Updates(map[string]any{
 			"name": name, "slug": slug, "allowed_origins": origins,
 			"generated_html":     generatedHTML,
+			"uploads_enabled":    params.UploadsEnabled,
 			"captcha_profile_id": params.CaptchaProfileID,
 		}).Error; err != nil {
 			return err
 		}
-		primary := PrimaryEmailDelivery(form)
 		if primary != nil {
 			if err := tx.Model(&EmailDelivery{}).Where("id = ?", primary.ID).Updates(map[string]any{
 				"name": email.Name, "enabled": email.Enabled,
@@ -244,6 +261,32 @@ func Update(logger *slog.Logger, db *gorm.DB, params UpdateParams) (*Form, error
 		return nil, fmt.Errorf("update form %d: %w", params.ID, err)
 	}
 	return GetByID(db, params.ID)
+}
+
+func validateDynamicRecipientSafeguard(delivery EmailDelivery, captchaProfileID *uint) error {
+	if delivery.Enabled && delivery.RecipientSource == EmailRecipientField && captchaProfileID == nil {
+		return invalid("email_recipient", "A Turnstile safeguard is required for field-derived recipients")
+	}
+	return nil
+}
+
+func validateAdditionalDynamicRecipients(db *gorm.DB, formID, primaryID uint, captchaProfileID *uint) error {
+	if captchaProfileID != nil {
+		return nil
+	}
+	query := db.Model(&EmailDelivery{}).
+		Where("form_id = ? AND enabled = ? AND recipient_source = ?", formID, true, EmailRecipientField)
+	if primaryID != 0 {
+		query = query.Where("id <> ?", primaryID)
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return err
+	}
+	if count != 0 {
+		return invalid("captcha_profile_id", "Turnstile cannot be removed while a field-derived recipient is enabled")
+	}
+	return nil
 }
 
 func GetByID(db *gorm.DB, id uint) (*Form, error) {

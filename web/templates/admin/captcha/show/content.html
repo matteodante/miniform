@@ -41,7 +41,7 @@
 </div>
 
 <form id="deleteForm" method="POST" action="/admin/settings/captcha/{{ .Profile.ID }}/delete" hidden></form>
-<script>
+<script nonce="{{ .CSPNonce }}">
 function deleteCaptchaProfile() {
     const usage = {{ .UsageCount }};
     if (usage > 0) {

@@ -19,8 +19,9 @@ import (
 )
 
 var (
-	errTooManyFields = errors.New("too many fields")
-	errCaptchaFailed = errors.New("captcha verification failed")
+	errTooManyFields   = errors.New("too many fields")
+	errPayloadTooLarge = errors.New("submission fields exceed maximum size")
+	errCaptchaFailed   = errors.New("captcha verification failed")
 )
 
 type publicFailure struct {
@@ -46,7 +47,11 @@ func PublicFormSubmission(ctx *cartridge.Context, cfg *config.Config) error {
 
 	payload, err := extractSubmissionPayload(ctx, cfg)
 	if err != nil {
-		return submissionFailure(ctx, form, payload, fiber.StatusBadRequest, err.Error())
+		status := fiber.StatusBadRequest
+		if errors.Is(err, errPayloadTooLarge) {
+			status = fiber.StatusRequestEntityTooLarge
+		}
+		return submissionFailure(ctx, form, payload, status, err.Error())
 	}
 	origin := requestOrigin(ctx)
 	successURL, err := resolvedRedirect(form, redirectField(payload, "_success_url"), origin)
@@ -65,17 +70,20 @@ func PublicFormSubmission(ctx *cartridge.Context, cfg *config.Config) error {
 	delete(payload, "_success_url")
 	delete(payload, "_error_url")
 
-	files, err := uploadedFiles(ctx)
+	files, err := uploadedFiles(ctx, form)
 	if err != nil {
 		return redirectOrJSON(ctx, errorURL, fiber.StatusBadRequest, err.Error())
 	}
-	submission, err := forms.CreateSubmissionWithFiles(
+	submission, err := forms.CreateSubmissionWithLimits(
 		ctx.Logger, db, form, payload, ctx.Get(fiber.HeaderUserAgent),
-		cfg.DataDirectory, files,
+		cfg.DataDirectory, files, forms.SubmissionLimits{MaxUploadStorageBytes: cfg.MaxUploadStorageBytes},
 	)
 	if err != nil {
 		if errors.Is(err, forms.ErrEmptySubmission) {
 			return redirectOrJSON(ctx, errorURL, fiber.StatusBadRequest, err.Error())
+		}
+		if errors.Is(err, forms.ErrUploadStorageQuotaExceeded) {
+			return redirectOrJSON(ctx, errorURL, fiber.StatusInsufficientStorage, err.Error())
 		}
 		return redirectOrJSON(ctx, errorURL, fiber.StatusInternalServerError, "submission failed")
 	}
@@ -111,7 +119,14 @@ func publicForm(ctx *cartridge.Context, db *gorm.DB) (*forms.Form, error) {
 
 func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[string]any, error) {
 	payload := make(map[string]any)
+	maxPayloadBytes := cfg.MaxPayloadBytes
+	if maxPayloadBytes <= 0 {
+		maxPayloadBytes = 64 * 1024
+	}
 	if strings.Contains(ctx.Get(fiber.HeaderContentType), fiber.MIMEApplicationJSON) {
+		if len(ctx.Body()) > maxPayloadBytes {
+			return payload, errPayloadTooLarge
+		}
 		if err := json.Unmarshal(ctx.Body(), &payload); err != nil {
 			return payload, err
 		}
@@ -125,6 +140,7 @@ func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[s
 	}
 
 	fieldCount := 0
+	payloadBytes := 0
 	hasFiles := false
 	if strings.Contains(ctx.Get(fiber.HeaderContentType), fiber.MIMEMultipartForm) {
 		multipart, err := ctx.MultipartForm()
@@ -133,6 +149,13 @@ func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[s
 		}
 		for name, values := range multipart.Value {
 			fieldCount += len(values)
+			payloadBytes += len(name)
+			for _, value := range values {
+				payloadBytes += len(value)
+			}
+			if payloadBytes > maxPayloadBytes {
+				return payload, errPayloadTooLarge
+			}
 			if fieldCount > cfg.MaxInputFields {
 				return payload, errTooManyFields
 			}
@@ -142,6 +165,10 @@ func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[s
 	} else {
 		for name, value := range ctx.Request().PostArgs().All() {
 			fieldCount++
+			payloadBytes += len(name) + len(value)
+			if payloadBytes > maxPayloadBytes {
+				return payload, errPayloadTooLarge
+			}
 			if fieldCount <= cfg.MaxInputFields {
 				appendFormValue(payload, string(name), string(value))
 			}
@@ -175,13 +202,16 @@ func appendFormValue(payload map[string]any, name, value string) {
 	}
 }
 
-func uploadedFiles(ctx *cartridge.Context) ([]*forms.UploadedFile, error) {
+func uploadedFiles(ctx *cartridge.Context, form *forms.Form) ([]*forms.UploadedFile, error) {
 	if !strings.Contains(ctx.Get(fiber.HeaderContentType), fiber.MIMEMultipartForm) {
 		return nil, nil
 	}
 	multipart, err := ctx.MultipartForm()
 	if err != nil {
 		return nil, err
+	}
+	if !form.UploadsEnabled && len(multipart.File) > 0 {
+		return nil, errors.New("file uploads are disabled for this form")
 	}
 	return forms.ExtractFiles(multipart)
 }
@@ -249,7 +279,7 @@ func verifyCaptcha(ctx *cartridge.Context, cfg *config.Config, form *forms.Form,
 	}
 	result, err := integrations.VerifyTurnstileToken(
 		ctx.UserContext(), profile.SecretKey, token,
-		miniformserver.ClientIP(ctx.Ctx, cfg.IsMatchaManaged()),
+		miniformserver.ClientIP(ctx.Ctx, cfg.ProxyMode()),
 	)
 	if err != nil {
 		ctx.Logger.Warn("turnstile rejected submission", slog.Uint64("form_id", uint64(form.ID)), slog.Any("error", err))

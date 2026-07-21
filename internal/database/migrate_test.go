@@ -79,6 +79,15 @@ type legacySDKForm struct {
 
 func (legacySDKForm) TableName() string { return "forms" }
 
+func setupMigrationTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		NowFunc: func() time.Time { return time.Now().UTC() },
+	})
+	require.NoError(t, err)
+	return db
+}
+
 type legacyEmailDelivery struct {
 	ID              uint `gorm:"primaryKey"`
 	FormID          uint `gorm:"uniqueIndex;not null"`
@@ -555,5 +564,25 @@ func TestMigrate(t *testing.T) {
 			require.False(t, db.Migrator().HasColumn(&forms.Submission{}, "ip_hash"))
 			require.False(t, db.Migrator().HasTable("settings"))
 		})
+	})
+
+	t.Run("disables legacy field-derived recipients without Turnstile", func(t *testing.T) {
+		db := setupMigrationTestDB(t)
+		require.NoError(t, Migrate(db))
+		mailer, err := integrations.CreateMailerProfile(migrationLogger, db, integrations.MailerProfileParams{
+			Name: "SMTP", DefaultFromEmail: "forms@example.com", SMTPHost: "smtp.example.com",
+		})
+		require.NoError(t, err)
+		form, err := forms.Create(migrationLogger, db, forms.CreateParams{Name: "Legacy", Slug: "legacy-unsafe", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		delivery := forms.EmailDelivery{
+			FormID: form.ID, Name: "Unsafe", Enabled: true, MailerProfileID: &mailer.ID,
+			RecipientSource: forms.EmailRecipientField, Recipient: "email",
+		}
+		require.NoError(t, db.Create(&delivery).Error)
+
+		require.NoError(t, Migrate(db))
+		require.NoError(t, db.First(&delivery, delivery.ID).Error)
+		require.False(t, delivery.Enabled)
 	})
 }

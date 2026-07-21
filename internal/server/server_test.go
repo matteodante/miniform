@@ -220,14 +220,58 @@ func TestTemplateFuncs(t *testing.T) {
 
 func TestClientIP(t *testing.T) {
 	t.Run("uses only the address appended by the trusted Matcha proxy", func(t *testing.T) {
-		assert.Equal(t, "203.0.113.7", clientIP("172.18.0.2", "198.51.100.10, 203.0.113.7", true))
+		assert.Equal(t, "203.0.113.7", clientIP("172.18.0.2", "198.51.100.10, 203.0.113.7", "", appconfig.ProxyMatcha))
 	})
 
 	t.Run("ignores forwarding headers outside Matcha", func(t *testing.T) {
-		assert.Equal(t, "172.18.0.2", clientIP("172.18.0.2", "198.51.100.10", false))
+		assert.Equal(t, "172.18.0.2", clientIP("172.18.0.2", "198.51.100.10", "203.0.113.8", appconfig.ProxyDirect))
 	})
 
 	t.Run("falls back to the socket address when the appended value is invalid", func(t *testing.T) {
-		assert.Equal(t, "172.18.0.2", clientIP("172.18.0.2", "198.51.100.10, invalid", true))
+		assert.Equal(t, "172.18.0.2", clientIP("172.18.0.2", "198.51.100.10, invalid", "", appconfig.ProxyMatcha))
+	})
+
+	t.Run("uses Railway X-Real-IP only in Railway mode", func(t *testing.T) {
+		assert.Equal(t, "203.0.113.8", clientIP("172.18.0.2", "198.51.100.10", "203.0.113.8", appconfig.ProxyRailway))
+		assert.Equal(t, "172.18.0.2", clientIP("172.18.0.2", "", "invalid", appconfig.ProxyRailway))
+	})
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	t.Run("adds browser defenses and a matching template nonce", func(t *testing.T) {
+		cfg := &appconfig.Config{Config: &cartridgeconfig.Config{Environment: cartridgeconfig.Production}}
+		app := fiber.New()
+		app.Use(SecurityHeaders(cfg))
+		app.Get("/admin/settings", func(ctx *fiber.Ctx) error {
+			return ctx.JSON(TemplateSecurity(ctx, fiber.Map{}))
+		})
+
+		response, err := app.Test(httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/settings", nil))
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		var body map[string]string
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&body))
+		nonce := body["CSPNonce"]
+		assert.NotEmpty(t, nonce)
+		assert.Contains(t, response.Header.Get("Content-Security-Policy"), "'nonce-"+nonce+"'")
+		assert.Contains(t, response.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'")
+		assert.Equal(t, "max-age=31536000", response.Header.Get("Strict-Transport-Security"))
+		assert.Equal(t, "no-store", response.Header.Get("Cache-Control"))
+		assert.Equal(t, "nosniff", response.Header.Get("X-Content-Type-Options"))
+		assert.Equal(t, "DENY", response.Header.Get("X-Frame-Options"))
+	})
+
+	t.Run("does not advertise HSTS without production HTTPS", func(t *testing.T) {
+		cfg := &appconfig.Config{Config: &cartridgeconfig.Config{Environment: cartridgeconfig.Development}}
+		app := fiber.New()
+		app.Use(SecurityHeaders(cfg))
+		app.Get("/", func(ctx *fiber.Ctx) error { return ctx.SendStatus(fiber.StatusNoContent) })
+
+		response, err := app.Test(httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Empty(t, response.Header.Get("Strict-Transport-Security"))
 	})
 }

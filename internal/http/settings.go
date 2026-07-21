@@ -50,7 +50,10 @@ func AdminSettingsUpdatePassword(ctx *cartridge.Context) error {
 			return fiber.ErrInternalServerError
 		}
 	}
-	return renderSettings(ctx, db, "", "Password updated successfully")
+	if ctx.Session != nil {
+		ctx.Session.ClearSession(ctx.Ctx)
+	}
+	return ctx.Redirect("/admin/login")
 }
 
 func AdminSettingsUpdateEmail(ctx *cartridge.Context) error {
@@ -80,7 +83,10 @@ func AdminSettingsUpdateEmail(ctx *cartridge.Context) error {
 			return fiber.ErrInternalServerError
 		}
 	}
-	return renderSettings(ctx, db, "", "Email updated successfully")
+	if ctx.Session != nil {
+		ctx.Session.ClearSession(ctx.Ctx)
+	}
+	return ctx.Redirect("/admin/login")
 }
 
 func currentUser(ctx *cartridge.Context, db *gorm.DB) (*accounts.User, error) {

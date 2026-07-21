@@ -1,10 +1,13 @@
 package accounts_test
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -109,6 +112,31 @@ func TestAccounts(t *testing.T) {
 		require.NoError(t, accounts.ResetPassword(logger, db, created.Email, "replacement-password"))
 		_, err = accounts.Authenticate(logger, db, created.Email, "replacement-password")
 		assert.NoError(t, err)
+	})
+
+	t.Run("stores only a hash when revoking a session", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		expiresAt := time.Now().UTC().Add(time.Hour)
+		payload, err := json.Marshal(map[string]any{"user_id": "1", "expires_at": expiresAt})
+		require.NoError(t, err)
+		token := base64.RawURLEncoding.EncodeToString(payload) + ".signature"
+
+		parsedExpiry, err := accounts.SessionExpiresAt(token)
+		require.NoError(t, err)
+		assert.WithinDuration(t, expiresAt, parsedExpiry, time.Millisecond)
+		require.NoError(t, accounts.RegisterSession(logger, db, 1, token, parsedExpiry))
+		active, err := accounts.IsSessionActive(db, 1, token, time.Now())
+		require.NoError(t, err)
+		assert.True(t, active)
+
+		var stored accounts.ActiveSession
+		require.NoError(t, db.First(&stored).Error)
+		assert.NotEqual(t, token, stored.TokenHash)
+		assert.Len(t, stored.TokenHash, 64)
+		require.NoError(t, accounts.RevokeSession(logger, db, token))
+		active, err = accounts.IsSessionActive(db, 1, token, time.Now())
+		require.NoError(t, err)
+		assert.False(t, active)
 	})
 
 	t.Run("does not persist initial credentials that could not be announced", func(t *testing.T) {

@@ -54,6 +54,14 @@ func mountUtilityRoutes(server *cartridge.Server, cfg *config.Config) {
 }
 
 func mountPublicSubmission(server *cartridge.Server, cfg *config.Config) {
+	limitReached := func(ctx *fiber.Ctx) error {
+		return ctx.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+			"ok": false, "error": "rate limit exceeded",
+		})
+	}
+	skipLimit := func(ctx *fiber.Ctx) bool {
+		return cfg.IsDevelopment() || cfg.IsTest() || ctx.Method() == fiber.MethodOptions
+	}
 	public := &cartridge.RouteConfig{
 		EnableSecFetchSite: cartridge.Bool(false),
 		EnableCORS:         true,
@@ -61,17 +69,18 @@ func mountPublicSubmission(server *cartridge.Server, cfg *config.Config) {
 			AllowOrigins: "*", AllowMethods: "POST,OPTIONS",
 			AllowHeaders: "Content-Type",
 		},
-		CustomMiddleware: []fiber.Handler{limiter.New(limiter.Config{
-			Max: 30, Expiration: time.Minute,
-			Storage:      newRateLimitStorage(),
-			KeyGenerator: func(ctx *fiber.Ctx) string { return miniformserver.ClientIP(ctx, cfg.IsMatchaManaged()) },
-			LimitReached: func(ctx *fiber.Ctx) error {
-				return ctx.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
-					"ok": false, "error": "rate limit exceeded",
-				})
-			},
-			Next: func(*fiber.Ctx) bool { return cfg.IsDevelopment() || cfg.IsTest() },
-		})},
+		CustomMiddleware: []fiber.Handler{
+			limiter.New(limiter.Config{
+				Max: cfg.PublicGlobalRateLimit, Expiration: time.Minute, Storage: newRateLimitStorage(),
+				KeyGenerator: func(*fiber.Ctx) string { return "public-submissions" },
+				LimitReached: limitReached, Next: skipLimit,
+			}),
+			limiter.New(limiter.Config{
+				Max: 30, Expiration: time.Minute, Storage: newRateLimitStorage(),
+				KeyGenerator: func(ctx *fiber.Ctx) string { return miniformserver.ClientIP(ctx, cfg.ProxyMode()) },
+				LimitReached: limitReached, Next: skipLimit,
+			}),
+		},
 	}
 	server.Post("/forms/:slug/submit", func(ctx *cartridge.Context) error {
 		return handlers.PublicFormSubmission(ctx, cfg)
@@ -83,31 +92,38 @@ func mountPublicSubmission(server *cartridge.Server, cfg *config.Config) {
 
 func mountLogin(server *cartridge.Server, cfg *config.Config) {
 	server.Get("/admin/login", handlers.AdminLoginPage)
+	loginLimitReached := func(ctx *fiber.Ctx) error {
+		return ctx.Status(fiber.StatusTooManyRequests).Render("layouts/base", miniformserver.TemplateSecurity(ctx, fiber.Map{
+			"Title": "Sign in", "Error": "Too many login attempts. Please try again in a minute.",
+			"HideHeaderActions": true, "ContentView": "admin/login/content",
+		}), "")
+	}
+	skipLimit := func(*fiber.Ctx) bool { return cfg.IsDevelopment() || cfg.IsTest() }
+	globalLoginLimiter := limiter.New(limiter.Config{
+		Max: 30, Expiration: time.Minute, Storage: newRateLimitStorage(),
+		KeyGenerator: func(*fiber.Ctx) string { return "admin-login" },
+		LimitReached: loginLimitReached, Next: skipLimit,
+	})
 	loginLimiter := limiter.New(limiter.Config{
 		Max: 5, Expiration: time.Minute,
 		Storage:      newRateLimitStorage(),
-		KeyGenerator: func(ctx *fiber.Ctx) string { return miniformserver.ClientIP(ctx, cfg.IsMatchaManaged()) },
-		LimitReached: func(ctx *fiber.Ctx) error {
-			return ctx.Status(fiber.StatusTooManyRequests).Render("layouts/base", fiber.Map{
-				"Title": "Sign in", "Error": "Too many login attempts. Please try again in a minute.",
-				"HideHeaderActions": true, "ContentView": "admin/login/content",
-			}, "")
-		},
-		Next: func(*fiber.Ctx) bool { return cfg.IsDevelopment() || cfg.IsTest() },
+		KeyGenerator: func(ctx *fiber.Ctx) string { return miniformserver.ClientIP(ctx, cfg.ProxyMode()) },
+		LimitReached: loginLimitReached,
+		Next:         skipLimit,
 	})
-	server.Post("/admin/login", handlers.AdminLoginSubmit, &cartridge.RouteConfig{
+	server.Post("/admin/login", func(ctx *cartridge.Context) error { return handlers.AdminLoginSubmit(ctx, cfg) }, &cartridge.RouteConfig{
 		EnableSecFetchSite: cartridge.Bool(false),
-		CustomMiddleware:   []fiber.Handler{loginLimiter},
+		CustomMiddleware:   []fiber.Handler{globalLoginLimiter, loginLimiter},
 	})
 }
 
 func mountAdmin(server *cartridge.Server, cfg *config.Config) {
-	requireSession := handlers.RequireSession(server.Session())
+	requireSession := handlers.RequireSession(server.Session(), server.GetDBManager(), cfg)
 	requirePasswordChanged := handlers.RequirePasswordChanged(server.Session(), server.GetDBManager())
 	authenticated := &cartridge.RouteConfig{CustomMiddleware: []fiber.Handler{requireSession, requirePasswordChanged}}
 	passwordSetup := &cartridge.RouteConfig{CustomMiddleware: []fiber.Handler{requireSession}}
 
-	server.Post("/admin/logout", handlers.AdminLogout, passwordSetup)
+	server.Post("/admin/logout", func(ctx *cartridge.Context) error { return handlers.AdminLogout(ctx, cfg) }, passwordSetup)
 	server.Get("/admin/settings", handlers.AdminSettingsPage, passwordSetup)
 	server.Post("/admin/settings/password", handlers.AdminSettingsUpdatePassword, passwordSetup)
 	registerEndpoints(server, authenticated, []endpoint{

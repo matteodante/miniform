@@ -50,6 +50,10 @@
                     <span class="text-xs font-normal text-ink-muted">Selecting a safeguard requires Turnstile on every submission.</span>
                     <a class="text-xs font-semibold text-moss" href="/admin/settings/captcha">Manage safeguards →</a>
                 </label>
+                <label class="flex items-start gap-3 rounded-xl border border-rule p-4" for="uploads_enabled">
+                    <input class="mt-1 h-4 w-4 rounded border-gray-300" id="uploads_enabled" name="uploads_enabled" type="checkbox" {{ if and $form $form.UploadsEnabled }}checked{{ end }}>
+                    <span><strong class="block text-sm font-semibold text-ink">Allow file uploads</strong><span class="mt-1 block text-xs font-normal text-ink-muted">Accept one validated JPG, PNG, GIF, WebP, PDF, TXT, or CSV file up to 5 MiB.</span></span>
+                </label>
             </div>
         </section>
 
@@ -131,7 +135,7 @@
                     </label>
                     <label class="grid gap-2 text-sm font-medium text-ink" for="email_recipient">Recipients
                         <textarea class="mf-input w-full font-mono text-sm" id="email_recipient" name="email_recipient" rows="3" placeholder="team@example.com&#10;archive@example.com">{{ .EmailRecipient }}</textarea>
-                        <span class="text-xs font-normal text-ink-muted">Enter comma-separated addresses, or a field name such as <code>email</code> when using a submission field.</span>
+                        <span class="text-xs font-normal text-ink-muted">Enter comma-separated addresses, or a field name such as <code>email</code>. Field-derived recipients require a Turnstile safeguard.</span>
                     </label>
                     <label class="grid gap-2 text-sm font-medium text-ink" for="email_reply_to_source">Reply-To source
                         <select class="mf-input w-full" id="email_reply_to_source" name="email_reply_to_source">
@@ -173,7 +177,7 @@
 </div>
 
 {{ if $preview }}
-<script>
+<script nonce="{{ .CSPNonce }}">
 (() => {
     const source = document.getElementById("formEmbedHTMLSource").value.trim();
     const frame = document.getElementById("formEmbedPreviewFrame");

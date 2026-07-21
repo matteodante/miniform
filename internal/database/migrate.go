@@ -163,6 +163,17 @@ func backfillEmailDeliveryConfiguration(tx *gorm.DB) error {
 		Update("reply_to_source", forms.EmailReplyToNone).Error; err != nil {
 		return fmt.Errorf("set existing email reply-to sources: %w", err)
 	}
+	if err := tx.Exec(`UPDATE email_deliveries
+		SET enabled = false
+		WHERE enabled = true
+		AND recipient_source = ?
+		AND EXISTS (
+			SELECT 1 FROM forms
+			WHERE forms.id = email_deliveries.form_id
+			AND forms.captcha_profile_id IS NULL
+		)`, forms.EmailRecipientField).Error; err != nil {
+		return fmt.Errorf("disable unsafe field-derived email recipients: %w", err)
+	}
 	if err := tx.Exec(`UPDATE email_events
 		SET email_delivery_id = (
 			SELECT email_deliveries.id
@@ -495,7 +506,7 @@ func migrateEmailConfiguration(tx *gorm.DB) error {
 func Models() []any {
 	return []any{
 		&migrationRecord{},
-		&accounts.User{},
+		&accounts.User{}, &accounts.ActiveSession{},
 		&integrations.MailerProfile{}, &integrations.CaptchaProfile{},
 		&forms.Form{}, &forms.EmailDelivery{}, &forms.WebhookDelivery{},
 		&forms.Submission{}, &forms.SubmissionFile{},

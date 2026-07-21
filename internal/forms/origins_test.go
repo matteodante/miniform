@@ -61,6 +61,7 @@ func TestOrigins(t *testing.T) {
 			{"matching IPv6 host", "http://[::1]/thanks", "http://[::1]", false, false},
 			{"matching subdomain and port", "https://app.example.com:8443/thanks", "example.com", false, false},
 			{"second allowed host", "https://two.test/thanks", "one.test, two.test", false, false},
+			{"wildcard cannot authorize an absolute redirect", "https://evil.test/thanks", "*", true, true},
 			{"different host", "https://evil.test/thanks", "example.com", true, true},
 			{"malformed URL", "://invalid", "example.com", true, false},
 			{"absolute scheme without host", "https:evil.test/thanks", "*", true, true},

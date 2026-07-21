@@ -2,6 +2,8 @@ package server
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +24,8 @@ var (
 	developmentAssetStamp = time.Now().UTC().Format("20060102150405")
 )
 
+const cspNonceLocal = "miniform.csp_nonce"
+
 func TemplateFuncs() map[string]any {
 	return map[string]any{
 		"truncateJSON": compactPreview,
@@ -41,12 +45,23 @@ func TemplateFuncs() map[string]any {
 	}
 }
 
-func ClientIP(ctx *fiber.Ctx, trustMatchaProxy bool) string {
-	return clientIP(ctx.Context().RemoteIP().String(), ctx.Get(fiber.HeaderXForwardedFor), trustMatchaProxy)
+func ClientIP(ctx *fiber.Ctx, mode config.ProxyMode) string {
+	return clientIP(
+		ctx.Context().RemoteIP().String(),
+		ctx.Get(fiber.HeaderXForwardedFor),
+		ctx.Get("X-Real-IP"),
+		mode,
+	)
 }
 
-func clientIP(remoteIP, forwardedFor string, trustMatchaProxy bool) string {
-	if !trustMatchaProxy {
+func clientIP(remoteIP, forwardedFor, realIP string, mode config.ProxyMode) string {
+	if mode == config.ProxyRailway {
+		if address := net.ParseIP(strings.TrimSpace(realIP)); address != nil {
+			return address.String()
+		}
+		return remoteIP
+	}
+	if mode != config.ProxyMatcha {
 		return remoteIP
 	}
 	addresses := strings.Split(forwardedFor, ",")
@@ -58,6 +73,52 @@ func clientIP(remoteIP, forwardedFor string, trustMatchaProxy bool) string {
 		return remoteIP
 	}
 	return address.String()
+}
+
+func SecurityHeaders(cfg *config.Config) fiber.Handler {
+	return func(ctx *fiber.Ctx) error {
+		nonceBytes := make([]byte, 18)
+		if _, err := rand.Read(nonceBytes); err != nil {
+			return fmt.Errorf("generate content security policy nonce: %w", err)
+		}
+		nonce := base64.RawStdEncoding.EncodeToString(nonceBytes)
+		ctx.Locals(cspNonceLocal, nonce)
+		ctx.Set("Content-Security-Policy", strings.Join([]string{
+			"default-src 'self'",
+			"base-uri 'self'",
+			"object-src 'none'",
+			"frame-ancestors 'none'",
+			"form-action 'self'",
+			"script-src 'self' 'nonce-" + nonce + "' https://challenges.cloudflare.com",
+			"style-src 'self' 'unsafe-inline'",
+			"img-src 'self' data:",
+			"font-src 'self'",
+			"connect-src 'self' https://challenges.cloudflare.com",
+			"frame-src 'self' https://challenges.cloudflare.com",
+			"worker-src 'none'",
+		}, "; "))
+		ctx.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		ctx.Set("Referrer-Policy", "same-origin")
+		ctx.Set("X-Content-Type-Options", "nosniff")
+		ctx.Set("X-Frame-Options", "DENY")
+		if cfg.IsProduction() {
+			ctx.Set("Strict-Transport-Security", "max-age=31536000")
+		}
+		if strings.HasPrefix(ctx.Path(), "/admin") {
+			ctx.Set(fiber.HeaderCacheControl, "no-store")
+			ctx.Set(fiber.HeaderPragma, "no-cache")
+			ctx.Set(fiber.HeaderExpires, "0")
+		}
+		return ctx.Next()
+	}
+}
+
+func TemplateSecurity(ctx *fiber.Ctx, values fiber.Map) fiber.Map {
+	if values == nil {
+		values = fiber.Map{}
+	}
+	values["CSPNonce"], _ = ctx.Locals(cspNonceLocal).(string)
+	return values
 }
 
 func ErrorHandler(logger *slog.Logger, cfg *config.Config) fiber.ErrorHandler {
@@ -75,21 +136,21 @@ func ErrorHandler(logger *slog.Logger, cfg *config.Config) fiber.ErrorHandler {
 			return ctx.Status(status).JSON(fiber.Map{"error": http.StatusText(status), "message": message})
 		}
 		if status == fiber.StatusInternalServerError {
-			return ctx.Status(status).Render("layouts/base", fiber.Map{
+			return ctx.Status(status).Render("layouts/base", TemplateSecurity(ctx, fiber.Map{
 				"Title": "500 - Internal Server Error", "ContentView": "errors/500/content",
 				"DevMode": cfg.IsDevelopment(), "ErrorMessage": message, "HideHeaderActions": true,
-			}, "")
+			}), "")
 		}
 		if status >= fiber.StatusBadRequest && status < fiber.StatusInternalServerError {
 			const recoveryURL = "/admin/submissions"
 			if ctx.Get("HX-Request") == "true" {
 				ctx.Set("HX-Redirect", recoveryURL)
 			}
-			return ctx.Status(status).Render("layouts/base", fiber.Map{
+			return ctx.Status(status).Render("layouts/base", TemplateSecurity(ctx, fiber.Map{
 				"Title":       fmt.Sprintf("%d - %s", status, http.StatusText(status)),
 				"ContentView": "errors/4xx/content", "Status": status,
 				"ErrorMessage": message, "RecoveryURL": recoveryURL, "HideHeaderActions": true,
-			}, "")
+			}), "")
 		}
 		ctx.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
 		return ctx.Status(status).SendString(fmt.Sprintf("Error: %d - %s", status, message))

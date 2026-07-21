@@ -18,7 +18,8 @@ description: Add and review Miniform HTTP routes and Cartridge/Fiber handlers. U
 
 - Apply session and password-change middleware to protected admin routes.
 - Restrict public form routes to `POST`/`OPTIONS`, the `Content-Type` CORS header, and the established token, origin, captcha, input, file, and rate-limit policy.
-- Key production rate limits from the direct peer unless `cfg.IsMatchaManaged()`; only that managed mode trusts the last proxy-appended address.
+- Key production rate limits through `cfg.ProxyMode()`: direct peers ignore forwarding headers, Matcha trusts its last appended `X-Forwarded-For` address, and Railway trusts its `X-Real-IP` contract.
+- Preserve the global and per-client limiter layers, request body cap, concurrency cap, CSP nonce propagation, and administrative `no-store` policy.
 - Parse and validate path, query, and form input before calling domain logic.
 - Use stable status codes, redirects, JSON shapes, and `ContentView` rendering conventions.
 - Use `ctx.UserContext()` for cancellable database and network work.

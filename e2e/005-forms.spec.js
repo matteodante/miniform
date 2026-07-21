@@ -100,7 +100,7 @@ test.describe("endpoint management", () => {
     const endpoint = await admin.createForm("Delivery sample", uniqueName("delivery"));
     await admin.open(`/admin/forms/${endpoint.id}/edit`);
 
-    await page.getByLabel("Safeguard").selectOption(String(captchaProfileID));
+    await page.locator("#captcha_profile_id").selectOption(String(captchaProfileID));
     await page.getByLabel("Webhook").check();
     await page.getByLabel("Destination URL").fill("https://example.com/webhook");
     await page.getByLabel("Primary email notification").check();
@@ -123,7 +123,8 @@ test.describe("endpoint management", () => {
 
   test("adds a second email notification with dynamic recipient and Reply-To", async ({ page, admin }) => {
     const mailerProfileID = await admin.createMailer(uniqueName("multi-email-mailer"));
-    const endpoint = await admin.createForm("Two messages", uniqueName("two-messages"));
+    const captchaProfileID = await admin.createCaptcha(uniqueName("multi-email-captcha"));
+    const endpoint = await admin.createForm("Two messages", uniqueName("two-messages"), { captchaProfileID });
     await admin.open(`/admin/forms/${endpoint.id}`);
 
     await page.getByRole("link", { name: "Add notification" }).click();
@@ -203,7 +204,7 @@ test.describe("endpoint management", () => {
 
     await page.getByLabel("Endpoint name").fill("Unsaved endpoint");
     await page.getByLabel("Allowed origins").fill("forms.example.com");
-    await page.getByLabel("Safeguard").selectOption(String(captchaProfileID));
+    await page.locator("#captcha_profile_id").selectOption(String(captchaProfileID));
     await page.getByLabel("Webhook").check();
     await page.getByLabel("Destination URL").fill("https://hooks.example.com/submissions");
     await page.getByLabel("HMAC secret").fill("draft-secret");
@@ -217,7 +218,7 @@ test.describe("endpoint management", () => {
     await expect(page.getByRole("alert")).toContainText("Webhook headers");
     await expect(page.getByLabel("Endpoint name")).toHaveValue("Unsaved endpoint");
     await expect(page.getByLabel("Allowed origins")).toHaveValue("forms.example.com");
-    await expect(page.getByLabel("Safeguard")).toHaveValue(String(captchaProfileID));
+    await expect(page.locator("#captcha_profile_id")).toHaveValue(String(captchaProfileID));
     await expect(page.getByLabel("Destination URL")).toHaveValue("https://hooks.example.com/submissions");
     await expect(page.getByLabel("HMAC secret")).toHaveValue("");
     await expect(page.getByLabel(/Custom headers/)).toHaveValue("");

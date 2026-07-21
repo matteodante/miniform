@@ -15,9 +15,8 @@ test.describe("operator settings", () => {
     await page.getByLabel("Email").fill(temporaryEmail);
     await page.getByLabel("Current password").first().fill(ADMIN_PASSWORD);
     await page.getByRole("button", { name: "Update email" }).click();
-    await expect(page.getByRole("status")).toContainText("Email updated successfully");
+    await expect(page).toHaveURL(/\/admin\/login/);
 
-    await admin.logout();
     await admin.login(temporaryEmail, ADMIN_PASSWORD);
     await expect(page).toHaveURL(/\/admin\/submissions/);
   });
@@ -59,9 +58,8 @@ test.describe("operator settings", () => {
     await page.locator("#new_password").fill(temporaryPassword);
     await page.locator("#confirm_password").fill(temporaryPassword);
     await page.getByRole("button", { name: "Update password" }).click();
-    await expect(page.getByRole("status")).toContainText("Password updated successfully");
+    await expect(page).toHaveURL(/\/admin\/login/);
 
-    await admin.logout();
     await admin.login(ADMIN_EMAIL, temporaryPassword);
     await expect(page).toHaveURL(/\/admin\/submissions/);
   });

@@ -2,7 +2,7 @@ const { test, expect } = require("./fixtures");
 const { uniqueName } = require("./test-client");
 
 test("local demo submits structured fields and a file", async ({ page, client }) => {
-  const endpoint = await client.createForm("Demo endpoint", uniqueName("demo"));
+  const endpoint = await client.createForm("Demo endpoint", uniqueName("demo"), { uploadsEnabled: true });
 
   await page.goto(`/_demo?slug=${endpoint.slug}`);
   await expect(page.getByRole("heading", { name: "Send one. Trace everything." })).toBeVisible();

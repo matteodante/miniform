@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-21
+
+### Added
+
+- Opt-in file uploads with signature-based MIME validation, random storage names, scalar/body/concurrency bounds, and a configurable persistent upload quota
+- Nonce-based CSP, HSTS, no-store administrative responses, browser security headers, global abuse limits, and Railway-aware client IP resolution
+- Server-tracked session hashes with logout revocation and account-wide invalidation after password or email changes
+
+### Changed
+
+- Reduced public upload scope to one 5 MiB JPG, PNG, GIF, WebP, PDF, TXT, or CSV file per submission
+- Required Turnstile before a field-derived email recipient can be enabled; unsafe legacy delivery rows are disabled during migration
+- Restricted wildcard origin policies from authorizing absolute redirect destinations
+
+### Security
+
+- Bounded anonymous request memory and storage growth, removed dangerous active-document upload types, and prevented public recipient fields from becoming an SMTP relay primitive
+
 ## [0.2.1] - 2026-07-21
 
 ### Fixed
@@ -81,7 +99,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Required an operator-installed, running Docker Engine instead of executing a mutable remote installer as root
 - Added signed local release tags, release-source ancestry checks, checksums, SBOMs, provenance, and architecture-specific binary execution tests
 
-[Unreleased]: https://github.com/matteodante/miniform/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/matteodante/miniform/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/matteodante/miniform/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/matteodante/miniform/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/matteodante/miniform/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/matteodante/miniform/releases/tag/v0.1.0

@@ -46,14 +46,19 @@ func (unavailableDatabase) Connect() (*gorm.DB, error) {
 }
 func (unavailableDatabase) GetConnection() *gorm.DB { return nil }
 
-func testServer(t *testing.T, environment string) *cartridgetestsupport.TestServer {
+func testServer(t *testing.T, environment string, globalRateLimit ...int) *cartridgetestsupport.TestServer {
 	t.Helper()
+	publicGlobalRateLimit := 120
+	if len(globalRateLimit) != 0 {
+		publicGlobalRateLimit = globalRateLimit[0]
+	}
 	appConfig := &config.Config{
 		Config: &cartridgeconfig.Config{
 			AppName: "miniform", Environment: environment,
 			SessionSecret: "test-secret", SessionTimeout: 3600, DataDirectory: t.TempDir(),
 		},
-		MaxInputFields: 200,
+		MaxInputFields:        200,
+		PublicGlobalRateLimit: publicGlobalRateLimit,
 	}
 	server := cartridgetestsupport.NewTestServer(t, cartridgetestsupport.TestServerOptions{
 		Models:       database.Models(),
@@ -183,6 +188,42 @@ func TestRoutes(t *testing.T) {
 		assert.JSONEq(t, `{"ok":false,"error":"rate limit exceeded"}`, body)
 	})
 
+	t.Run("caps aggregate public traffic independently of the client limit", func(t *testing.T) {
+		server := testServer(t, cartridgeconfig.Production, 2)
+		for range 2 {
+			status, _ := postForm(t, server, "/forms/missing/submit?token=invalid", "name=Ada", nil)
+			require.Equal(t, http.StatusNotFound, status)
+		}
+
+		status, body := postForm(t, server, "/forms/missing/submit?token=invalid", "name=Ada", nil)
+
+		assert.Equal(t, http.StatusTooManyRequests, status)
+		assert.JSONEq(t, `{"ok":false,"error":"rate limit exceeded"}`, body)
+	})
+
+	t.Run("caps aggregate login attempts across distinct clients", func(t *testing.T) {
+		t.Setenv("RAILWAY_ENVIRONMENT_ID", "test-environment")
+		server := testServer(t, cartridgeconfig.Production)
+		createAdmin(t, server)
+		for attempt := 1; attempt <= 31; attempt++ {
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/login",
+				strings.NewReader("email=admin@miniform.local&password=wrong"))
+			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			request.Header.Set("X-Real-IP", fmt.Sprintf("192.0.2.%d", attempt))
+			response, err := server.App.Test(request, -1)
+			require.NoError(t, err)
+			body, readErr := io.ReadAll(response.Body)
+			require.NoError(t, readErr)
+			require.NoError(t, response.Body.Close())
+			if attempt <= 30 {
+				assert.NotEqual(t, http.StatusTooManyRequests, response.StatusCode)
+				continue
+			}
+			assert.Equal(t, http.StatusTooManyRequests, response.StatusCode)
+			assert.Contains(t, string(body), "Too many login attempts")
+		}
+	})
+
 	t.Run("reports an unavailable database as not ready", func(t *testing.T) {
 		appConfig := &config.Config{Config: &cartridgeconfig.Config{
 			AppName: "miniform", Environment: cartridgeconfig.Test, SessionSecret: "test-secret",
@@ -221,7 +262,7 @@ func TestRoutes(t *testing.T) {
 	t.Run("accepts a submission containing only an upload", func(t *testing.T) {
 		server := testServer(t, cartridgeconfig.Test)
 		form, err := forms.Create(slog.Default(), server.DB.GetConnection(), forms.CreateParams{
-			Name: "Upload", Slug: "upload", AllowedOrigins: "example.com",
+			Name: "Upload", Slug: "upload", AllowedOrigins: "example.com", UploadsEnabled: true,
 		})
 		require.NoError(t, err)
 		var body bytes.Buffer
@@ -246,6 +287,52 @@ func TestRoutes(t *testing.T) {
 		assert.Equal(t, int64(1), fileCount)
 	})
 
+	t.Run("rejects uploads unless the endpoint explicitly enables them", func(t *testing.T) {
+		server := testServer(t, cartridgeconfig.Test)
+		form, err := forms.Create(slog.Default(), server.DB.GetConnection(), forms.CreateParams{
+			Name: "No upload", Slug: "no-upload", AllowedOrigins: "example.com",
+		})
+		require.NoError(t, err)
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		part, err := writer.CreateFormFile("attachment", "note.txt")
+		require.NoError(t, err)
+		_, err = io.WriteString(part, "file only")
+		require.NoError(t, err)
+		require.NoError(t, writer.Close())
+
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+			"/forms/no-upload/submit?token="+form.Token, &body)
+		request.Header.Set("Content-Type", writer.FormDataContentType())
+		request.Header.Set("Origin", "https://example.com")
+		response, err := server.App.Test(request, -1)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		responseBody, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+
+		assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+		assert.Contains(t, string(responseBody), "file uploads are disabled")
+	})
+
+	t.Run("rejects oversized scalar submission data", func(t *testing.T) {
+		server := testServer(t, cartridgeconfig.Test)
+		form, err := forms.Create(slog.Default(), server.DB.GetConnection(), forms.CreateParams{
+			Name: "Bounded", Slug: "bounded", AllowedOrigins: "example.com",
+		})
+		require.NoError(t, err)
+		values := url.Values{"message": {strings.Repeat("x", 64*1024+1)}}
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+			"/forms/bounded/submit?token="+form.Token, strings.NewReader(values.Encode()))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.Header.Set("Origin", "https://example.com")
+		response, err := server.App.Test(request, -1)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusRequestEntityTooLarge, response.StatusCode)
+	})
+
 	t.Run("protects state-changing admin routes", func(t *testing.T) {
 		for _, path := range []string{"/admin/logout", "/admin/forms", "/admin/forms/1/emails/preview", "/admin/settings/password"} {
 			t.Run(path, func(t *testing.T) {
@@ -254,6 +341,39 @@ func TestRoutes(t *testing.T) {
 				assert.Contains(t, body, fetchMetadataRejection)
 			})
 		}
+	})
+
+	t.Run("prevents reuse of a copied cookie after logout", func(t *testing.T) {
+		server := testServer(t, cartridgeconfig.Test)
+		createAdmin(t, server)
+		login := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/login",
+			strings.NewReader("email=admin@miniform.local&password=miniform"))
+		login.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		login.Header.Set("Sec-Fetch-Site", "same-origin")
+		loginResponse, err := server.App.Test(login, -1)
+		require.NoError(t, err)
+		require.NoError(t, loginResponse.Body.Close())
+		require.NotEmpty(t, loginResponse.Cookies())
+		copiedCookie := loginResponse.Cookies()[0]
+
+		logout := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/logout", nil)
+		logout.Header.Set("Sec-Fetch-Site", "same-origin")
+		logout.AddCookie(copiedCookie)
+		logoutResponse, err := server.App.Test(logout, -1)
+		require.NoError(t, err)
+		require.NoError(t, logoutResponse.Body.Close())
+		assert.Equal(t, http.StatusFound, logoutResponse.StatusCode)
+
+		reuse := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/submissions", nil)
+		reuse.AddCookie(copiedCookie)
+		reuseResponse, err := server.App.Test(reuse, -1)
+		require.NoError(t, err)
+		defer reuseResponse.Body.Close()
+		assert.Equal(t, http.StatusFound, reuseResponse.StatusCode)
+		assert.Equal(t, "/admin/login", reuseResponse.Header.Get("Location"))
+		var active int64
+		require.NoError(t, server.DB.GetConnection().Model(&accounts.ActiveSession{}).Count(&active).Error)
+		assert.Zero(t, active)
 	})
 
 	t.Run("redirects the legacy favicon route to the bundled mark", func(t *testing.T) {
@@ -336,8 +456,12 @@ func TestRoutes(t *testing.T) {
 			Name: "SMTP", DefaultFromName: "PiùUDITO", DefaultFromEmail: "forms@example.com", SMTPHost: "smtp.example.com",
 		})
 		require.NoError(t, err)
+		captcha, err := integrations.CreateCaptchaProfile(slog.Default(), server.DB.GetConnection(), integrations.CaptchaProfileParams{
+			Name: "Turnstile", SiteKey: "site", SecretKey: "secret",
+		})
+		require.NoError(t, err)
 		form, err := forms.Create(slog.Default(), server.DB.GetConnection(), forms.CreateParams{
-			Name: "Booking", Slug: "booking-notifications", AllowedOrigins: "*",
+			Name: "Booking", Slug: "booking-notifications", AllowedOrigins: "*", CaptchaProfileID: &captcha.ID,
 		})
 		require.NoError(t, err)
 
@@ -512,18 +636,33 @@ func TestRoutes(t *testing.T) {
 		changedResponse, err := server.App.Test(changed, -1)
 		require.NoError(t, err)
 		defer func() { _ = changedResponse.Body.Close() }()
-		changedBody, err := io.ReadAll(changedResponse.Body)
-		require.NoError(t, err)
-		assert.Equal(t, 200, changedResponse.StatusCode)
-		assert.Contains(t, string(changedBody), "Password updated successfully")
-		assert.Contains(t, string(changedBody), `href="/admin/submissions"`)
+		assert.Equal(t, http.StatusFound, changedResponse.StatusCode)
+		assert.Equal(t, "/admin/login", changedResponse.Header.Get("Location"))
 
 		inbox := httptest.NewRequestWithContext(t.Context(), "GET", "/admin/submissions", nil)
 		inbox.AddCookie(response.Cookies()[0])
 		inboxResponse, err := server.App.Test(inbox, -1)
 		require.NoError(t, err)
 		defer func() { _ = inboxResponse.Body.Close() }()
-		assert.Equal(t, 200, inboxResponse.StatusCode)
+		assert.Equal(t, http.StatusFound, inboxResponse.StatusCode)
+		assert.Equal(t, "/admin/login", inboxResponse.Header.Get("Location"))
+
+		relogin := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/login",
+			strings.NewReader("email=admin@miniform.local&password=replacement-password"))
+		relogin.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		relogin.Header.Set("Sec-Fetch-Site", "same-origin")
+		reloginResponse, err := server.App.Test(relogin, -1)
+		require.NoError(t, err)
+		defer func() { _ = reloginResponse.Body.Close() }()
+		assert.Equal(t, http.StatusFound, reloginResponse.StatusCode)
+		require.NotEmpty(t, reloginResponse.Cookies())
+
+		inbox = httptest.NewRequestWithContext(t.Context(), "GET", "/admin/submissions", nil)
+		inbox.AddCookie(reloginResponse.Cookies()[0])
+		inboxResponse, err = server.App.Test(inbox, -1)
+		require.NoError(t, err)
+		defer func() { _ = inboxResponse.Body.Close() }()
+		assert.Equal(t, http.StatusOK, inboxResponse.StatusCode)
 	})
 
 	t.Run("redirects expired htmx sessions with a response header", func(t *testing.T) {

@@ -7,7 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="A self-hosted inbox for every form on your websites.">
     <meta name="theme-color" content="#171A2B">
-    <meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>
+    <meta name="htmx-config" content='{"refreshOnHistoryMiss":true,"allowEval":false,"inlineScriptNonce":"{{ .CSPNonce }}"}'>
     <title>{{ if .Title }}{{ .Title }} · Miniform{{ else }}Miniform{{ end }}</title>
     <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/app.built.css?v={{ assetVersion }}">
@@ -130,7 +130,7 @@
     {{ end }}
 
     <script src="/assets/vendor/htmx.min.js?v={{ assetVersion }}"></script>
-    <script>
+    <script nonce="{{ .CSPNonce }}">
         function clearHTMXHistoryCache() {
             try {
                 window.localStorage.removeItem('htmx-history-cache');

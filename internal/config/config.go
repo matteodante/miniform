@@ -18,9 +18,21 @@ const appName = "miniform"
 
 type Config struct {
 	*cartridgeconfig.Config
-	MaxInputFields int
-	Webhook        WebhookConfig
+	MaxInputFields        int
+	MaxPayloadBytes       int
+	MaxUploadStorageBytes int64
+	RequestConcurrency    int
+	PublicGlobalRateLimit int
+	Webhook               WebhookConfig
 }
+
+type ProxyMode string
+
+const (
+	ProxyDirect  ProxyMode = "direct"
+	ProxyMatcha  ProxyMode = "matcha"
+	ProxyRailway ProxyMode = "railway"
+)
 
 type WebhookConfig struct {
 	SignatureHeader string
@@ -28,6 +40,7 @@ type WebhookConfig struct {
 	BackoffSchedule string
 }
 
+//nolint:gocyclo // Startup validation keeps every environment error in one explicit path.
 func Load() (*Config, error) {
 	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("load .env: %w", err)
@@ -56,6 +69,9 @@ func Load() (*Config, error) {
 	}
 	if sessionSecret == "" && environment == cartridgeconfig.Production {
 		return nil, fmt.Errorf("MINIFORM_SESSION_SECRET is required in production")
+	}
+	if environment == cartridgeconfig.Production && len(sessionSecret) < 32 {
+		return nil, fmt.Errorf("MINIFORM_SESSION_SECRET must be at least 32 characters in production")
 	}
 	if sessionSecret == "" {
 		sessionSecret = rand.Text()
@@ -86,6 +102,22 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	maxPayloadBytes, err := positiveEnvInt("MINIFORM_MAX_PAYLOAD_BYTES", 64*1024)
+	if err != nil {
+		return nil, err
+	}
+	maxUploadStorageBytes, err := positiveEnvInt64("MINIFORM_MAX_UPLOAD_STORAGE_BYTES", 1024*1024*1024)
+	if err != nil {
+		return nil, err
+	}
+	requestConcurrency, err := positiveEnvInt("MINIFORM_REQUEST_CONCURRENCY", 32)
+	if err != nil {
+		return nil, err
+	}
+	publicGlobalRateLimit, err := positiveEnvInt("MINIFORM_PUBLIC_GLOBAL_RATE_LIMIT", 120)
+	if err != nil {
+		return nil, err
+	}
 	webhookRetryLimit, err := positiveEnvInt("MINIFORM_WEBHOOK_RETRY_LIMIT", 3)
 	if err != nil {
 		return nil, err
@@ -110,7 +142,11 @@ func Load() (*Config, error) {
 			SessionSecret:    sessionSecret,
 			SessionTimeout:   sessionTimeout,
 		},
-		MaxInputFields: maxInputFields,
+		MaxInputFields:        maxInputFields,
+		MaxPayloadBytes:       maxPayloadBytes,
+		MaxUploadStorageBytes: maxUploadStorageBytes,
+		RequestConcurrency:    requestConcurrency,
+		PublicGlobalRateLimit: publicGlobalRateLimit,
 		Webhook: WebhookConfig{
 			SignatureHeader: webhookSignatureHeader,
 			RetryLimit:      webhookRetryLimit,
@@ -129,8 +165,24 @@ func (cfg *Config) EnsureDirectories() error {
 	return nil
 }
 
-func (cfg *Config) IsMatchaManaged() bool {
-	return cfg.IsProduction() && strings.TrimSpace(os.Getenv("MATCHA_MANAGER_VERSION")) != ""
+func (cfg *Config) ProxyMode() ProxyMode {
+	if !cfg.IsProduction() {
+		return ProxyDirect
+	}
+	if strings.TrimSpace(os.Getenv("RAILWAY_ENVIRONMENT_ID")) != "" {
+		return ProxyRailway
+	}
+	if strings.TrimSpace(os.Getenv("MATCHA_MANAGER_VERSION")) != "" {
+		return ProxyMatcha
+	}
+	return ProxyDirect
+}
+
+func (cfg *Config) SessionCookieName() string {
+	if cfg.IsProduction() {
+		return "__Host-" + cfg.AppName + "_session"
+	}
+	return cfg.AppName + "_session"
 }
 
 func environmentDatabasePath(directory, filename, environment string) string {
@@ -156,6 +208,18 @@ func positiveEnvInt(key string, fallback int) (int, error) {
 		return fallback, nil
 	}
 	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("invalid %s value %q: must be a positive integer", key, raw)
+	}
+	return value, nil
+}
+
+func positiveEnvInt64(key string, fallback int64) (int64, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || value <= 0 {
 		return 0, fmt.Errorf("invalid %s value %q: must be a positive integer", key, raw)
 	}

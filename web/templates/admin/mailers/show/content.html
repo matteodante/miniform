@@ -45,7 +45,7 @@
 </div>
 
 <form id="deleteForm" method="POST" action="/admin/settings/mailers/{{ .Profile.ID }}/delete" hidden></form>
-<script>
+<script nonce="{{ .CSPNonce }}">
 function deleteMailerProfile() {
     const usage = {{ .UsageCount }};
     if (usage > 0) {

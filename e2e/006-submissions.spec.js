@@ -5,7 +5,7 @@ test.describe("inbox entries", () => {
   let endpoint;
 
   test.beforeEach(async ({ admin }) => {
-    endpoint = await admin.createForm("Contact inbox", uniqueName("inbox"));
+    endpoint = await admin.createForm("Contact inbox", uniqueName("inbox"), { uploadsEnabled: true });
   });
 
   test("stores a public submission and shows it on the endpoint", async ({ page, admin }) => {

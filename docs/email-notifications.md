@@ -19,7 +19,7 @@ For a booking form containing `name`, `email`, and `message` fields:
    - Reply-To source: `static`
    - Reply-To value: `Support <support@example.com>`
 
-The first message lets the team reply directly to the submitter. The second sends a separate acknowledgement to the validated address submitted in the `email` field.
+The first message lets the team reply directly to the submitter. The second sends a separate acknowledgement to the validated address submitted in the `email` field. Because a public value selects the outbound recipient, this setup requires a Turnstile safeguard on the endpoint.
 
 Use **Add notification** on the endpoint page to configure each message. The first notification remains editable from the endpoint editor for compatibility with existing installations.
 
@@ -46,7 +46,7 @@ An endpoint needs at least one submission before a data-backed preview is availa
 
 Field-derived addresses are parsed as single RFC 5322 mailboxes. Missing, malformed, multiline, or null-byte values fail that notification before any SMTP connection is opened. Other notifications for the same submission retain their own status and continue independently.
 
-A field-derived recipient lets a public submission choose one outbound address. Use it for confirmations only on endpoints protected with restrictive origins and, where appropriate, Turnstile; otherwise the endpoint can be abused to send unwanted mail.
+A field-derived recipient lets a public submission choose one outbound address. Miniform requires Turnstile before such a notification can be enabled and skips unsafe legacy delivery rows at runtime. Startup disables legacy field-recipient notifications that lack a safeguard. Restrictive origins remain recommended, but they are not authentication and do not replace Turnstile.
 
 ## Template data
 

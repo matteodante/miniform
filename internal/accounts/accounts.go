@@ -1,6 +1,10 @@
 package accounts
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -40,6 +44,13 @@ type User struct {
 	LastLoginAt            *time.Time `gorm:"index"`
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+}
+
+type ActiveSession struct {
+	TokenHash string    `gorm:"primaryKey;size:64"`
+	UserID    uint      `gorm:"index;not null"`
+	ExpiresAt time.Time `gorm:"index;not null"`
+	CreatedAt time.Time
 }
 
 func RequiresPasswordChange(db *gorm.DB) bool {
@@ -160,7 +171,10 @@ func ChangeEmail(logger *slog.Logger, db *gorm.DB, currentEmail, newEmail, curre
 	}
 
 	err = dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		return tx.Model(&User{}).Where("id = ?", user.ID).Update("email", newEmail).Error
+		if err := tx.Model(&User{}).Where("id = ?", user.ID).Update("email", newEmail).Error; err != nil {
+			return err
+		}
+		return tx.Where("user_id = ?", user.ID).Delete(&ActiveSession{}).Error
 	})
 	if isUniqueViolation(err) {
 		return ErrDuplicateEmail
@@ -223,11 +237,74 @@ func storePassword(logger *slog.Logger, db *gorm.DB, userID uint, password strin
 		return fmt.Errorf("hash password: %w", err)
 	}
 	return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		return tx.Model(&User{}).Where("id = ?", userID).Updates(map[string]any{
+		if err := tx.Model(&User{}).Where("id = ?", userID).Updates(map[string]any{
 			"password_hash":            string(hash),
 			"password_change_required": false,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Where("user_id = ?", userID).Delete(&ActiveSession{}).Error
+	})
+}
+
+func RegisterSession(logger *slog.Logger, db *gorm.DB, userID uint, token string, expiresAt time.Time) error {
+	token = strings.TrimSpace(token)
+	if userID == 0 || token == "" || expiresAt.IsZero() {
+		return errors.New("invalid session registration")
+	}
+	return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		now := time.Now().UTC()
+		if err := tx.Where("expires_at <= ?", now).Delete(&ActiveSession{}).Error; err != nil {
+			return err
+		}
+		return tx.Save(&ActiveSession{
+			TokenHash: sessionTokenHash(token), UserID: userID,
+			ExpiresAt: expiresAt.UTC(), CreatedAt: now,
 		}).Error
 	})
+}
+
+func IsSessionActive(db *gorm.DB, userID uint, token string, now time.Time) (bool, error) {
+	if strings.TrimSpace(token) == "" {
+		return false, nil
+	}
+	var count int64
+	err := db.Model(&ActiveSession{}).
+		Where("token_hash = ? AND user_id = ? AND expires_at > ?", sessionTokenHash(token), userID, now.UTC()).
+		Count(&count).Error
+	return count != 0, err
+}
+
+func RevokeSession(logger *slog.Logger, db *gorm.DB, token string) error {
+	if strings.TrimSpace(token) == "" {
+		return nil
+	}
+	return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		return tx.Where("token_hash = ?", sessionTokenHash(token)).Delete(&ActiveSession{}).Error
+	})
+}
+
+func SessionExpiresAt(token string) (time.Time, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 {
+		return time.Time{}, errors.New("invalid session token")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return time.Time{}, errors.New("invalid session payload")
+	}
+	var data struct {
+		ExpiresAt time.Time `json:"expires_at"`
+	}
+	if err := json.Unmarshal(payload, &data); err != nil || data.ExpiresAt.IsZero() {
+		return time.Time{}, errors.New("invalid session data")
+	}
+	return data.ExpiresAt, nil
+}
+
+func sessionTokenHash(token string) string {
+	digest := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(digest[:])
 }
 
 func passwordMatches(hash, password string) bool {

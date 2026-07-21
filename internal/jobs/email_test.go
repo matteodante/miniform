@@ -426,6 +426,10 @@ func fakeSMTPConnections(t *testing.T, count int) (string, int, <-chan smtpServe
 func setupTwoEmailForm(t *testing.T, db *gorm.DB, host string, port int, replyToSource, replyTo string) *forms.Form {
 	t.Helper()
 	logger := slog.New(slog.DiscardHandler)
+	captcha, err := integrations.CreateCaptchaProfile(logger, db, integrations.CaptchaProfileParams{
+		Name: "Turnstile", SiteKey: "site", SecretKey: "secret",
+	})
+	require.NoError(t, err)
 	profile, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
 		Name: "Local capture", DefaultFromName: "Miniform QA", DefaultFromEmail: "no-reply@sender.invalid",
 		SMTPHost: host, SMTPPort: port, SMTPEncryption: "none",
@@ -433,7 +437,8 @@ func setupTwoEmailForm(t *testing.T, db *gorm.DB, host string, port int, replyTo
 	require.NoError(t, err)
 	form, err := forms.Create(logger, db, forms.CreateParams{
 		Name: "Email integration", Slug: "email-integration", AllowedOrigins: "*",
-		MailerProfileID: &profile.ID, EmailEnabled: true, EmailName: "Internal notification",
+		CaptchaProfileID: &captcha.ID,
+		MailerProfileID:  &profile.ID, EmailEnabled: true, EmailName: "Internal notification",
 		EmailRecipientType: forms.EmailRecipientStatic,
 		EmailRecipient:     "qa-internal@team.invalid, qa-archive@archive.invalid",
 		EmailReplyToType:   replyToSource, EmailReplyTo: replyTo,

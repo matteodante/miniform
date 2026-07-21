@@ -38,6 +38,7 @@ type Form struct {
 	Token            string                       `gorm:"size:64;uniqueIndex;not null"`
 	AllowedOrigins   string                       `gorm:"type:text"`
 	GeneratedHTML    string                       `gorm:"type:text"`
+	UploadsEnabled   bool                         `gorm:"not null;default:false"`
 	CaptchaProfileID *uint                        `gorm:"index"`
 	CaptchaProfile   *integrations.CaptchaProfile `gorm:"constraint:OnDelete:RESTRICT"`
 	CreatedAt        time.Time

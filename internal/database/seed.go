@@ -81,7 +81,7 @@ func createDemoInbox(tx *gorm.DB, now time.Time) (int, int, error) {
 
 func completeDemoForm(name, slug string) *forms.Form {
 	return &forms.Form{
-		Name: name, Slug: slug, AllowedOrigins: "*",
+		Name: name, Slug: slug, AllowedOrigins: "*", UploadsEnabled: slug == "contact",
 		EmailDeliveries: []forms.EmailDelivery{{
 			Name: forms.DefaultEmailDeliveryName, RecipientSource: forms.EmailRecipientStatic,
 			ReplyToSource: forms.EmailReplyToNone, Format: forms.EmailFormatText,

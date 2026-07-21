@@ -6,22 +6,35 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 const (
-	MaxFileSize      = 10 * 1024 * 1024
-	MaxFilesPerField = 5
-	MaxTotalFiles    = 10
+	MaxFileSize        = 5 * 1024 * 1024
+	MaxFilesPerField   = 1
+	MaxTotalFiles      = 1
+	MaxRequestBodySize = MaxFileSize + 1024*1024
+	MaxFilenameBytes   = 200
 )
 
 var allowedExtensions = []string{
-	".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg",
-	".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-	".txt", ".csv", ".rtf", ".odt", ".ods", ".odp",
+	".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf", ".txt", ".csv",
+}
+
+var allowedContentTypes = map[string][]string{
+	".jpg":  {"image/jpeg"},
+	".jpeg": {"image/jpeg"},
+	".png":  {"image/png"},
+	".gif":  {"image/gif"},
+	".webp": {"image/webp"},
+	".pdf":  {"application/pdf"},
+	".txt":  {"text/plain; charset=utf-8"},
+	".csv":  {"text/plain; charset=utf-8"},
 }
 
 type UploadedFile struct {
@@ -34,7 +47,13 @@ type UploadedFile struct {
 
 func ValidateFile(header *multipart.FileHeader) error {
 	if header.Size < 0 || header.Size > MaxFileSize {
-		return fmt.Errorf("file %q exceeds maximum size of 10MB", header.Filename)
+		return fmt.Errorf("file %q exceeds maximum size of 5MB", header.Filename)
+	}
+	if len(header.Filename) == 0 || len(header.Filename) > MaxFilenameBytes {
+		return fmt.Errorf("file name must contain between 1 and %d bytes", MaxFilenameBytes)
+	}
+	if strings.IndexFunc(header.Filename, unicode.IsControl) >= 0 {
+		return fmt.Errorf("file name contains control characters")
 	}
 	extension := strings.ToLower(filepath.Ext(header.Filename))
 	if extension == "" {
@@ -74,13 +93,36 @@ func ExtractFiles(form *multipart.Form) ([]*UploadedFile, error) {
 				CloseFiles(files)
 				return nil, fmt.Errorf("open upload %q: %w", header.Filename, err)
 			}
+			contentType, err := DetectFileContentType(reader, header.Filename)
+			if err != nil {
+				_ = reader.Close()
+				CloseFiles(files)
+				return nil, fmt.Errorf("file %q: %w", header.Filename, err)
+			}
 			files = append(files, &UploadedFile{
 				FieldName: field, Filename: safeFilename(header.Filename),
-				ContentType: header.Header.Get("Content-Type"), Size: header.Size, Data: reader,
+				ContentType: contentType, Size: header.Size, Data: reader,
 			})
 		}
 	}
 	return files, nil
+}
+
+func DetectFileContentType(file io.ReadSeeker, filename string) (string, error) {
+	buffer := make([]byte, 512)
+	read, err := file.Read(buffer)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("inspect content: %w", err)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", fmt.Errorf("rewind content: %w", err)
+	}
+	extension := strings.ToLower(filepath.Ext(filename))
+	contentType := http.DetectContentType(buffer[:read])
+	if !slices.Contains(allowedContentTypes[extension], contentType) {
+		return "", fmt.Errorf("content type %q does not match extension %q", contentType, extension)
+	}
+	return contentType, nil
 }
 
 func stageUnassignedFiles(dataDir string, files []*UploadedFile) ([]*SubmissionFile, *stagedUploadDeletion, error) {
@@ -201,11 +243,11 @@ func safeFilename(name string) string {
 
 func storedFilename(name string) (string, error) {
 	extension := filepath.Ext(name)
-	suffix, err := randomHex(rand.Reader, 4)
+	suffix, err := randomHex(rand.Reader, 16)
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSuffix(name, extension) + "-" + suffix + extension, nil
+	return suffix + strings.ToLower(extension), nil
 }
 
 func CloseFiles(files []*UploadedFile) {

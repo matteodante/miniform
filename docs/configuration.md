@@ -18,6 +18,10 @@ Development defaults also work without a configuration file. The built-in Matcha
 | `MINIFORM_LOGS_DIR` | Under the data directory | Keep on persistent storage if logs are retained |
 | `MINIFORM_SESSION_TIMEOUT_SECONDS` | `604800`; OCI image: `1800` | Set an explicit organizational policy if needed |
 | `MINIFORM_MAX_INPUT_FIELDS` | `200` | Maximum scalar fields accepted in one submission |
+| `MINIFORM_MAX_PAYLOAD_BYTES` | `65536` | Maximum combined scalar data; request bodies are capped separately at 6 MiB |
+| `MINIFORM_MAX_UPLOAD_STORAGE_BYTES` | `1073741824` | Global stored-upload quota; rejected atomically before database commit |
+| `MINIFORM_REQUEST_CONCURRENCY` | `32` | Maximum requests processed concurrently by the HTTP server |
+| `MINIFORM_PUBLIC_GLOBAL_RATE_LIMIT` | `120` | Maximum public submissions per minute across all clients and forms |
 | `MINIFORM_WEBHOOK_SIGNATURE_HEADER` | `X-Miniform-Signature` | Header used for outbound webhook signatures |
 | `MINIFORM_WEBHOOK_RETRY_LIMIT` | `3` | Maximum configured webhook and SMTP delivery attempts |
 | `MINIFORM_WEBHOOK_BACKOFF_SCHEDULE` | `1,5,15,60` | Webhook and SMTP retry delays in seconds |
@@ -30,7 +34,7 @@ Generate secrets with:
 openssl rand -hex 32
 ```
 
-Changing the session secret signs out every user.
+Production rejects session secrets shorter than 32 characters. The cookie uses the `__Host-` prefix, `Secure`, `HttpOnly`, and `SameSite=Lax`. Only SHA-256 hashes of active tokens are retained server-side; logout removes the current token and changing an account email or password removes every active session. Changing the session secret also signs out every user.
 
 ## Email notifications
 
@@ -40,15 +44,17 @@ Recipient lists accept comma-separated addresses in the admin UI or CLI. The adm
 
 Each enabled notification creates its own durable event. Notifications use the same expiring lease, bounded retry limit, and backoff schedule as webhooks, but one notification failing does not overwrite another notification's status. Changing a notification affects queued attempts that have not yet been sent. Disabling it prevents new events and causes an already queued event to finish as failed rather than silently disappear.
 
-Submitted values may enter the body through escaped templates and may supply a recipient or `Reply-To` only through an explicitly selected field. Dynamic addresses are parsed as single RFC 5322 mailboxes, and rendered subjects containing newline or null bytes are rejected before SMTP. See [Email notifications](email-notifications.md) for the complete data contract and CLI examples.
+Submitted values may enter the body through escaped templates and may supply a recipient or `Reply-To` only through an explicitly selected field. An enabled field-derived recipient requires Turnstile on that endpoint; startup disables an unsafe legacy notification instead of retaining an open mail relay. Dynamic addresses are parsed as single RFC 5322 mailboxes, and rendered subjects containing newline or null bytes are rejected before SMTP. See [Email notifications](email-notifications.md) for the complete data contract and CLI examples.
 
 The authenticated notification editor can preview unsaved settings against a recent submission. It uses the production renderer in a sandboxed iframe, marks the response `no-store`, and performs no SMTP or database write.
 
 ## Network boundaries
 
-Production applies process-local limits of 30 public submissions per minute and 5 sign-in attempts per minute for each resolved client address. The counters reset when the process restarts and are disabled in development and test environments.
+Production applies process-local limits of 30 public submissions per minute per resolved client plus 120 submissions per minute globally. Sign-in permits 5 attempts per minute per client plus 30 globally. The counters reset when the process restarts and are disabled in development and test environments. The HTTP server also caps each body at 6 MiB and concurrent request processing at 32 by default.
 
-Direct and unmanaged deployments ignore `X-Forwarded-For` and use the network peer address. A Matcha-managed production deployment trusts only the last address in that header, which is appended by its managed proxy. Keep the proxy hop private and do not expose the managed application port directly.
+Direct and unmanaged deployments ignore forwarding headers and use the network peer address. A Matcha-managed production deployment trusts only the last `X-Forwarded-For` address appended by its proxy. Railway deployments use Railway's `X-Real-IP` contract. Keep the trusted proxy hop private and do not expose the application port directly.
+
+Production responses enable HSTS. Every environment emits a nonce-based Content Security Policy, clickjacking, MIME-sniffing, referrer, and permissions defenses. Administrative responses are marked `no-store`.
 
 ## Example production environment
 

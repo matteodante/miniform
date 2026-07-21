@@ -27,7 +27,7 @@ Handlers parse transport input, call the owning domain package, and map results 
 
 ## Application lifecycle
 
-`internal.NewApp` owns the pre-bound listener, structured logger, SQLite manager, HTTP server, session manager, request-cancellation root, and background runner. Startup fails before serving if the port, storage, logger, database, server, migrations, or initial account cannot be prepared.
+`internal.NewApp` owns the pre-bound listener, structured logger, SQLite manager, bounded HTTP server, session manager, request-cancellation root, and background runner. Startup fails before serving if the port, storage, logger, database, server, migrations, or initial account cannot be prepared.
 
 Shutdown is ordered: cancel jobs and request contexts, stop accepting HTTP work, wait within the environment-specific deadline, checkpoint the WAL, close the database, close the logger, and restore the previous process logger. `App.Close` and the database manager are idempotent so partial startup and repeated cleanup do not leak or double-close resources. New goroutines must accept cancellation and have an owner that waits for completion.
 
@@ -53,15 +53,17 @@ Webhook requests carry a stable idempotency key. SMTP and webhook calls honor ca
 
 ## Upload lifecycle
 
-Incoming files are streamed into a randomly named `.upload-staging` operation beneath the configured data root. Database rows are committed before files are promoted to their final `uploads` paths. Submission and form deletion first quarantine files under `.upload-deletions`, then commit database removal, then remove unreferenced files. A failed transaction restores quarantined files.
+Uploads are disabled per endpoint by default. Accepted files pass a small extension allowlist, signature-based MIME detection, filename bounds, per-request limits, and a persistent global byte quota. Incoming files are streamed into a randomly named `.upload-staging` operation beneath the configured data root and stored under fully random names. Database rows are committed before files are promoted to their final `uploads` paths. Submission and form deletion first quarantine files under `.upload-deletions`, then commit database removal, then remove unreferenced files. A failed transaction restores quarantined files.
 
 All paths are resolved beneath an `os.Root`; absolute paths, traversal, and symlink escape are rejected. Startup reconciles both staging roots against database references, which makes interrupted create and delete operations recoverable without guessing whether the database committed.
 
 ## HTTP and browser lifecycle
 
-Public submissions require a valid endpoint token and allowed origin, enforce scalar and file limits, and optionally require Turnstile. Honeypot-triggered requests are persisted as spam without uploads or delivery jobs; legitimate submissions require at least one field or file. Public CORS permits only `POST`, `OPTIONS`, and `Content-Type`. Production rate limits are process-local and keyed from the direct peer except in a Matcha-managed deployment, where Miniform accepts only the last address appended by that trusted proxy.
+Public submissions require a valid endpoint token and allowed origin, enforce body, scalar, file, storage, concurrency, per-client, and global limits, and optionally require Turnstile. Field-derived email recipients always require Turnstile. Honeypot-triggered requests are persisted as spam without uploads or delivery jobs; legitimate submissions require at least one field or file. Public CORS permits only `POST`, `OPTIONS`, and `Content-Type`. Production resolves the client from the direct peer, Matcha's appended `X-Forwarded-For`, or Railway's `X-Real-IP` according to the detected deployment contract.
 
-Native HTML forms are the canonical public client and Miniform ships no browser submission library. Integrations that need inline behavior use the documented HTTP contract and own their pending, redirect, and error states. They must send one request and must not retry an ambiguous network failure automatically. HTMX acceleration is limited to the authenticated operator UI and does not cache authenticated pages; legacy history is cleared at bootstrap and after swaps. Browser errors either redirect to a working admin page or render a visible error document.
+The operator session cookie is host-only, HMAC-signed, secure in production, HTTP-only, and SameSite Lax. SQLite stores only active-token SHA-256 hashes; logout deletes one hash and credential changes delete every hash owned by the account, so a copied cookie cannot outlive revocation. Administrative responses are not cacheable. A per-response nonce authorizes inline scripts under CSP, while HSTS, frame, MIME, referrer, and permissions headers constrain the browser boundary.
+
+Native HTML forms are the canonical public client and Miniform ships no browser submission library. Integrations that need inline behavior use the documented HTTP contract and own their pending, redirect, and error states. They must send one request and must not retry an ambiguous network failure automatically. HTMX acceleration is limited to the authenticated operator UI, does not cache authenticated pages, disables expression evaluation, and rewrites swapped inline scripts with the document's CSP nonce. Legacy history is cleared at bootstrap and after swaps. Browser errors either redirect to a working admin page or render a visible error document.
 
 ## Managed deployment lifecycle
 

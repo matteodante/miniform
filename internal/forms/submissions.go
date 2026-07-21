@@ -17,9 +17,20 @@ const (
 	legacyHoneypotField = "__fl_hp"
 )
 
-var ErrEmptySubmission = errors.New("submission payload empty")
+var (
+	ErrEmptySubmission            = errors.New("submission payload empty")
+	ErrUploadStorageQuotaExceeded = errors.New("upload storage quota exceeded")
+)
+
+type SubmissionLimits struct {
+	MaxUploadStorageBytes int64
+}
 
 func CreateSubmissionWithFiles(logger *slog.Logger, db *gorm.DB, form *Form, payload map[string]any, userAgent, dataDir string, files []*UploadedFile) (*Submission, error) {
+	return CreateSubmissionWithLimits(logger, db, form, payload, userAgent, dataDir, files, SubmissionLimits{})
+}
+
+func CreateSubmissionWithLimits(logger *slog.Logger, db *gorm.DB, form *Form, payload map[string]any, userAgent, dataDir string, files []*UploadedFile, limits SubmissionLimits) (*Submission, error) {
 	spam := consumeHoneypot(payload)
 	if spam {
 		logger.Info("honeypot triggered", slog.Uint64("form_id", uint64(form.ID)), slog.String("form_slug", form.Slug))
@@ -62,6 +73,9 @@ func CreateSubmissionWithFiles(logger *slog.Logger, db *gorm.DB, form *Form, pay
 		if formID == 0 {
 			return gorm.ErrRecordNotFound
 		}
+		if err := checkUploadQuota(tx, records, limits.MaxUploadStorageBytes); err != nil {
+			return err
+		}
 		if err := tx.Create(submission).Error; err != nil {
 			return err
 		}
@@ -84,6 +98,9 @@ func CreateSubmissionWithFiles(logger *slog.Logger, db *gorm.DB, form *Form, pay
 			writeErr = errors.Join(writeErr, cleanupErr)
 		}
 		logger.Error("store submission", slog.Any("error", writeErr), slog.Uint64("form_id", uint64(form.ID)))
+		if errors.Is(writeErr, ErrUploadStorageQuotaExceeded) {
+			return nil, ErrUploadStorageQuotaExceeded
+		}
 		return nil, errors.New("failed to save submission")
 	}
 	if cleanupErr != nil {
@@ -95,6 +112,24 @@ func CreateSubmissionWithFiles(logger *slog.Logger, db *gorm.DB, form *Form, pay
 	return submission, nil
 }
 
+func checkUploadQuota(tx *gorm.DB, records []*SubmissionFile, maximum int64) error {
+	if len(records) == 0 || maximum <= 0 {
+		return nil
+	}
+	var storedBytes int64
+	if err := tx.Model(&SubmissionFile{}).Select("COALESCE(SUM(size), 0)").Scan(&storedBytes).Error; err != nil {
+		return err
+	}
+	var incomingBytes int64
+	for _, record := range records {
+		incomingBytes += record.Size
+	}
+	if storedBytes > maximum-incomingBytes {
+		return ErrUploadStorageQuotaExceeded
+	}
+	return nil
+}
+
 func createDeliveryEvents(tx *gorm.DB, form *Form, submissionID uint) error {
 	now := time.Now().UTC()
 	if form.WebhookDelivery != nil && form.WebhookDelivery.Enabled && form.WebhookDelivery.URL != "" {
@@ -104,7 +139,8 @@ func createDeliveryEvents(tx *gorm.DB, form *Form, submissionID uint) error {
 	}
 	for i := range form.EmailDeliveries {
 		delivery := &form.EmailDeliveries[i]
-		if !delivery.Enabled || delivery.Recipient == "" {
+		if !delivery.Enabled || delivery.Recipient == "" ||
+			(delivery.RecipientSource == EmailRecipientField && form.CaptchaProfileID == nil) {
 			continue
 		}
 		if err := tx.Create(NewEmailEvent(submissionID, now, delivery.ID)).Error; err != nil {

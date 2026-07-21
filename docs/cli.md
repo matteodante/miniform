@@ -157,6 +157,7 @@ miniform form create \
 miniform form update \
   --id 1 \
   --name 'Customer contact' \
+  --uploads-enabled=true \
   --email-enabled=false
 
 miniform --show-secrets form rotate-token --id 1 --yes
@@ -185,7 +186,7 @@ Complex form values come from files:
 - `--generated-html-file`: HTML stored for the embed view;
 - `--webhook-headers-file`: JSON object whose values are strings.
 
-Assigning `--captcha-profile-id` makes Turnstile mandatory for every public submission to that form. Use `--clear-captcha-profile` to disable it.
+Assigning `--captcha-profile-id` makes Turnstile mandatory for every public submission to that form. Use `--clear-captcha-profile` to disable it. `--uploads-enabled=true` opts the endpoint into one signature-validated upload up to 5 MiB; uploads remain disabled by default.
 
 Built-in templates are discoverable without SQLite:
 
@@ -315,17 +316,16 @@ miniform --json submission list \
 miniform --json submission get --id 42
 ```
 
-Create a submission from a JSON object. Repeat `--file` for uploads:
+Create a submission from a JSON object. The current upload policy accepts one file:
 
 ```bash
 miniform --json submission create \
   --slug contact \
   --data-file ./payload.json \
-  --file attachment=./brief.pdf \
-  --file screenshot=./screen.png
+  --file attachment=./brief.pdf
 ```
 
-The command applies the same file-count, size, and extension limits as public HTTP submissions. It requires at least one stored field or file and creates webhook and email events from the form delivery policy.
+The command applies the same file-count, size, extension, and content-signature limits as public HTTP submissions. It requires at least one stored field or file and creates webhook and email events from the form delivery policy.
 
 List and copy uploaded files:
 

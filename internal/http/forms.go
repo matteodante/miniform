@@ -14,6 +14,7 @@ import (
 	"github.com/matteodante/miniform/internal/forms"
 	formembed "github.com/matteodante/miniform/internal/forms/embed"
 	"github.com/matteodante/miniform/internal/integrations"
+	miniformserver "github.com/matteodante/miniform/internal/server"
 )
 
 func AdminFormsIndex(ctx *cartridge.Context) error {
@@ -181,6 +182,7 @@ func createFormParams(ctx *cartridge.Context) forms.CreateParams {
 	return forms.CreateParams{
 		Name: ctx.FormValue("name"), Slug: ctx.FormValue("slug"),
 		AllowedOrigins: ctx.FormValue("allowed_origins"),
+		UploadsEnabled: checkbox(ctx, "uploads_enabled"),
 		GeneratedHTML:  ctx.FormValue("generated_html"), TemplateID: ctx.FormValue("template_id"),
 		MailerProfileID:  optionalID(ctx.FormValue("mailer_profile_id")),
 		CaptchaProfileID: optionalID(ctx.FormValue("captcha_profile_id")),
@@ -197,6 +199,7 @@ func createFormParams(ctx *cartridge.Context) forms.CreateParams {
 func updateFormParams(ctx *cartridge.Context, id uint) forms.UpdateParams {
 	return forms.UpdateParams{
 		ID: id, Name: ctx.FormValue("name"), AllowedOrigins: ctx.FormValue("allowed_origins"),
+		UploadsEnabled:   checkbox(ctx, "uploads_enabled"),
 		MailerProfileID:  optionalID(ctx.FormValue("mailer_profile_id")),
 		CaptchaProfileID: optionalID(ctx.FormValue("captcha_profile_id")),
 		EmailName:        ctx.FormValue("email_name"), EmailRecipientType: ctx.FormValue("email_recipient_source"),
@@ -302,13 +305,13 @@ func renderFormEditor(ctx *cartridge.Context, db *gorm.DB, form *forms.Form, tem
 			data["PreviewHTML"] = blank.RenderHTML(action)
 		}
 	}
-	return ctx.Render("layouts/base", data, "")
+	return ctx.Render("layouts/base", miniformserver.TemplateSecurity(ctx.Ctx, data), "")
 }
 
 func createFormDraft(params forms.CreateParams) *forms.Form {
 	form := &forms.Form{
 		Name: params.Name, Slug: params.Slug, AllowedOrigins: params.AllowedOrigins,
-		GeneratedHTML:    params.GeneratedHTML,
+		GeneratedHTML: params.GeneratedHTML, UploadsEnabled: params.UploadsEnabled,
 		CaptchaProfileID: params.CaptchaProfileID,
 	}
 	setDraftDeliveries(
@@ -325,6 +328,7 @@ func createFormDraft(params forms.CreateParams) *forms.Form {
 func updateFormDraft(form *forms.Form, params forms.UpdateParams) *forms.Form {
 	form.Name = params.Name
 	form.AllowedOrigins = params.AllowedOrigins
+	form.UploadsEnabled = params.UploadsEnabled
 	form.CaptchaProfileID = params.CaptchaProfileID
 	setDraftDeliveries(
 		form,
@@ -418,7 +422,7 @@ func renderPage(ctx *cartridge.Context, title, content string, values fiber.Map)
 	}
 	values["Title"] = title
 	values["ContentView"] = content
-	return ctx.Render("layouts/base", values, "")
+	return ctx.Render("layouts/base", miniformserver.TemplateSecurity(ctx.Ctx, values), "")
 }
 
 func exampleAction(slug string) string {

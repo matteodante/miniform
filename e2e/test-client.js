@@ -71,9 +71,12 @@ class TestClient {
     const publicID = crypto.randomBytes(10).toString("hex");
     const result = await this.run(
       `INSERT INTO forms
-       (public_id, name, slug, token, allowed_origins, captcha_profile_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [publicID, name, slug, token, options.allowedOrigins ?? "*", options.captchaProfileID ?? null, now, now],
+       (public_id, name, slug, token, allowed_origins, uploads_enabled, captcha_profile_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        publicID, name, slug, token, options.allowedOrigins ?? "*",
+        options.uploadsEnabled ? 1 : 0, options.captchaProfileID ?? null, now, now,
+      ],
     );
 
     await this.run(

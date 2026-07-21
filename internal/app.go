@@ -90,7 +90,8 @@ func NewApp() (_ *App, resultErr error) {
 	if err != nil {
 		return nil, fmt.Errorf("create HTTP server: %w", err)
 	}
-	httpServer.App().Server().MaxRequestBodySize = forms.MaxTotalFiles*forms.MaxFileSize + 1024*1024
+	httpServer.App().Server().MaxRequestBodySize = forms.MaxRequestBodySize
+	httpServer.App().Server().Concurrency = cfg.RequestConcurrency
 	requestRoot, cancelRequests := context.WithCancel(context.Background())
 	defer func() {
 		if resultErr != nil {
@@ -103,9 +104,10 @@ func NewApp() (_ *App, resultErr error) {
 		defer cancelRequest()
 		return ctx.Next()
 	})
+	httpServer.App().Use(server.SecurityHeaders(cfg))
 
 	session := cartridge.NewSessionManager(cartridge.SessionConfig{
-		CookieName: cfg.AppName + "_session",
+		CookieName: cfg.SessionCookieName(),
 		Secret:     cfg.GetSessionSecret(),
 		TTL:        time.Duration(cfg.GetSessionTimeout()) * time.Second,
 		Secure:     cfg.IsProduction(),

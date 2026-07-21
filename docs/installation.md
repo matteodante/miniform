@@ -18,7 +18,7 @@ Production deployments require:
 Versioned images are published publicly to `ghcr.io/matteodante/miniform`. Pin an exact version in production; do not deploy `latest` unattended.
 
 ```bash
-docker pull ghcr.io/matteodante/miniform:v0.2.1
+docker pull ghcr.io/matteodante/miniform:v0.2.2
 docker volume create miniform-data
 docker run --detach --name miniform \
   --restart unless-stopped \
@@ -26,7 +26,7 @@ docker run --detach --name miniform \
   --env MINIFORM_ENV=production \
   --env MINIFORM_SESSION_SECRET="$(openssl rand -hex 32)" \
   --volume miniform-data:/app/storage \
-  ghcr.io/matteodante/miniform:v0.2.1
+  ghcr.io/matteodante/miniform:v0.2.2
 ```
 
 Generate the session secret once, store it in your secret manager, and reuse it across restarts. The inline command above is illustrative; shell history and process inspection may expose values on shared systems.
@@ -56,10 +56,10 @@ The repository includes `railway.json`, which builds the Go application with Rai
 
 ```text
 MINIFORM_ENV=production
-MINIFORM_SESSION_SECRET=<stable-random-secret>
+MINIFORM_SESSION_SECRET=<stable-random-secret-at-least-32-characters>
 ```
 
-The container already defaults to port `8080` and stores both the SQLite database and uploads below `/app/storage`. Do not deploy without the volume: a replacement would lose submissions and integration configuration. Keep SMTP credentials in Miniform's access-controlled persistent storage, not in the static site that submits the form.
+The container already defaults to port `8080` and stores both the SQLite database and uploads below `/app/storage`. Miniform detects Railway through `RAILWAY_ENVIRONMENT_ID` and uses Railway's `X-Real-IP` header for per-client limits. Do not deploy without the volume: a replacement would lose submissions and integration configuration. Keep SMTP credentials in Miniform's access-controlled persistent storage, not in the static site that submits the form. Railway does not provide an application WAF by default; keep Miniform's limits enabled and add an edge WAF when the threat model requires one.
 
 ## Installer
 
@@ -68,7 +68,7 @@ Install and start Docker Engine first using the official instructions for your o
 The installer downloads a versioned Linux release, verifies its SHA-256 checksum, and launches that verified candidate. It replaces the installed manager only after installation succeeds. Review the script before running it as root:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/matteodante/miniform/v0.2.1/install.sh
+curl -fsSLO https://raw.githubusercontent.com/matteodante/miniform/v0.2.2/install.sh
 less install.sh
 sudo bash install.sh
 ```
@@ -114,6 +114,8 @@ For other OCI or process-manager deployments:
 5. Confirm `/_health`, sign-in, a test submission, and configured deliveries.
 
 Database migrations run automatically at startup and preserve the legacy schemas covered by the compatibility tests. Do not skip versions when release notes include an explicit staged migration, and keep a restorable backup before every upgrade; hand-edited schemas are not supported.
+
+The security-hardening migration signs out sessions created by older releases, leaves uploads disabled on existing endpoints until explicitly enabled, and disables enabled field-derived email recipients that do not have Turnstile. After the first start, sign in again and review endpoint upload and notification settings before accepting traffic.
 
 ## Backups
 

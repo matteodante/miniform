@@ -76,12 +76,12 @@ func CreateEmailDelivery(logger *slog.Logger, db *gorm.DB, params EmailDeliveryP
 		return nil, invalid("form_id", "Form is required")
 	}
 	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
-		var formCount int64
-		if err := tx.Model(&Form{}).Where("id = ?", delivery.FormID).Count(&formCount).Error; err != nil {
+		var form Form
+		if err := tx.Select("id", "captcha_profile_id").First(&form, delivery.FormID).Error; err != nil {
 			return err
 		}
-		if formCount == 0 {
-			return gorm.ErrRecordNotFound
+		if err := validateDynamicRecipientSafeguard(delivery, form.CaptchaProfileID); err != nil {
+			return err
 		}
 		if err := validateProfileReferences(tx, delivery.MailerProfileID, nil); err != nil {
 			return err
@@ -102,6 +102,13 @@ func UpdateEmailDelivery(logger *slog.Logger, db *gorm.DB, params EmailDeliveryP
 		return nil, err
 	}
 	if err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		var form Form
+		if err := tx.Select("id", "captcha_profile_id").First(&form, params.FormID).Error; err != nil {
+			return err
+		}
+		if err := validateDynamicRecipientSafeguard(delivery, form.CaptchaProfileID); err != nil {
+			return err
+		}
 		if err := validateProfileReferences(tx, delivery.MailerProfileID, nil); err != nil {
 			return err
 		}

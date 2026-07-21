@@ -62,6 +62,9 @@ func (form *Form) ValidateRedirectURL(target string) error {
 	if parsed.Hostname() == "" {
 		return ErrRedirectNotAllowed
 	}
+	if strings.TrimSpace(form.AllowedOrigins) == "*" {
+		return ErrRedirectNotAllowed
+	}
 	if form.IsOriginAllowed(parsed.Hostname()) {
 		return nil
 	}

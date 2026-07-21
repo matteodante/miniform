@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -378,10 +377,16 @@ func openCLIUploads(specs []string) ([]*forms.UploadedFile, error) {
 			forms.CloseFiles(uploads)
 			return nil, validationError(err.Error())
 		}
+		contentType, err := forms.DetectFileContentType(file, filename)
+		if err != nil {
+			_ = file.Close()
+			forms.CloseFiles(uploads)
+			return nil, validationError(err.Error())
+		}
 		uploads = append(uploads, &forms.UploadedFile{
 			FieldName:   field,
 			Filename:    filename,
-			ContentType: mime.TypeByExtension(filepath.Ext(filename)),
+			ContentType: contentType,
 			Size:        info.Size(),
 			Data:        file,
 		})

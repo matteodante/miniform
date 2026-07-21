@@ -17,6 +17,7 @@ type formView struct {
 	Token            string               `json:"token"`
 	Endpoint         string               `json:"endpoint"`
 	AllowedOrigins   string               `json:"allowed_origins"`
+	UploadsEnabled   bool                 `json:"uploads_enabled"`
 	HasGeneratedHTML bool                 `json:"has_generated_html"`
 	GeneratedHTML    string               `json:"generated_html,omitempty"`
 	CaptchaProfileID *uint                `json:"captcha_profile_id,omitempty"`
@@ -203,6 +204,7 @@ func (r *Runner) formCreate(args []string) (any, error) {
 	name := set.String("name", "", "form name")
 	slug := set.String("slug", "", "unique form slug")
 	origins := set.String("allowed-origins", "", "comma-separated origins or *")
+	uploadsEnabled := set.Bool("uploads-enabled", false, "allow one validated file upload per submission")
 	generatedHTMLFile := set.String("generated-html-file", "", "path containing generated form HTML")
 	mailerID := set.Uint("mailer-profile-id", 0, "mailer profile id")
 	captchaID := set.Uint("captcha-profile-id", 0, "captcha profile id")
@@ -258,6 +260,7 @@ func (r *Runner) formCreate(args []string) (any, error) {
 		Name:               *name,
 		Slug:               *slug,
 		AllowedOrigins:     *origins,
+		UploadsEnabled:     *uploadsEnabled,
 		GeneratedHTML:      generatedHTML,
 		TemplateID:         strings.TrimSpace(*templateID),
 		MailerProfileID:    optionalUint(*mailerID),
@@ -283,6 +286,7 @@ func (r *Runner) formUpdate(args []string) (any, error) {
 	name := set.String("name", "", "form name")
 	slug := set.String("slug", "", "unique form slug")
 	origins := set.String("allowed-origins", "", "comma-separated origins or *")
+	uploadsEnabled := set.Bool("uploads-enabled", false, "allow one validated file upload per submission")
 	generatedHTMLFile := set.String("generated-html-file", "", "path containing generated form HTML")
 	clearGeneratedHTML := set.Bool("clear-generated-html", false, "clear generated form HTML")
 	mailerID := set.Uint("mailer-profile-id", 0, "mailer profile id")
@@ -348,6 +352,9 @@ func (r *Runner) formUpdate(args []string) (any, error) {
 	}
 	if flagWasSet(set, "allowed-origins") {
 		params.AllowedOrigins = *origins
+	}
+	if flagWasSet(set, "uploads-enabled") {
+		params.UploadsEnabled = *uploadsEnabled
 	}
 	if *clearGeneratedHTML {
 		params.GeneratedHTML = ""
@@ -489,6 +496,7 @@ func updateParamsFromForm(form *forms.Form) forms.UpdateParams {
 		Name:             form.Name,
 		Slug:             form.Slug,
 		AllowedOrigins:   form.AllowedOrigins,
+		UploadsEnabled:   form.UploadsEnabled,
 		GeneratedHTML:    form.GeneratedHTML,
 		CaptchaProfileID: form.CaptchaProfileID,
 	}
@@ -523,6 +531,7 @@ func newFormView(form *forms.Form, showSecrets bool) formView {
 		Token:            redact(form.Token, showSecrets),
 		Endpoint:         "/forms/" + form.Slug + "/submit",
 		AllowedOrigins:   form.AllowedOrigins,
+		UploadsEnabled:   form.UploadsEnabled,
 		HasGeneratedHTML: strings.TrimSpace(form.GeneratedHTML) != "",
 		CaptchaProfileID: form.CaptchaProfileID,
 		CreatedAt:        form.CreatedAt,

@@ -380,11 +380,15 @@ func TestRunner(t *testing.T) {
 	t.Run("manages independent email notifications with dynamic addresses and templates", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		captcha, err := integrations.CreateCaptchaProfile(logger, db, integrations.CaptchaProfileParams{
+			Name: "Turnstile", SiteKey: "site", SecretKey: "secret",
+		})
+		require.NoError(t, err)
 		profile, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
 			Name: "SMTP", DefaultFromEmail: "forms@example.com", SMTPHost: "smtp.example.com",
 		})
 		require.NoError(t, err)
-		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Booking", Slug: "booking-email", AllowedOrigins: "*"})
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Booking", Slug: "booking-email", AllowedOrigins: "*", CaptchaProfileID: &captcha.ID})
 		require.NoError(t, err)
 		textPath := filepath.Join(t.TempDir(), "confirmation.txt")
 		htmlPath := filepath.Join(t.TempDir(), "confirmation.html")
@@ -530,6 +534,16 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, ExitInternal, exitCode)
 		_, err = os.Stat(destination)
 		assert.ErrorIs(t, err, os.ErrNotExist)
+	})
+
+	t.Run("submission uploads reject content disguised by its extension", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "disguised.pdf")
+		require.NoError(t, os.WriteFile(path, []byte("<script>alert(1)</script>"), 0o600))
+
+		uploads, err := openCLIUploads([]string{"attachment=" + path})
+
+		assert.ErrorContains(t, err, "does not match extension")
+		assert.Empty(t, uploads)
 	})
 }
 

@@ -66,6 +66,69 @@ func AdminFormEmailEdit(ctx *cartridge.Context) error {
 	return renderEmailDeliveryEditor(ctx, db, form, delivery, "")
 }
 
+func AdminFormEmailPreview(ctx *cartridge.Context) error {
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+	form, err := requestedForm(ctx, db)
+	if err != nil {
+		return err
+	}
+	submissionID, err := strconv.ParseUint(strings.TrimSpace(ctx.FormValue("preview_submission_id")), 10, 32)
+	if err != nil || submissionID == 0 {
+		return emailPreviewError(ctx, "Select a submission to preview this email")
+	}
+	submission, err := forms.GetSubmissionByID(db, uint(submissionID))
+	if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && submission.FormID != form.ID) {
+		return emailPreviewError(ctx, "The selected submission does not belong to this endpoint")
+	}
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
+
+	delivery := emailDeliveryDraft(emailDeliveryParams(ctx, form.ID, 0))
+	fields := forms.EmailTemplateFields(submission.DataJSON)
+	recipients, err := forms.ResolveEmailRecipients(delivery, fields)
+	if err != nil {
+		return emailPreviewError(ctx, err.Error())
+	}
+	replyTo, err := forms.ResolveEmailReplyTo(delivery, fields)
+	if err != nil {
+		return emailPreviewError(ctx, err.Error())
+	}
+	if delivery.MailerProfileID == nil {
+		return emailPreviewError(ctx, "Select an email route to preview the sender")
+	}
+	profile, err := integrations.GetMailerProfileByID(db, *delivery.MailerProfileID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return emailPreviewError(ctx, "The selected email route is unavailable")
+	}
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
+	from, err := integrations.MailerSender(profile)
+	if err != nil {
+		return emailPreviewError(ctx, err.Error())
+	}
+	from = forms.DisplayEmailAddresses(from)
+	for i := range recipients {
+		recipients[i] = forms.DisplayEmailAddresses(recipients[i])
+	}
+	replyTo = forms.DisplayEmailAddresses(replyTo)
+	rendered, err := forms.RenderEmail(delivery, submission)
+	if err != nil {
+		return emailPreviewError(ctx, err.Error())
+	}
+
+	ctx.Set(fiber.HeaderCacheControl, "no-store")
+	return ctx.JSON(fiber.Map{
+		"ok": true, "submission_id": submission.ID, "from": from, "to": recipients, "reply_to": replyTo,
+		"subject": rendered.Subject, "format": rendered.Format,
+		"text": rendered.TextBody, "html": rendered.HTMLBody,
+	})
+}
+
 func AdminFormEmailUpdate(ctx *cartridge.Context) error {
 	db, err := requestDB(ctx)
 	if err != nil {
@@ -142,13 +205,23 @@ func renderEmailDeliveryEditor(ctx *cartridge.Context, db *gorm.DB, form *forms.
 	if delivery.MailerProfileID != nil {
 		selectedMailerID = *delivery.MailerProfileID
 	}
+	submissions, err := forms.GetSubmissions(db, form.ID, 25)
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
 	return renderPage(ctx, title,
 		"admin/forms/email/content", fiber.Map{
 			"Error": message, "Form": form, "Delivery": delivery, "IsEdit": delivery.ID != 0,
 			"SelectedMailerProfileID": selectedMailerID,
 			"MailerProfiles":          mailers, "SubjectTemplate": forms.EffectiveEmailSubject(delivery),
 			"TextTemplate": forms.EffectiveEmailText(delivery), "HTMLTemplate": forms.EffectiveEmailHTML(delivery),
+			"PreviewSubmissions": submissions,
 		})
+}
+
+func emailPreviewError(ctx *cartridge.Context, message string) error {
+	ctx.Set(fiber.HeaderCacheControl, "no-store")
+	return ctx.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"ok": false, "error": message})
 }
 
 func displayEmailDelivery(delivery *forms.EmailDelivery) *forms.EmailDelivery {

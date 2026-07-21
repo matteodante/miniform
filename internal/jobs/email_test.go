@@ -229,10 +229,11 @@ func TestEmailDelivery(t *testing.T) {
 
 	t.Run("rejects submitted header injection before SMTP", func(t *testing.T) {
 		delivery := &forms.EmailDelivery{SubjectTemplate: "Request from {{.Fields.name}}"}
-		_, _, err := renderEmail(delivery, emailTemplateData{
-			FormName: "Contact", SubmittedAt: time.Now().UTC().Format(time.RFC3339),
-			Fields: map[string]string{"name": "Alice\r\nBcc: hidden@example.com"},
-		}, forms.EmailFormatText)
+		delivery.Format = forms.EmailFormatText
+		_, err := forms.RenderEmail(delivery, &forms.Submission{
+			Form: &forms.Form{Name: "Contact"}, CreatedAt: time.Now().UTC(),
+			DataJSON: `{"name":"Alice\r\nBcc: hidden@example.com"}`,
+		})
 		assert.ErrorContains(t, err, "one non-empty line")
 
 		_, err = buildSMTPMessage(outboundEmail{
@@ -246,16 +247,15 @@ func TestEmailDelivery(t *testing.T) {
 	t.Run("does not render an unused HTML template for text messages", func(t *testing.T) {
 		delivery := &forms.EmailDelivery{
 			SubjectTemplate: "Text only", TextTemplate: "Hello {{.Fields.name}}",
-			HTMLTemplate: "<p>{{.Fields.missing}}</p>",
+			HTMLTemplate: "<p>{{.Fields.missing}}</p>", Format: forms.EmailFormatText,
 		}
-		subject, content, err := renderEmail(delivery, emailTemplateData{
-			FormName: "Contact", SubmittedAt: time.Now().UTC().Format(time.RFC3339),
-			Fields: map[string]string{"name": "Alice"},
-		}, forms.EmailFormatText)
+		rendered, err := forms.RenderEmail(delivery, &forms.Submission{
+			Form: &forms.Form{Name: "Contact"}, CreatedAt: time.Now().UTC(), DataJSON: `{"name":"Alice"}`,
+		})
 		require.NoError(t, err)
-		assert.Equal(t, "Text only", subject)
-		assert.Equal(t, "Hello Alice", content.text)
-		assert.Empty(t, content.html)
+		assert.Equal(t, "Text only", rendered.Subject)
+		assert.Equal(t, "Hello Alice", rendered.TextBody)
+		assert.Empty(t, rendered.HTMLBody)
 	})
 
 	t.Run("retries SMTP failures and stops at the configured limit", func(t *testing.T) {

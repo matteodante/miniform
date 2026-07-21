@@ -42,6 +42,8 @@ Each enabled notification creates its own durable event. Notifications use the s
 
 Submitted values may enter the body through escaped templates and may supply a recipient or `Reply-To` only through an explicitly selected field. Dynamic addresses are parsed as single RFC 5322 mailboxes, and rendered subjects containing newline or null bytes are rejected before SMTP. See [Email notifications](email-notifications.md) for the complete data contract and CLI examples.
 
+The authenticated notification editor can preview unsaved settings against a recent submission. It uses the production renderer in a sandboxed iframe, marks the response `no-store`, and performs no SMTP or database write.
+
 ## Network boundaries
 
 Production applies process-local limits of 30 public submissions per minute and 5 sign-in attempts per minute for each resolved client address. The counters reset when the process restarts and are disabled in development and test environments.

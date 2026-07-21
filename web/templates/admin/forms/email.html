@@ -13,7 +13,7 @@
     <div role="alert" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{{ .Error }}</div>
     {{ end }}
 
-    <form action="{{ $action }}" method="post" class="space-y-5">
+    <form action="{{ $action }}" method="post" class="space-y-5" id="emailNotificationForm" data-preview-url="/admin/forms/{{ .Form.ID }}/emails/preview">
         <section class="mf-panel p-6">
             <div class="flex items-start justify-between gap-4">
                 <div><h2 class="text-lg font-semibold text-ink">Delivery</h2><p class="text-sm text-ink-muted">Choose the SMTP route and where this message goes.</p></div>
@@ -80,10 +80,96 @@
             </div>
         </section>
 
+        <section class="mf-panel p-6" aria-labelledby="email-preview-title">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                    <h2 class="text-lg font-semibold text-ink" id="email-preview-title">Rendered preview</h2>
+                    <p class="text-sm text-ink-muted">Uses the current unsaved values and one real inbox entry. It never sends an email.</p>
+                </div>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <label class="grid gap-2 text-sm font-medium text-ink" for="preview_submission_id">Preview with
+                        <select class="mf-input min-w-56" id="preview_submission_id" name="preview_submission_id" {{ if not .PreviewSubmissions }}disabled{{ end }}>
+                            {{ range .PreviewSubmissions }}<option value="{{ .ID }}">Entry #{{ .ID }} · {{ formatUTC .CreatedAt "Jan 2 15:04 UTC" }}</option>{{ end }}
+                            {{ if not .PreviewSubmissions }}<option value="">No inbox entries available</option>{{ end }}
+                        </select>
+                    </label>
+                    <button class="mf-button-secondary" id="emailPreviewButton" type="button" {{ if not .PreviewSubmissions }}disabled{{ end }}>Preview email</button>
+                </div>
+            </div>
+            {{ if not .PreviewSubmissions }}
+            <p class="mt-4 rounded-xl border border-rule bg-gray-50 p-4 text-sm text-ink-muted">Submit test data to this endpoint first, then reopen the notification editor.</p>
+            {{ end }}
+            <p class="mt-4 text-sm text-ink-muted" id="emailPreviewStatus" role="status" aria-live="polite"></p>
+            <div class="mt-5 space-y-5" id="emailPreviewResult" hidden>
+                <dl class="grid gap-4 rounded-xl border border-rule bg-gray-50 p-4 text-sm sm:grid-cols-2">
+                    <div><dt class="text-xs font-bold uppercase tracking-wider text-ink-muted">From</dt><dd class="mt-1 break-all text-ink" id="emailPreviewFrom"></dd></div>
+                    <div><dt class="text-xs font-bold uppercase tracking-wider text-ink-muted">To</dt><dd class="mt-1 break-all text-ink" id="emailPreviewTo"></dd></div>
+                    <div><dt class="text-xs font-bold uppercase tracking-wider text-ink-muted">Reply-To</dt><dd class="mt-1 break-all text-ink" id="emailPreviewReplyTo"></dd></div>
+                    <div><dt class="text-xs font-bold uppercase tracking-wider text-ink-muted">Subject</dt><dd class="mt-1 break-all font-semibold text-ink" id="emailPreviewSubject"></dd></div>
+                </dl>
+                <iframe class="min-h-[26rem] w-full rounded-xl border border-rule bg-white" id="emailPreviewFrame" title="Rendered email preview" sandbox></iframe>
+                <pre class="max-h-[38rem] overflow-auto whitespace-pre-wrap rounded-xl bg-gray-900 p-4 font-mono text-xs text-gray-100" id="emailPreviewText" hidden></pre>
+                <details class="rounded-xl border border-rule p-4" id="emailPreviewFallback" hidden>
+                    <summary class="cursor-pointer text-sm font-semibold text-ink">Plain-text fallback</summary>
+                    <pre class="mt-4 max-h-[38rem] overflow-auto whitespace-pre-wrap rounded-xl bg-gray-900 p-4 font-mono text-xs text-gray-100" id="emailPreviewFallbackText"></pre>
+                </details>
+            </div>
+        </section>
+
         <div class="flex justify-end gap-3">
             <a class="mf-button-secondary" href="/admin/forms/{{ .Form.ID }}#email-notifications">Cancel</a>
             <button class="mf-button" type="submit">{{ if .IsEdit }}Save notification{{ else }}Add notification{{ end }}</button>
         </div>
     </form>
 </div>
+<script>
+    (() => {
+        const form = document.getElementById("emailNotificationForm");
+        const button = document.getElementById("emailPreviewButton");
+        if (!form || !button || button.dataset.previewBound) return;
+        button.dataset.previewBound = "true";
+
+        const status = document.getElementById("emailPreviewStatus");
+        const result = document.getElementById("emailPreviewResult");
+        const frame = document.getElementById("emailPreviewFrame");
+        const text = document.getElementById("emailPreviewText");
+        const fallback = document.getElementById("emailPreviewFallback");
+
+        button.addEventListener("click", async () => {
+            if (!form.reportValidity()) return;
+            button.disabled = true;
+            status.textContent = "Rendering preview…";
+
+            try {
+                const response = await fetch(form.dataset.previewUrl, {
+                    method: "POST",
+                    body: new FormData(form),
+                    headers: { "Accept": "application/json" },
+                });
+                const payload = await response.json();
+                if (!response.ok || !payload.ok) throw new Error(payload.error || "Preview failed");
+
+                document.getElementById("emailPreviewFrom").textContent = payload.from;
+                document.getElementById("emailPreviewTo").textContent = payload.to.join(", ");
+                document.getElementById("emailPreviewReplyTo").textContent = payload.reply_to || "Not set";
+                document.getElementById("emailPreviewSubject").textContent = payload.subject;
+
+                const isHTML = payload.format === "html";
+                frame.hidden = !isHTML;
+                frame.srcdoc = isHTML ? payload.html : "";
+                text.hidden = isHTML;
+                text.textContent = payload.text;
+                fallback.hidden = !isHTML;
+                document.getElementById("emailPreviewFallbackText").textContent = payload.text;
+                result.hidden = false;
+                status.textContent = `Rendered from entry #${payload.submission_id}. No email was sent.`;
+            } catch (error) {
+                result.hidden = true;
+                status.textContent = error instanceof Error ? error.message : "Preview failed";
+            } finally {
+                button.disabled = false;
+            }
+        });
+    })();
+</script>
 {{ end }}

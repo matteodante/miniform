@@ -2,6 +2,7 @@ package internal_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -246,7 +247,7 @@ func TestRoutes(t *testing.T) {
 	})
 
 	t.Run("protects state-changing admin routes", func(t *testing.T) {
-		for _, path := range []string{"/admin/logout", "/admin/forms", "/admin/settings/password"} {
+		for _, path := range []string{"/admin/logout", "/admin/forms", "/admin/forms/1/emails/preview", "/admin/settings/password"} {
 			t.Run(path, func(t *testing.T) {
 				status, body := postForm(t, testServer(t, cartridgeconfig.Test), path, "", nil)
 				assert.Equal(t, 403, status)
@@ -317,7 +318,7 @@ func TestRoutes(t *testing.T) {
 		server := testServer(t, cartridgeconfig.Test)
 		createAdmin(t, server)
 		mailer, err := integrations.CreateMailerProfile(slog.Default(), server.DB.GetConnection(), integrations.MailerProfileParams{
-			Name: "SMTP", DefaultFromEmail: "forms@example.com", SMTPHost: "smtp.example.com",
+			Name: "SMTP", DefaultFromName: "PiùUDITO", DefaultFromEmail: "forms@example.com", SMTPHost: "smtp.example.com",
 		})
 		require.NoError(t, err)
 		form, err := forms.Create(slog.Default(), server.DB.GetConnection(), forms.CreateParams{
@@ -362,6 +363,15 @@ func TestRoutes(t *testing.T) {
 		assert.Equal(t, forms.EmailReplyToStatic, created.ReplyToSource)
 		assert.Equal(t, `"Support" <support@example.com>`, created.ReplyTo)
 
+		form, err = forms.GetByID(server.DB.GetConnection(), form.ID)
+		require.NoError(t, err)
+		submission, err := forms.CreateSubmissionWithFiles(slog.Default(), server.DB.GetConnection(), form, map[string]any{
+			"name": "<Ada>", "email": "ada@example.com",
+		}, "preview route test", "", nil)
+		require.NoError(t, err)
+		var eventCountBefore int64
+		require.NoError(t, server.DB.GetConnection().Model(&forms.EmailEvent{}).Count(&eventCountBefore).Error)
+
 		edit := httptest.NewRequestWithContext(t.Context(), http.MethodGet,
 			fmt.Sprintf("/admin/forms/%d/emails/%d/edit", form.ID, created.ID), nil)
 		edit.AddCookie(cookie)
@@ -373,6 +383,47 @@ func TestRoutes(t *testing.T) {
 		assert.Equal(t, http.StatusOK, editResponse.StatusCode)
 		assert.Contains(t, string(body), "Customer confirmation")
 		assert.Contains(t, string(body), "Thanks {{.Fields.name}}")
+		assert.Contains(t, string(body), "Preview email")
+		assert.Contains(t, string(body), fmt.Sprintf("Entry #%d", submission.ID))
+
+		previewValues := url.Values{
+			"mailer_profile_id": {fmt.Sprint(mailer.ID)},
+			"recipient_source":  {"field"}, "recipient": {"email"},
+			"reply_to_source": {"static"}, "reply_to": {"Support <support@example.com>"},
+			"subject_template": {"Preview {{.Fields.name}}"}, "format": {"html"},
+			"text_template": {"Hello {{.Fields.name}}"}, "html_template": {"<p>Hello {{.Fields.name}}</p>"},
+			"preview_submission_id": {fmt.Sprint(submission.ID)},
+		}
+		preview := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+			fmt.Sprintf("/admin/forms/%d/emails/preview", form.ID), strings.NewReader(previewValues.Encode()))
+		preview.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		preview.Header.Set("Sec-Fetch-Site", "same-origin")
+		preview.AddCookie(cookie)
+		previewResponse, err := server.App.Test(preview, -1)
+		require.NoError(t, err)
+		var previewBody struct {
+			OK      bool     `json:"ok"`
+			From    string   `json:"from"`
+			To      []string `json:"to"`
+			ReplyTo string   `json:"reply_to"`
+			Subject string   `json:"subject"`
+			Text    string   `json:"text"`
+			HTML    string   `json:"html"`
+		}
+		require.NoError(t, json.NewDecoder(previewResponse.Body).Decode(&previewBody))
+		require.NoError(t, previewResponse.Body.Close())
+		assert.Equal(t, http.StatusOK, previewResponse.StatusCode)
+		assert.Equal(t, "no-store", previewResponse.Header.Get("Cache-Control"))
+		assert.True(t, previewBody.OK)
+		assert.Equal(t, "PiùUDITO <forms@example.com>", previewBody.From)
+		assert.Equal(t, []string{"ada@example.com"}, previewBody.To)
+		assert.Equal(t, `"Support" <support@example.com>`, previewBody.ReplyTo)
+		assert.Equal(t, "Preview <Ada>", previewBody.Subject)
+		assert.Equal(t, "Hello <Ada>", previewBody.Text)
+		assert.Equal(t, "<p>Hello &lt;Ada&gt;</p>", previewBody.HTML)
+		var eventCountAfter int64
+		require.NoError(t, server.DB.GetConnection().Model(&forms.EmailEvent{}).Count(&eventCountAfter).Error)
+		assert.Equal(t, eventCountBefore, eventCountAfter)
 
 		remove := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
 			fmt.Sprintf("/admin/forms/%d/emails/%d/delete", form.ID, created.ID), nil)

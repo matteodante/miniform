@@ -149,6 +149,52 @@ test.describe("endpoint management", () => {
       .toMatchObject({ count: 2 });
   });
 
+  test("previews an unsaved email with real submission data without scheduling delivery", async ({ page, admin }) => {
+    const mailerProfileID = await admin.createMailer(uniqueName("preview-email-mailer"));
+    const endpoint = await admin.createForm("Email preview", uniqueName("email-preview"));
+    const submissionResponse = await admin.submit(endpoint.slug, endpoint.token, {
+      name: "<Ada>",
+      email: "ada@recipient.invalid",
+    });
+    expect(submissionResponse.ok()).toBe(true);
+    const submission = await admin.row(
+      "SELECT id FROM submissions WHERE form_id = ? ORDER BY id DESC LIMIT 1",
+      [endpoint.id],
+    );
+    const eventsBefore = await admin.row(
+      "SELECT COUNT(*) AS count FROM email_events WHERE submission_id = ?",
+      [submission.id],
+    );
+
+    await admin.open(`/admin/forms/${endpoint.id}`);
+    await page.getByRole("link", { name: "Add notification" }).click();
+    await expect(page.getByRole("heading", { name: "Add notification" })).toBeVisible();
+    await page.getByLabel("Email route").selectOption(String(mailerProfileID));
+    await page.getByLabel("Recipient source").selectOption("field");
+    await page.getByLabel("Recipient value").fill("email");
+    await page.getByLabel("Reply-To source").selectOption("field");
+    await page.getByLabel("Reply-To value").fill("email");
+    await page.getByLabel("Subject template").fill("Preview · {{.Fields.name}}");
+    await page.getByLabel("Message format").selectOption("html");
+    await page.getByLabel("Text template").fill("Hello {{.Fields.name}}");
+    await page.getByLabel("HTML template").fill("<h1>Hello {{.Fields.name}}</h1>");
+    await page.getByRole("button", { name: "Preview email" }).click();
+
+    await expect(page.getByRole("status")).toHaveText(
+      `Rendered from entry #${submission.id}. No email was sent.`,
+    );
+    await expect(page.locator("#emailPreviewTo")).toHaveText("ada@recipient.invalid");
+    await expect(page.locator("#emailPreviewReplyTo")).toHaveText("ada@recipient.invalid");
+    await expect(page.locator("#emailPreviewSubject")).toHaveText("Preview · <Ada>");
+    await expect(page.frameLocator("#emailPreviewFrame").getByRole("heading", { name: "Hello <Ada>" })).toBeVisible();
+
+    const eventsAfter = await admin.row(
+      "SELECT COUNT(*) AS count FROM email_events WHERE submission_id = ?",
+      [submission.id],
+    );
+    expect(eventsAfter.count).toBe(eventsBefore.count);
+  });
+
   test("preserves non-secret values after a validation error", async ({ page, admin }) => {
     const mailerProfileID = await admin.createMailer(uniqueName("draft-mailer"));
     const captchaProfileID = await admin.createCaptcha(uniqueName("draft-captcha"));

@@ -23,6 +23,14 @@ The first message lets the team reply directly to the submitter. The second send
 
 Use **Add notification** on the endpoint page to configure each message. The first notification remains editable from the endpoint editor for compatibility with existing installations.
 
+## Rendered preview
+
+The notification editor can render its current unsaved subject, addresses, text body, and HTML body against one of the endpoint's 25 latest submissions. Select an inbox entry under **Preview with**, then choose **Preview email**.
+
+The preview uses the same renderer as SMTP delivery, including contextual HTML escaping, subject validation, dynamic recipient resolution, and the plain-text fallback. HTML is displayed inside a sandboxed iframe. Preview responses are marked `no-store`; previewing does not save the notification, create a delivery event, connect to SMTP, or send an email.
+
+An endpoint needs at least one submission before a data-backed preview is available. Use only test submissions when the template contains personal data that should not be displayed during configuration.
+
 ## Address sources
 
 `recipient_source` accepts:
@@ -135,7 +143,7 @@ Deleting a notification preserves its historical events. A queued event whose no
 
 Each accepted non-spam submission creates one durable event for every enabled notification. Workers claim, deliver, retry, and finish those events independently. SMTP I/O happens outside SQLite transactions. Configuration changes affect attempts that have not yet been delivered; a manual retry uses the current notification configuration.
 
-Use a local capture server or an SMTP sandbox when testing delivery. Merely saving or previewing a notification does not send a message; submission creation is what enqueues delivery.
+Use a local capture server or an SMTP sandbox when testing delivery. Merely saving or previewing a notification does not send a message; an accepted, non-spam submission is what enqueues delivery for every enabled notification.
 
 ## Automated delivery tests
 

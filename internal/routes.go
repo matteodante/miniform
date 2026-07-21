@@ -115,6 +115,7 @@ func mountAdmin(server *cartridge.Server, cfg *config.Config) {
 		{true, "/admin/forms/:id", handlers.AdminFormsUpdate},
 		{false, "/admin/forms/:id/emails/new", handlers.AdminFormEmailNew},
 		{true, "/admin/forms/:id/emails", handlers.AdminFormEmailCreate},
+		{true, "/admin/forms/:id/emails/preview", handlers.AdminFormEmailPreview},
 		{false, "/admin/forms/:id/emails/:delivery_id/edit", handlers.AdminFormEmailEdit},
 		{true, "/admin/forms/:id/emails/:delivery_id", handlers.AdminFormEmailUpdate},
 		{true, "/admin/forms/:id/emails/:delivery_id/delete", handlers.AdminFormEmailDelete},

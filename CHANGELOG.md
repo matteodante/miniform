@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-21
+
+### Added
+
+- Data-backed email previews for unsaved notification templates, addresses, subjects, HTML, and text fallbacks without SMTP delivery
+
+### Changed
+
+- Reused one domain renderer for both preview and background SMTP delivery
+
+### Security
+
+- Isolated rendered email HTML in a sandboxed iframe and prevented preview responses from being cached
+
 ## [0.1.0] - 2026-07-21
 
 ### Added
@@ -61,5 +75,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Required an operator-installed, running Docker Engine instead of executing a mutable remote installer as root
 - Added signed local release tags, release-source ancestry checks, checksums, SBOMs, provenance, and architecture-specific binary execution tests
 
-[Unreleased]: https://github.com/matteodante/miniform/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/matteodante/miniform/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/matteodante/miniform/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/matteodante/miniform/releases/tag/v0.1.0

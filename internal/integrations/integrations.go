@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -61,6 +62,18 @@ func GetMailerProfileByID(db *gorm.DB, id uint) (*MailerProfile, error) {
 
 func GetCaptchaProfileByID(db *gorm.DB, id uint) (*CaptchaProfile, error) {
 	return getProfile[CaptchaProfile](db, id)
+}
+
+func MailerSender(profile *MailerProfile) (string, error) {
+	if profile == nil {
+		return "", fmt.Errorf("mailer configuration missing")
+	}
+	address, err := mail.ParseAddress(strings.TrimSpace(profile.DefaultFromEmail))
+	if err != nil {
+		return "", fmt.Errorf("mailer sender missing or invalid")
+	}
+	address.Name = strings.TrimSpace(profile.DefaultFromName)
+	return address.String(), nil
 }
 
 func listProfiles[T any](db *gorm.DB) ([]T, error) {

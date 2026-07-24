@@ -1,20 +1,19 @@
 {{ define "admin/settings/content" }}
 <div class="space-y-8">
     <header class="mf-panel relative overflow-hidden p-7 sm:p-9">
-        <div class="absolute inset-y-0 left-0 w-1.5 bg-moss" aria-hidden="true"></div>
         <p class="mf-kicker">Workspace</p>
         <h1 class="mf-title mt-3">Operator access.</h1>
         <p class="mt-4 max-w-xl text-sm leading-6 text-ink-muted">Keep the email current and rotate the password used to open this installation.</p>
     </header>
 
     {{ if .Success }}
-    <div class="border-l-2 border-moss bg-moss-pale px-4 py-3" role="status"><p class="text-sm font-medium text-moss-dark">{{ .Success }}</p></div>
+    <div class="rounded-lg border border-moss bg-moss-pale px-4 py-3" role="status"><p class="text-sm font-medium text-moss-dark">{{ .Success }}</p></div>
     {{ end }}
     {{ if .Error }}
-    <div class="border-l-2 border-clay bg-red-50 px-4 py-3" role="alert"><p class="text-sm font-medium text-clay">{{ .Error }}</p></div>
+    <div class="rounded-lg border border-clay bg-red-50 px-4 py-3" role="alert"><p class="text-sm font-medium text-clay">{{ .Error }}</p></div>
     {{ end }}
 	{{ if .User.PasswordChangeRequired }}
-	<div class="border-l-2 border-clay bg-red-50 px-4 py-3" role="alert">
+	<div class="rounded-lg border border-clay bg-red-50 px-4 py-3" role="alert">
 		<p class="text-sm font-semibold text-clay">Change your temporary password before using the workspace.</p>
 	</div>
 	{{ end }}
@@ -25,7 +24,7 @@
             <input type="hidden" name="username" value="{{ .User.Email }}" autocomplete="username">
             <div>
                 <p class="mf-kicker">Identity</p>
-                <h2 class="mt-2 font-display text-2xl tracking-[-0.025em] text-ink">Operator email</h2>
+                <h2 class="mt-2 font-display text-2xl tracking-[-0.025em] text-ink">Change email</h2>
                 <p class="mt-2 text-sm leading-6 text-ink-muted">This address is the only username for the workspace.</p>
             </div>
 
@@ -39,7 +38,7 @@
                 <input type="password" name="current_password_email" id="current_password_email" required
                     autocomplete="current-password" class="mf-input mt-2 block w-full px-4 py-3 text-sm">
             </div>
-            <button type="submit" class="mf-button">Update email</button>
+            <button type="submit" class="mf-button">Change email</button>
         </form>
 		{{ end }}
 
@@ -47,8 +46,8 @@
             <input type="hidden" name="username" value="{{ .User.Email }}" autocomplete="username">
             <div>
                 <p class="mf-kicker">Security</p>
-                <h2 class="mt-2 font-display text-2xl tracking-[-0.025em] text-ink">Workspace password</h2>
-                <p class="mt-2 text-sm leading-6 text-ink-muted">Use at least eight characters. Existing sessions remain active.</p>
+                <h2 class="mt-2 font-display text-2xl tracking-[-0.025em] text-ink">Change password</h2>
+                <p class="mt-2 text-sm leading-6 text-ink-muted">Use at least eight characters. Changing it signs you out of all active sessions.</p>
             </div>
 
             <div>
@@ -68,18 +67,18 @@
                         class="mf-input mt-2 block w-full px-4 py-3 text-sm">
                 </div>
             </div>
-            <button type="submit" class="mf-button">Update password</button>
+            <button type="submit" class="mf-button">Change password</button>
         </form>
     </div>
 
 	{{ if not .User.PasswordChangeRequired }}
-    <nav class="grid gap-px overflow-hidden rounded-2xl border border-rule bg-rule shadow-lift sm:grid-cols-2" aria-label="Workspace configuration">
-        <a href="/admin/settings/mailers" class="bg-paper-raised p-6 transition-colors hover:bg-blue-50">
+    <nav class="grid border-t border-rule sm:grid-cols-2" aria-label="Workspace configuration">
+        <a href="/admin/settings/mailers" class="border-b border-rule py-6 transition-colors hover:text-moss sm:pr-6">
             <span class="mf-kicker">Delivery</span>
             <span class="mt-2 block font-display text-2xl tracking-[-0.025em] text-ink">Email routes →</span>
             <span class="mt-2 block text-sm text-ink-muted">SMTP connections.</span>
         </a>
-        <a href="/admin/settings/captcha" class="bg-paper-raised p-6 transition-colors hover:bg-blue-50">
+        <a href="/admin/settings/captcha" class="border-b border-rule py-6 transition-colors hover:text-moss sm:border-l sm:pl-6">
             <span class="mf-kicker">Safeguards</span>
             <span class="mt-2 block font-display text-2xl tracking-[-0.025em] text-ink">Turnstile credentials →</span>
             <span class="mt-2 block text-sm text-ink-muted">Turnstile site and secret keys.</span>

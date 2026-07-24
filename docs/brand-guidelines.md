@@ -79,7 +79,7 @@ The interface should feel like a well-kept field notebook: warm paper, dark ink,
 |---|---|---|
 | Parchment | #E8E0D1 | Secondary surfaces |
 | Rule | #D4CBBB | Borders and dividers |
-| Muted Ink | #6E756B | Supporting text |
+| Muted Ink | #686F65 | Supporting text |
 | White | #FFFEFA | Raised surfaces |
 
 ### Semantic colors

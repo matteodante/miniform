@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-07-24
+
+### Changed
+
+- Redesigned the administrative interface around an open paper-and-ink layout with restrained moss accents, flatter sections, and a simplified navigation shell
+- Simplified sign-in, endpoint, inbox, workspace, delivery, and safeguard screens by removing decorative status copy, nested cards, duplicate dividers, and sidebar route markers
+- Moved Starter HTML to the end of endpoint create, edit, and detail workflows and stacked webhook and email configuration into one readable column
+- Added the Impeccable product and design references used to keep future interface work aligned with the Field Notebook direction
+
+### Fixed
+
+- Standardized text fields and selects at a readable 44-pixel height with consistent padding, line height, focus treatment, and room for native select indicators
+- Allowed the local Impeccable preview connection in development CSP without relaxing production security headers
+
+### Security
+
+- Updated `golang.org/x/text` to `v0.39.0` to resolve `GO-2026-5970`
+
 ## [0.2.2] - 2026-07-21
 
 ### Added
@@ -99,7 +117,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Required an operator-installed, running Docker Engine instead of executing a mutable remote installer as root
 - Added signed local release tags, release-source ancestry checks, checksums, SBOMs, provenance, and architecture-specific binary execution tests
 
-[Unreleased]: https://github.com/matteodante/miniform/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/matteodante/miniform/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/matteodante/miniform/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/matteodante/miniform/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/matteodante/miniform/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/matteodante/miniform/compare/v0.1.0...v0.2.0

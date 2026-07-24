@@ -256,6 +256,7 @@ func TestSecurityHeaders(t *testing.T) {
 		assert.NotEmpty(t, nonce)
 		assert.Contains(t, response.Header.Get("Content-Security-Policy"), "'nonce-"+nonce+"'")
 		assert.Contains(t, response.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'")
+		assert.NotContains(t, response.Header.Get("Content-Security-Policy"), "http://localhost:8400")
 		assert.Equal(t, "max-age=31536000", response.Header.Get("Strict-Transport-Security"))
 		assert.Equal(t, "no-store", response.Header.Get("Cache-Control"))
 		assert.Equal(t, "nosniff", response.Header.Get("X-Content-Type-Options"))
@@ -273,5 +274,7 @@ func TestSecurityHeaders(t *testing.T) {
 		defer response.Body.Close()
 
 		assert.Empty(t, response.Header.Get("Strict-Transport-Security"))
+		assert.Contains(t, response.Header.Get("Content-Security-Policy"), "script-src 'self'")
+		assert.Contains(t, response.Header.Get("Content-Security-Policy"), "connect-src 'self' https://challenges.cloudflare.com http://localhost:8400")
 	})
 }

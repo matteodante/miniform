@@ -10,10 +10,10 @@
   </header>
 
   {{ if .Error }}
-  <div class="border-l-2 border-clay bg-red-50 px-4 py-3" role="alert"><p class="text-sm font-medium text-clay">{{ .Error }}</p></div>
+  <div class="rounded-lg border border-clay bg-red-50 px-4 py-3" role="alert"><p class="text-sm font-medium text-clay">{{ .Error }}</p></div>
   {{ end }}
   {{ if .Success }}
-  <div class="border-l-2 border-moss bg-moss-pale px-4 py-3" role="status"><p class="text-sm font-medium text-moss-dark">{{ .Success }}</p></div>
+  <div class="rounded-lg border border-moss bg-moss-pale px-4 py-3" role="status"><p class="text-sm font-medium text-moss-dark">{{ .Success }}</p></div>
   {{ end }}
 
   {{ if .Profiles }}

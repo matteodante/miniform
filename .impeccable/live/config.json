@@ -1,0 +1,9 @@
+{
+  "files": [
+    "web/templates/layouts/base.html",
+    "web/templates/demo.html"
+  ],
+  "insertBefore": "</body>",
+  "commentSyntax": "html",
+  "cspChecked": true
+}

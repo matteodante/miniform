@@ -17,12 +17,12 @@ test("logout invalidates live and HTMX-cached access to admin pages", async ({ p
 
   await admin.logout();
   await expect(page).toHaveURL(/\/admin\/login/);
-  await expect(page.getByRole("heading", { name: "Open the signal desk" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Every response, kept close." })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("htmx-history-cache"))).toBeNull();
 
   await page.goBack();
   await expect(page).toHaveURL(/\/admin\/login/);
-  await expect(page.getByRole("heading", { name: "Open the signal desk" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Every response, kept close." })).toBeVisible();
   await expect(page.locator("body")).not.toContainText(endpoint.token);
 
   await page.goto("/admin/forms");

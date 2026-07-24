@@ -1,0 +1,233 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-24T13:51:25Z",
+  "title": "Design System: Miniform",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Moss",
+        "canonical": "#4E6653",
+        "tonalRamp": ["#202B24", "#29382E", "#34473A", "#405845", "#4E6653", "#C4D4C7", "#DFE8E1", "#EEF3EF"]
+      },
+      "primary-deep": {
+        "role": "primary",
+        "displayName": "Deep Moss",
+        "canonical": "#34473A",
+        "tonalRamp": ["#17201A", "#202B24", "#29382E", "#34473A", "#4E6653", "#8FA393", "#C4D4C7", "#EEF3EF"]
+      },
+      "primary-pale": {
+        "role": "primary",
+        "displayName": "Pale Moss",
+        "canonical": "#DFE8E1",
+        "tonalRamp": ["#202B24", "#34473A", "#4E6653", "#718677", "#9CAF9F", "#C4D4C7", "#DFE8E1", "#F5F8F5"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#242820",
+        "tonalRamp": ["#171A15", "#242820", "#30352F", "#3E453D", "#565D54", "#8E948B", "#C6CAC3", "#F2F3F1"]
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Muted Ink",
+        "canonical": "#686F65",
+        "tonalRamp": ["#242820", "#30352F", "#3E453D", "#565D54", "#686F65", "#A59E91", "#D4CBBB", "#F5F1E8"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "#F5F1E8",
+        "tonalRamp": ["#242820", "#3E453D", "#686F65", "#A59E91", "#D4CBBB", "#E8E0D1", "#F5F1E8", "#FFFEFA"]
+      },
+      "surface-raised": {
+        "role": "neutral",
+        "displayName": "Raised Paper",
+        "canonical": "#FFFEFA",
+        "tonalRamp": ["#242820", "#565D54", "#8E948B", "#C6CAC3", "#E8E0D1", "#F5F1E8", "#FAF8F3", "#FFFEFA"]
+      },
+      "surface-secondary": {
+        "role": "neutral",
+        "displayName": "Parchment",
+        "canonical": "#E8E0D1",
+        "tonalRamp": ["#242820", "#565D54", "#8A8275", "#B1A99A", "#D4CBBB", "#E8E0D1", "#F5F1E8", "#FFFEFA"]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "canonical": "#D4CBBB",
+        "tonalRamp": ["#242820", "#565D54", "#7D776C", "#A59E91", "#BFB6A6", "#D4CBBB", "#E8E0D1", "#F5F1E8"]
+      },
+      "info": {
+        "role": "secondary",
+        "displayName": "Slate Signal",
+        "canonical": "#526A78",
+        "tonalRamp": ["#26343A", "#304048", "#3A4D57", "#465C68", "#526A78", "#A1B8BF", "#C4D3D7", "#EFF3F4"]
+      },
+      "warning": {
+        "role": "tertiary",
+        "displayName": "Ochre Warning",
+        "canonical": "#A46A2A",
+        "tonalRamp": ["#38230D", "#513515", "#6C471C", "#875821", "#A46A2A", "#C99A64", "#E6C9A7", "#FAF2E8"]
+      },
+      "error": {
+        "role": "tertiary",
+        "displayName": "Clay Error",
+        "canonical": "#9B4335",
+        "tonalRamp": ["#3D1D19", "#5D2A23", "#713129", "#873A2F", "#9B4335", "#E2BAB1", "#F2DDD8", "#F9EFEC"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page titles only."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section introductions and empty-state guidance."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Named endpoints, routes, and local groups."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Controls, instructions, descriptions, and navigation."
+      },
+      "label": {
+        "displayName": "Operational Label",
+        "purpose": "Tokens, timestamps, paths, and scarce metadata kickers."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "160ms ease",
+        "purpose": "Input, row, and compact state feedback."
+      },
+      {
+        "name": "state-standard",
+        "value": "200ms ease",
+        "purpose": "Button, navigation, and focus state transitions."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single primary action in a decision area.",
+      "html": "<button class=\"ds-btn-primary\">Create endpoint</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:10px;padding:10px 16px;background:#4E6653;color:#FFFEFA;font:600 14px/1.4 \"Avenir Next\",Avenir,\"Segoe UI\",system-ui,sans-serif;cursor:pointer;transition:background-color 200ms ease}.ds-btn-primary:hover{background:#34473A}.ds-btn-primary:focus-visible{outline:3px solid rgba(78,102,83,.4);outline-offset:3px}.ds-btn-primary:active{background:#29382E}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A quiet secondary or cancel action.",
+      "html": "<button class=\"ds-btn-secondary\">Cancel</button>",
+      "css": ".ds-btn-secondary{display:inline-flex;align-items:center;justify-content:center;border:1px solid #D4CBBB;border-radius:10px;padding:10px 16px;background:#FFFEFA;color:#242820;font:600 14px/1.4 \"Avenir Next\",Avenir,\"Segoe UI\",system-ui,sans-serif;cursor:pointer;transition:border-color 200ms ease,color 200ms ease}.ds-btn-secondary:hover{border-color:#4E6653;color:#34473A}.ds-btn-secondary:focus-visible{outline:3px solid rgba(78,102,83,.4);outline-offset:3px}.ds-btn-secondary:active{background:#F5F1E8}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "The canonical field for operator configuration.",
+      "html": "<label class=\"ds-field\"><span>Email</span><input class=\"ds-input\" type=\"email\" placeholder=\"operator@example.com\"></label>",
+      "css": ".ds-field{display:grid;gap:8px;color:#242820;font:600 12px/1.4 \"Avenir Next\",Avenir,\"Segoe UI\",system-ui,sans-serif}.ds-input{min-height:44px;border:1px solid #D4CBBB;border-radius:8px;padding:10px 12px;background:#FFFEFA;color:#242820;font:400 14px/1.43 \"Avenir Next\",Avenir,\"Segoe UI\",system-ui,sans-serif;transition:border-color 160ms ease,box-shadow 160ms ease}.ds-input::placeholder{color:#686F65}.ds-input:hover{border-color:#A59E91}.ds-input:focus{outline:0;border-color:#4E6653;box-shadow:0 0 0 3px rgba(78,102,83,.2)}"
+    },
+    {
+      "name": "Open Section",
+      "kind": "custom",
+      "refersTo": "section",
+      "description": "An open content group separated by rhythm or a single divider.",
+      "html": "<section class=\"ds-section\"><h3>Delivery route</h3><p>Forward accepted entries through a configured SMTP connection.</p></section>",
+      "css": ".ds-section{padding:0 0 24px;border-bottom:1px solid #D4CBBB;background:transparent;color:#242820;font-family:Avenir,system-ui,sans-serif}.ds-section h3{margin:0;font:700 24px/1.2 Palatino,Georgia,serif;letter-spacing:-.02em}.ds-section p{max-width:65ch;margin:8px 0 0;color:#686F65;font-size:14px;line-height:1.6}"
+    },
+    {
+      "name": "Active Navigation",
+      "kind": "nav",
+      "description": "The current route inside the ink sidebar.",
+      "html": "<a class=\"ds-nav-active\" href=\"#\" aria-current=\"page\">Inbox</a>",
+      "css": ".ds-nav-active{display:inline-flex;align-items:center;padding:10px 8px;background:transparent;color:#FFFEFA;font:600 14px/1.4 \"Avenir Next\",Avenir,\"Segoe UI\",system-ui,sans-serif;text-decoration:none}.ds-nav-active:hover{color:#DFE8E1}.ds-nav-active:focus-visible{outline:3px solid rgba(223,232,225,.75);outline-offset:3px}"
+    },
+    {
+      "name": "Accepted Status",
+      "kind": "chip",
+      "description": "A semantic status tag whose meaning is explicit in text.",
+      "html": "<span class=\"ds-status-accepted\">Accepted</span>",
+      "css": ".ds-status-accepted{display:inline-flex;align-items:center;border-radius:9999px;padding:4px 10px;background:#DFE8E1;color:#34473A;font:600 12px/1.4 \"Avenir Next\",Avenir,\"Segoe UI\",system-ui,sans-serif}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Field Notebook",
+    "overview": "Miniform feels like a well-kept field notebook for an operator: quiet paper, dark ink, precise rules, and one restrained moss accent. The interface is calm but information-dense, with familiar controls and explicit operational state. Visual character supports the workflow; it never competes with entries, endpoints, delivery, or safeguards.\n\nThe system rejects generic SaaS dashboards, ornamental data visualization, decorative motion, excessive cards, fashionable effects, and promotional admin surfaces. Responsive behavior is structural: navigation and tables adapt, while typography stays stable enough to preserve an operator's scanning rhythm.",
+    "keyCharacteristics": [
+      "Quiet, task-first surfaces with one restrained accent.",
+      "Explicit state, readable density, and familiar controls.",
+      "Open composition, with dividers and spacing before containment.",
+      "Flat surfaces with limited, purposeful shape.",
+      "Motion reserved for state and feedback."
+    ],
+    "rules": [
+      {
+        "name": "The One Accent Rule",
+        "body": "Moss carries interaction; semantic colors appear only when they communicate state.",
+        "section": "colors"
+      },
+      {
+        "name": "The Paper Contrast Rule",
+        "body": "Supporting text must remain readable on paper and raised paper; light gray is forbidden as body copy.",
+        "section": "colors"
+      },
+      {
+        "name": "The Task-Type Rule",
+        "body": "Display type is forbidden in buttons, form labels, navigation labels, and data cells.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tightness Floor",
+        "body": "Display letter spacing never goes below -0.04em.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-by-Default Rule",
+        "body": "A resting surface has no drop shadow. Use a border or tonal change to establish hierarchy.",
+        "section": "elevation"
+      },
+      {
+        "name": "The State-Only Motion Rule",
+        "body": "Transitions run for 150–200ms and communicate hover, focus, loading, or replacement; page-load choreography is forbidden.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use moss for the primary action, focus, current selection, and accepted state.",
+      "Do use dividers and whitespace before adding a container.",
+      "Do leave page headers, lists, and forms open unless containment explains a real relationship.",
+      "Do show what happened, when it happened, and the next available action.",
+      "Do maintain WCAG 2.2 AA contrast, visible focus, reduced-motion support, and keyboard-complete workflows.",
+      "Do keep ordinary control and container radii between 2px and 10px."
+    ],
+    "donts": [
+      "Don't create generic SaaS dashboards, promotional admin surfaces, or ornamental data visualizations.",
+      "Don't use decorative motion, gradients, filler illustrations, hype, glassmorphism, or decorative shadows.",
+      "Don't build excessive or nested card grids when a divider or shared surface is sufficient.",
+      "Don't wrap ordinary sections in raised-paper boxes.",
+      "Don't use colored side stripes on cards, callouts, list items, or alerts.",
+      "Don't use display fonts in controls or depend on color alone for operational state."
+    ]
+  }
+}

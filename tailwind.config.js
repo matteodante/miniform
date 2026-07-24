@@ -4,99 +4,89 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        white: "#FFFFFF",
+        white: "#FFFEFA",
         gray: {
-          50: "#F7F8FC",
-          100: "#F1F3F9",
-          200: "#E3E6F0",
-          300: "#CCD2E2",
-          400: "#9CA5BC",
-          500: "#6F7891",
-          600: "#515A73",
-          700: "#373E55",
-          800: "#24293D",
-          900: "#171A2B"
+          50: "#F5F1E8",
+          100: "#EEE8DD",
+          200: "#E8E0D1",
+          300: "#D4CBBB",
+          400: "#A59E91",
+          500: "#686F65",
+          600: "#565D54",
+          700: "#3E453D",
+          800: "#30352F",
+          900: "#242820"
         },
         blue: {
-          50: "#EEF0FF",
-          100: "#E1E5FF",
-          200: "#C9D0FF",
-          300: "#A6B2FF",
-          400: "#7487FF",
-          500: "#4057F4",
-          600: "#3348D5",
-          700: "#2D3EC3",
-          800: "#29379D",
-          900: "#252F7C"
+          50: "#EFF3F4",
+          100: "#E1E9EB",
+          200: "#C4D3D7",
+          300: "#A1B8BF",
+          400: "#76939C",
+          500: "#526A78",
+          600: "#465C68",
+          700: "#3A4D57",
+          800: "#304048",
+          900: "#26343A"
         },
         green: {
-          50: "#EAF8F4",
-          100: "#D2F0E7",
-          200: "#A7E0D1",
-          500: "#1D9A7A",
-          600: "#147D64",
-          700: "#126552",
-          800: "#114F43",
-          900: "#103F37"
-        },
-        purple: {
-          50: "#F3F0FF",
-          100: "#E9E3FF",
-          500: "#7257E8",
-          600: "#6044CF",
-          700: "#4E36AD"
-        },
-        indigo: {
-          50: "#EEF0FF",
-          100: "#E1E5FF",
-          500: "#4057F4",
-          600: "#3348D5",
-          700: "#2D3EC3",
-          900: "#171A2B"
+          50: "#EEF3EF",
+          100: "#DFE8E1",
+          200: "#C4D4C7",
+          500: "#4E6653",
+          600: "#405845",
+          700: "#34473A",
+          800: "#29382E",
+          900: "#202B24"
         },
         red: {
-          50: "#FFF0EE",
-          100: "#FFDED9",
-          200: "#FFBDB5",
-          500: "#E65B4F",
-          600: "#C9483E",
-          700: "#A83A33",
-          800: "#89332E"
+          50: "#F9EFEC",
+          100: "#F2DDD8",
+          200: "#E2BAB1",
+          500: "#9B4335",
+          600: "#873A2F",
+          700: "#713129",
+          800: "#5D2A23"
         },
         rose: {
-          50: "#FFF0EE",
-          100: "#FFDED9",
-          200: "#FFBDB5",
-          500: "#E65B4F",
-          600: "#C9483E",
-          700: "#A83A33",
-          800: "#89332E"
+          50: "#F9EFEC",
+          100: "#F2DDD8",
+          200: "#E2BAB1",
+          500: "#9B4335",
+          600: "#873A2F",
+          700: "#713129",
+          800: "#5D2A23"
         },
         ink: {
-          DEFAULT: "#171A2B",
-          muted: "#6F7891"
+          DEFAULT: "#242820",
+          muted: "#686F65"
         },
         paper: {
-          DEFAULT: "#F1F3F9",
-          raised: "#FFFFFF"
+          DEFAULT: "#F5F1E8",
+          raised: "#FFFEFA"
         },
-        parchment: "#D9DEEC",
-        rule: "#D8DDEA",
+        parchment: "#E8E0D1",
+        rule: "#D4CBBB",
         moss: {
-          DEFAULT: "#4057F4",
-          dark: "#2D3EC3",
-          pale: "#E1E5FF"
+          DEFAULT: "#4E6653",
+          dark: "#34473A",
+          pale: "#DFE8E1"
         },
-        clay: "#E65B4F"
+        clay: "#9B4335"
       },
       fontFamily: {
-        display: ['"Avenir Next Condensed"', '"Arial Narrow"', '"Roboto Condensed"', "sans-serif"],
+        display: ['"Iowan Old Style"', '"Palatino Linotype"', "Palatino", "Georgia", "serif"],
         sans: ['"Avenir Next"', "Avenir", '"Segoe UI"', "system-ui", "sans-serif"],
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "monospace"]
       },
+      borderRadius: {
+        lg: "8px",
+        xl: "10px",
+        "2xl": "10px"
+      },
       boxShadow: {
-        paper: "0 24px 70px rgba(23, 26, 43, 0.10)",
-        lift: "0 12px 30px rgba(23, 26, 43, 0.08)"
+        paper: "none",
+        lift: "none"
       }
     }
   },

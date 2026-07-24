@@ -1,7 +1,6 @@
 {{ define "admin/submissions/index/content" }}
 <div class="space-y-8">
     <header class="mf-panel relative grid gap-6 overflow-hidden p-7 sm:p-9 lg:grid-cols-[1fr_auto] lg:items-end">
-        <div class="absolute inset-y-0 left-0 w-1.5 bg-moss" aria-hidden="true"></div>
         <div>
             <p class="mf-kicker">Inbox</p>
             <h1 class="mf-title mt-3">Every response,<br>in one quiet place.</h1>
@@ -12,16 +11,16 @@
         <a href="/admin/forms/new" class="mf-button">New endpoint</a>
     </header>
 
-    <section class="grid gap-4 sm:grid-cols-3" aria-label="Inbox summary">
-        <div class="mf-panel p-5">
+    <section class="grid border-y border-rule sm:grid-cols-3" aria-label="Inbox summary">
+        <div class="py-5 sm:pr-6">
             <p class="font-display text-4xl font-bold tabular-nums text-ink">{{ .TotalCount }}</p>
             <p class="mt-1 text-xs text-ink-muted">entries in this view</p>
         </div>
-        <div class="mf-panel p-5">
+        <div class="border-t border-rule py-5 sm:border-l sm:border-t-0 sm:px-6">
             <p class="font-display text-4xl font-bold tabular-nums text-ink">{{ .EntriesLast24h }}</p>
             <p class="mt-1 text-xs text-ink-muted">received in 24 hours</p>
         </div>
-        <div class="mf-panel p-5">
+        <div class="border-t border-rule py-5 sm:border-l sm:border-t-0 sm:pl-6">
             <p class="font-display text-4xl font-bold tabular-nums text-ink">{{ .EndpointCount }}</p>
             <p class="mt-1 text-xs text-ink-muted">active endpoints</p>
         </div>

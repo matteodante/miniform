@@ -83,17 +83,21 @@ func SecurityHeaders(cfg *config.Config) fiber.Handler {
 		}
 		nonce := base64.RawStdEncoding.EncodeToString(nonceBytes)
 		ctx.Locals(cspNonceLocal, nonce)
+		impeccableLiveSource := ""
+		if cfg.IsDevelopment() {
+			impeccableLiveSource = " http://localhost:8400"
+		}
 		ctx.Set("Content-Security-Policy", strings.Join([]string{
 			"default-src 'self'",
 			"base-uri 'self'",
 			"object-src 'none'",
 			"frame-ancestors 'none'",
 			"form-action 'self'",
-			"script-src 'self' 'nonce-" + nonce + "' https://challenges.cloudflare.com",
+			"script-src 'self' 'nonce-" + nonce + "' https://challenges.cloudflare.com" + impeccableLiveSource,
 			"style-src 'self' 'unsafe-inline'",
 			"img-src 'self' data:",
 			"font-src 'self'",
-			"connect-src 'self' https://challenges.cloudflare.com",
+			"connect-src 'self' https://challenges.cloudflare.com" + impeccableLiveSource,
 			"frame-src 'self' https://challenges.cloudflare.com",
 			"worker-src 'none'",
 		}, "; "))

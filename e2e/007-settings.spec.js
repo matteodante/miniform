@@ -5,8 +5,8 @@ test.describe("operator settings", () => {
   test("shows workspace identity and security controls", async ({ page, admin }) => {
     await admin.open("/admin/settings");
     await expect(page.getByRole("heading", { name: "Operator access." })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Operator email" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Workspace password" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Change email" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Change password" })).toBeVisible();
   });
 
   test("changes the login email", async ({ page, admin }) => {
@@ -14,7 +14,7 @@ test.describe("operator settings", () => {
     await admin.open("/admin/settings");
     await page.getByLabel("Email").fill(temporaryEmail);
     await page.getByLabel("Current password").first().fill(ADMIN_PASSWORD);
-    await page.getByRole("button", { name: "Update email" }).click();
+    await page.getByRole("button", { name: "Change email" }).click();
     await expect(page).toHaveURL(/\/admin\/login/);
 
     await admin.login(temporaryEmail, ADMIN_PASSWORD);
@@ -57,7 +57,7 @@ test.describe("operator settings", () => {
     await page.locator("#current_password").fill(ADMIN_PASSWORD);
     await page.locator("#new_password").fill(temporaryPassword);
     await page.locator("#confirm_password").fill(temporaryPassword);
-    await page.getByRole("button", { name: "Update password" }).click();
+    await page.getByRole("button", { name: "Change password" }).click();
     await expect(page).toHaveURL(/\/admin\/login/);
 
     await admin.login(ADMIN_EMAIL, temporaryPassword);

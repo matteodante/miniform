@@ -5,23 +5,23 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#171A2B">
+    <meta name="theme-color" content="#242820">
     <title>Local test page · Miniform</title>
-    <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+    <link rel="icon" href="/assets/mark.svg?v={{ assetVersion }}" type="image/svg+xml">
     <style>
         :root {
             color-scheme: light;
-            --ink: #171a2b;
-            --muted: #6f7891;
-            --fog: #f1f3f9;
-            --panel: #ffffff;
-            --line: #d8ddea;
-            --soft: #f7f8fc;
-            --cobalt: #4057f4;
-            --cobalt-dark: #2d3ec3;
-            --cobalt-pale: #e1e5ff;
-            --success: #147d64;
-            --coral: #e65b4f;
+            --ink: #242820;
+            --muted: #686f65;
+            --fog: #f5f1e8;
+            --panel: #fffefa;
+            --line: #d4cbbb;
+            --soft: #e8e0d1;
+            --moss: #4e6653;
+            --moss-dark: #34473a;
+            --moss-pale: #dfe8e1;
+            --success: #4e6653;
+            --clay: #9b4335;
         }
 
         * {
@@ -37,8 +37,6 @@
             min-height: 100vh;
             color: var(--ink);
             background-color: var(--fog);
-            background-image: radial-gradient(rgba(64, 87, 244, .11) .65px, transparent .65px);
-            background-size: 18px 18px;
             font: 16px/1.5 "Avenir Next", Avenir, "Segoe UI", system-ui, sans-serif;
             text-rendering: optimizeLegibility;
         }
@@ -71,14 +69,13 @@
         .brand img {
             width: 42px;
             height: 42px;
-            border-radius: 13px;
-            box-shadow: 0 10px 24px rgba(23, 26, 43, .18);
+            border-radius: 8px;
         }
 
         .brand strong {
             display: block;
             color: var(--ink);
-            font-family: "Avenir Next Condensed", "Arial Narrow", sans-serif;
+            font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
             font-size: 1.35rem;
             line-height: 1;
             letter-spacing: -.03em;
@@ -120,7 +117,6 @@
             height: 9px;
             border-radius: 999px;
             background: var(--success);
-            box-shadow: 0 0 0 5px rgba(20, 125, 100, .1);
         }
 
         .hero {
@@ -139,7 +135,7 @@
 
         .eyebrow {
             margin-bottom: 14px;
-            color: var(--cobalt);
+            color: var(--moss);
             font-size: .7rem;
             font-weight: 800;
             text-transform: uppercase;
@@ -149,11 +145,11 @@
         h1 {
             max-width: 760px;
             margin-bottom: 18px;
-            font-family: "Avenir Next Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
-            font-size: clamp(3.4rem, 8vw, 6.8rem);
+            font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+            font-size: clamp(3.25rem, 8vw, 5.5rem);
             font-weight: 800;
-            line-height: .84;
-            letter-spacing: -.065em;
+            line-height: .92;
+            letter-spacing: -.035em;
         }
 
         .lede {
@@ -170,9 +166,8 @@
             padding: 18px 20px 18px 42px;
             overflow: hidden;
             border: 1px solid var(--line);
-            border-radius: 18px;
-            background: rgba(255, 255, 255, .8);
-            box-shadow: 0 12px 32px rgba(23, 26, 43, .07);
+            border-radius: 10px;
+            background: var(--panel);
         }
 
         .endpoint::before {
@@ -192,9 +187,9 @@
             top: 50%;
             width: 11px;
             height: 11px;
-            border: 3px solid var(--cobalt-pale);
+            border: 3px solid var(--moss-pale);
             border-radius: 999px;
-            background: var(--cobalt);
+            background: var(--moss);
             transform: translateY(-50%);
         }
 
@@ -222,9 +217,8 @@
         .panel {
             padding: clamp(24px, 4vw, 38px);
             border: 1px solid var(--line);
-            border-radius: 24px;
+            border-radius: 10px;
             background: var(--panel);
-            box-shadow: 0 24px 70px rgba(23, 26, 43, .09);
         }
 
         .panel-heading {
@@ -237,7 +231,7 @@
 
         h2 {
             margin-bottom: 0;
-            color: var(--cobalt);
+            color: var(--moss);
             font-size: .7rem;
             font-weight: 800;
             text-transform: uppercase;
@@ -264,7 +258,7 @@
         legend {
             display: block;
             margin-bottom: 8px;
-            color: #373e55;
+            color: var(--ink);
             font-size: .7rem;
             font-weight: 800;
             text-transform: uppercase;
@@ -276,8 +270,8 @@
         textarea,
         button {
             width: 100%;
-            border: 1px solid #ccd2e2;
-            border-radius: 12px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
             color: inherit;
             background: var(--panel);
             font: inherit;
@@ -288,7 +282,6 @@
         textarea {
             margin-bottom: 20px;
             padding: 13px 14px;
-            box-shadow: 0 4px 14px rgba(23, 26, 43, .04);
             transition: border-color 160ms ease, box-shadow 160ms ease;
         }
 
@@ -301,13 +294,13 @@
         select:focus,
         textarea:focus {
             outline: 0;
-            border-color: var(--cobalt);
-            box-shadow: 0 0 0 4px rgba(64, 87, 244, .12);
+            border-color: var(--moss);
+            box-shadow: 0 0 0 3px rgba(78, 102, 83, .2);
         }
 
         button:focus-visible,
         a:focus-visible {
-            outline: 3px solid rgba(64, 87, 244, .35);
+            outline: 3px solid rgba(78, 102, 83, .4);
             outline-offset: 3px;
         }
 
@@ -343,7 +336,7 @@
             width: 17px;
             height: 17px;
             margin: 0;
-            accent-color: var(--cobalt);
+            accent-color: var(--moss);
         }
 
         input[type="file"] {
@@ -357,7 +350,7 @@
             border: 0;
             border-radius: 8px;
             color: var(--ink);
-            background: var(--cobalt-pale);
+            background: var(--moss-pale);
             font-weight: 700;
             cursor: pointer;
         }
@@ -375,29 +368,21 @@
             justify-content: center;
             min-height: 50px;
             padding: 14px 18px;
-            border-color: var(--cobalt);
+            border-color: var(--moss);
             color: #fff;
-            background: var(--cobalt);
-            box-shadow: 0 10px 24px rgba(64, 87, 244, .24);
+            background: var(--moss);
             font-weight: 800;
             cursor: pointer;
-            transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+            transition: background 160ms ease;
         }
 
         button::after {
             content: "→";
             margin-left: 12px;
-            transition: transform 160ms ease;
         }
 
         button:hover {
-            background: var(--cobalt-dark);
-            box-shadow: 0 14px 28px rgba(64, 87, 244, .28);
-            transform: translateY(-2px);
-        }
-
-        button:hover::after {
-            transform: translateX(3px);
+            background: var(--moss-dark);
         }
 
         button:disabled {
@@ -414,7 +399,6 @@
             color: #fff;
             border-color: var(--ink);
             background: var(--ink);
-            box-shadow: 0 24px 70px rgba(23, 26, 43, .18);
         }
 
         .result::before {
@@ -424,7 +408,7 @@
             left: 0;
             right: 0;
             height: 5px;
-            background: var(--cobalt);
+            background: var(--moss);
         }
 
         .result[data-state="success"]::before {
@@ -432,17 +416,17 @@
         }
 
         .result[data-state="error"]::before {
-            background: var(--coral);
+            background: var(--clay);
         }
 
         .result h2 {
-            color: #a6b2ff;
+            color: var(--moss-pale);
         }
 
         .result strong {
             display: block;
             margin: 30px 0 16px;
-            font-family: "Avenir Next Condensed", "Arial Narrow", sans-serif;
+            font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
             font-size: 2rem;
             line-height: 1.05;
             letter-spacing: -.035em;
@@ -454,8 +438,8 @@
             padding: 18px;
             overflow: auto;
             border: 1px solid rgba(255, 255, 255, .1);
-            border-radius: 14px;
-            color: #d9deec;
+            border-radius: 10px;
+            color: var(--soft);
             background: rgba(255, 255, 255, .05);
             font: .78rem/1.7 ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
             white-space: pre-wrap;
@@ -472,8 +456,8 @@
         .links a {
             padding: 11px 12px;
             border: 1px solid rgba(255, 255, 255, .12);
-            border-radius: 11px;
-            color: #d9deec;
+            border-radius: 10px;
+            color: var(--soft);
             font-size: .78rem;
             font-weight: 700;
             text-align: center;
@@ -523,7 +507,7 @@
 
             .panel {
                 padding: 22px;
-                border-radius: 19px;
+                border-radius: 10px;
             }
 
             .links {
@@ -546,7 +530,7 @@
     <main class="shell">
         <nav class="topbar" aria-label="Demo navigation">
             <a class="brand" href="/admin/submissions">
-                <img src="/assets/mark.svg" alt="">
+                <img src="/assets/mark.svg?v={{ assetVersion }}" alt="">
                 <span><strong>Miniform</strong><span>local test harness</span></span>
             </a>
             <span class="environment">Local instance ready</span>

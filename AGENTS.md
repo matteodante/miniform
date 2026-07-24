@@ -4,6 +4,23 @@
 
 Miniform is a self-hosted form inbox written in Go. It uses small domain packages with clear ownership and dependency boundaries.
 
+## Project Skills
+
+Project-specific skills live in `.agents/skills`. Load every skill that matches the task before making changes:
+
+| Task | Required skill |
+| --- | --- |
+| Domain packages, ownership boundaries, routes, cross-domain dependencies, application lifecycle, goroutines, uploads, or managed deployment | `miniform-architecture` |
+| Background jobs, retries, leases, or delivery state | `miniform-background-jobs` |
+| Operating a Miniform instance through its CLI | `miniform-cli` |
+| Writing, refactoring, or reviewing Go code | `miniform-code-style` |
+| Domain errors, HTTP error mapping, or error logging | `miniform-error-handling` |
+| Fiber/Cartridge handlers, routes, middleware, or CORS | `miniform-http-routing` |
+| Any GORM or SQLite mutation | `miniform-sqlite-writes` |
+| Go or Playwright tests and test helpers | `miniform-testing` |
+
+Use all applicable skills when a task crosses multiple areas. Treat `.agents/skills` as the canonical source; compatibility directories must link to it rather than duplicate its contents.
+
 ## Architecture Patterns
 
 ### Domain package architecture

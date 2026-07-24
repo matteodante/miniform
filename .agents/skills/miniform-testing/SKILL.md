@@ -7,7 +7,7 @@ description: Write and run Miniform Go and Playwright tests using repository con
 
 ## Workflow
 
-1. Read [AGENTS.md](../../../AGENTS.md) and the original [testing guide](../../../.claude/skills/testing.md) completely.
+1. Read [AGENTS.md](../../../AGENTS.md) completely.
 2. Inspect neighboring tests and reuse `internal/pkg/testsupport` or existing E2E helpers.
 3. Add the smallest regression test that would fail without the behavior under test.
 4. Run the focused test first, then the appropriate broader suite.

@@ -8,9 +8,9 @@ The release SBOM is the authoritative machine-readable inventory for each artifa
 
 | License | Dependencies |
 | --- | --- |
-| MIT | Fiber, GORM, Viper, Testify, Cartridge, Matcha, `godotenv`, `go-sqlite3`, `fasthttp`, `brotli`, `compress`, `mapstructure`, `afero`, `cast`, `gotenv`, `lumberjack`, and other transitive modules |
-| BSD-3-Clause | Go `x/crypto`, `x/net`, `x/sync`, `x/sys`, `x/text`; `fsnotify`, `google/uuid`, `pflag`, and selected transitive components |
-| Apache-2.0 | Portions of `github.com/klauspost/compress` and `github.com/spf13/afero` |
+| MIT | Fiber, GORM, Viper, Testify, Cartridge, Matcha, `godotenv`, `go-sqlite3`, `fasthttp`, `brotli`, `mapstructure`, `cast`, `gotenv`, `lumberjack`, and other transitive modules |
+| BSD-3-Clause | Go `x/crypto`, `x/net`, `x/sync`, `x/sys`, `x/text`; `fsnotify`, `google/uuid`, `pflag`, `github.com/klauspost/compress`, and selected transitive components |
+| Apache-2.0 | `github.com/spf13/afero` |
 | ISC | `github.com/davecgh/go-spew` |
 
 Exact module versions, source license URLs, and bundled license texts can be regenerated with:

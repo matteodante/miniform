@@ -18,7 +18,7 @@ Production deployments require:
 Versioned images are published publicly to `ghcr.io/matteodante/miniform`. Pin an exact version in production; do not deploy `latest` unattended.
 
 ```bash
-docker pull ghcr.io/matteodante/miniform:v0.2.2
+docker pull ghcr.io/matteodante/miniform:v0.2.3
 docker volume create miniform-data
 docker run --detach --name miniform \
   --restart unless-stopped \
@@ -26,7 +26,7 @@ docker run --detach --name miniform \
   --env MINIFORM_ENV=production \
   --env MINIFORM_SESSION_SECRET="$(openssl rand -hex 32)" \
   --volume miniform-data:/app/storage \
-  ghcr.io/matteodante/miniform:v0.2.2
+  ghcr.io/matteodante/miniform:v0.2.3
 ```
 
 Generate the session secret once, store it in your secret manager, and reuse it across restarts. The inline command above is illustrative; shell history and process inspection may expose values on shared systems.
@@ -68,7 +68,7 @@ Install and start Docker Engine first using the official instructions for your o
 The installer downloads a versioned Linux release, verifies its SHA-256 checksum, and launches that verified candidate. It replaces the installed manager only after installation succeeds. Review the script before running it as root:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/matteodante/miniform/v0.2.2/install.sh
+curl -fsSLO https://raw.githubusercontent.com/matteodante/miniform/v0.2.3/install.sh
 less install.sh
 sudo bash install.sh
 ```

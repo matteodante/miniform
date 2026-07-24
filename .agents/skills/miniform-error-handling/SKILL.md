@@ -7,7 +7,7 @@ description: Design consistent Miniform domain and HTTP error flows. Use when ad
 
 ## Workflow
 
-1. Read [AGENTS.md](../../../AGENTS.md) and the original [error-handling guide](../../../.claude/skills/error-handling.md) completely.
+1. Read [AGENTS.md](../../../AGENTS.md) completely.
 2. Inspect current domain errors and `internal/server` handling before defining a new error.
 3. Return errors from the owning domain with enough operation context for diagnosis.
 4. Map known domain outcomes at the HTTP boundary; leave unexpected failures to the global handler.

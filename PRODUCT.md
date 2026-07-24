@@ -1,8 +1,8 @@
 # Product
 
-## Register
+## Onboarding
 
-product
+Miniform has no public registration flow. On first boot it creates one local administrator with a temporary password printed once to the application logs. The operator must replace that password before the rest of the console becomes available, then can update the administrator email.
 
 ## Users
 

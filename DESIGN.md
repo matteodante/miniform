@@ -39,6 +39,16 @@ typography:
     fontSize: "16px"
     fontWeight: 400
     lineHeight: 1.5
+  control:
+    fontFamily: "Avenir Next, Avenir, Segoe UI, system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.43
+  button:
+    fontFamily: "Avenir Next, Avenir, Segoe UI, system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 600
+    lineHeight: 1.43
   label:
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
     fontSize: "11px"
@@ -61,8 +71,8 @@ components:
   button-primary:
     backgroundColor: "{colors.primary}"
     textColor: "{colors.surface-raised}"
-    typography: "{typography.body}"
-    rounded: "{rounded.lg}"
+    typography: "{typography.button}"
+    rounded: "{rounded.md}"
     padding: "10px 16px"
   button-primary-hover:
     backgroundColor: "{colors.primary-deep}"
@@ -70,13 +80,13 @@ components:
   button-secondary:
     backgroundColor: "{colors.surface-raised}"
     textColor: "{colors.ink}"
-    typography: "{typography.body}"
-    rounded: "{rounded.lg}"
+    typography: "{typography.button}"
+    rounded: "{rounded.md}"
     padding: "10px 16px"
   input:
     backgroundColor: "{colors.surface-raised}"
     textColor: "{colors.ink}"
-    typography: "{typography.body}"
+    typography: "{typography.control}"
     rounded: "{rounded.md}"
     padding: "10px 12px"
     minHeight: "44px"
@@ -150,6 +160,8 @@ The palette combines a paper-and-ink neutral foundation with a single moss inter
 - **Headline** (700, 30px, 1.1): section introductions and strong empty-state guidance.
 - **Title** (700, 24px, 1.2): named endpoints, delivery routes, and local groups.
 - **Body** (400, 16px, 1.5): instructions and descriptions, capped near 70ch for prose.
+- **Control** (400, 14px, 1.43): inputs and compact interactive values.
+- **Button** (600, 14px, 1.43): primary and secondary actions.
 - **Label** (700, 11px, 0.2em): short operational metadata only; uppercase kickers are scarce.
 
 ### Named Rules
@@ -172,7 +184,7 @@ The system is flat by default. Depth comes from spacing, dark navigation contras
 
 ### Buttons
 
-- **Shape:** restrained corners (`rounded.lg`).
+- **Shape:** restrained 8px corners (`rounded.md`).
 - **Primary:** moss surface, raised-paper text, 10px by 16px padding; use once per decision area.
 - **Hover / Focus:** deep moss on hover and a visible moss focus ring; no lift, glow, or decorative shadow.
 - **Secondary:** raised paper, ink text, and a rule border that changes to moss on hover.

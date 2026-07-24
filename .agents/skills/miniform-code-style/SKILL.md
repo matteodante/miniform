@@ -7,7 +7,7 @@ description: Apply Miniform's pragmatic Go coding style. Use when writing, refac
 
 ## Workflow
 
-1. Read [AGENTS.md](../../../AGENTS.md) and the original [code-style guide](../../../.claude/skills/code-style.md) completely.
+1. Read [AGENTS.md](../../../AGENTS.md) completely.
 2. Inspect adjacent files and preserve established package vocabulary and APIs.
 3. Implement the smallest clear solution, then remove dead branches and obsolete helpers created by the change.
 4. Format modified Go files with `gofmt` and run focused tests.

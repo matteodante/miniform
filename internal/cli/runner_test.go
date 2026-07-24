@@ -44,8 +44,13 @@ func TestRunner(t *testing.T) {
 		assert.Greater(t, len(envelope.Data), 25)
 		assert.Contains(t, commandNames(envelope.Data), "backup")
 		assert.Contains(t, commandNames(envelope.Data), "form create")
+		assert.Contains(t, commandNames(envelope.Data), "form update")
 		for _, command := range envelope.Data {
-			if command.Name == "form update" {
+			switch command.Name {
+			case "form create":
+				assert.Contains(t, command.Flags, "--uploads-enabled")
+			case "form update":
+				assert.Contains(t, command.Flags, "--uploads-enabled=BOOL")
 				assert.Contains(t, command.Flags, "--email-format text|html")
 			}
 		}

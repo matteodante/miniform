@@ -7,7 +7,7 @@ description: Apply Miniform's domain-package architecture and ownership boundari
 
 ## Workflow
 
-1. Read [AGENTS.md](../../../AGENTS.md) and the original [architecture guide](../../../.claude/skills/architecture.md) completely.
+1. Read [AGENTS.md](../../../AGENTS.md) completely.
 2. Inspect the current neighboring implementation before choosing a package or API. Treat current code and `AGENTS.md` as authoritative when an older example differs.
 3. Put models and business rules in the owning `internal/<domain>` package.
 4. Keep `internal/http` handlers thin: parse transport input, call domain functions, map the result to HTTP.

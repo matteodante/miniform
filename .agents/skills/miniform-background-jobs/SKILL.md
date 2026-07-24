@@ -7,7 +7,7 @@ description: Implement and review Miniform background processing for email and w
 
 ## Workflow
 
-1. Read [AGENTS.md](../../../AGENTS.md) and the original [background-jobs guide](../../../.claude/skills/background-jobs.md) completely.
+1. Read [AGENTS.md](../../../AGENTS.md) completely.
 2. Inspect `internal/jobs` and the owning forms or integrations models before editing; follow the current state constants and context types.
 3. Define explicit state transitions and make repeated processing safe.
 4. Select bounded batches in deterministic order and honor retry eligibility timestamps.

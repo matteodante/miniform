@@ -7,7 +7,7 @@ description: Add and review Miniform HTTP routes and Cartridge/Fiber handlers. U
 
 ## Workflow
 
-1. Read [AGENTS.md](../../../AGENTS.md) and the original [HTTP routing guide](../../../.claude/skills/http-routing.md) completely.
+1. Read [AGENTS.md](../../../AGENTS.md) completely.
 2. Consult the current official Fiber and Cartridge documentation for APIs affected by the change.
 3. Inspect `internal/routes.go`, the neighboring handler, and its domain function.
 4. Choose the existing authenticated, public, or specialized route configuration; do not duplicate middleware stacks.

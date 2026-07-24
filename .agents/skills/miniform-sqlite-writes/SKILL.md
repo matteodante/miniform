@@ -7,7 +7,7 @@ description: Protect Miniform SQLite mutations with the repository retry transac
 
 ## Required Pattern
 
-1. Read [AGENTS.md](../../../AGENTS.md) and the original [SQLite retry guide](../../../.claude/skills/sqlite-write-retries.md) completely.
+1. Read [AGENTS.md](../../../AGENTS.md) completely.
 2. Inspect `internal/pkg/dbtxn/retry.go` before changing retry behavior.
 3. Wrap every application write in one `dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error { ... })` call.
 4. Use only the provided `tx` for all operations that must be atomic.
@@ -27,7 +27,7 @@ err := dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
 - Keep network calls and other irreversible side effects outside retried transactions.
 - Attach request or job cancellation with `db.WithContext(ctx)` before entering the retry wrapper.
 - Let `internal/database.Manager` own connections and WAL checkpoints; domain functions never close the shared database.
-- Read-only queries and the dedicated migration path do not need this wrapper.
+- Read-only queries and migration introspection do not need this wrapper. Migration DDL and backfills use the current `dbtxn.WithRetry` pattern.
 
 ## Verification
 

@@ -130,7 +130,7 @@
       "refersTo": "button-primary",
       "description": "The single primary action in a decision area.",
       "html": "<button class=\"ds-btn-primary\">Create endpoint</button>",
-      "css": ".ds-btn-primary{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:10px;padding:10px 16px;background:#4E6653;color:#FFFEFA;font:600 14px/1.4 \"Avenir Next\",Avenir,\"Segoe UI\",system-ui,sans-serif;cursor:pointer;transition:background-color 200ms ease}.ds-btn-primary:hover{background:#34473A}.ds-btn-primary:focus-visible{outline:3px solid rgba(78,102,83,.4);outline-offset:3px}.ds-btn-primary:active{background:#29382E}"
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;padding:10px 16px;background:#4E6653;color:#FFFEFA;font:600 14px/1.4 \"Avenir Next\",Avenir,\"Segoe UI\",system-ui,sans-serif;cursor:pointer;transition:background-color 200ms ease}.ds-btn-primary:hover{background:#34473A}.ds-btn-primary:focus-visible{outline:3px solid rgba(78,102,83,.4);outline-offset:3px}.ds-btn-primary:active{background:#29382E}"
     },
     {
       "name": "Secondary Button",
@@ -138,7 +138,7 @@
       "refersTo": "button-secondary",
       "description": "A quiet secondary or cancel action.",
       "html": "<button class=\"ds-btn-secondary\">Cancel</button>",
-      "css": ".ds-btn-secondary{display:inline-flex;align-items:center;justify-content:center;border:1px solid #D4CBBB;border-radius:10px;padding:10px 16px;background:#FFFEFA;color:#242820;font:600 14px/1.4 \"Avenir Next\",Avenir,\"Segoe UI\",system-ui,sans-serif;cursor:pointer;transition:border-color 200ms ease,color 200ms ease}.ds-btn-secondary:hover{border-color:#4E6653;color:#34473A}.ds-btn-secondary:focus-visible{outline:3px solid rgba(78,102,83,.4);outline-offset:3px}.ds-btn-secondary:active{background:#F5F1E8}"
+      "css": ".ds-btn-secondary{display:inline-flex;align-items:center;justify-content:center;border:1px solid #D4CBBB;border-radius:8px;padding:10px 16px;background:#FFFEFA;color:#242820;font:600 14px/1.4 \"Avenir Next\",Avenir,\"Segoe UI\",system-ui,sans-serif;cursor:pointer;transition:border-color 200ms ease,color 200ms ease}.ds-btn-secondary:hover{border-color:#4E6653;color:#34473A}.ds-btn-secondary:focus-visible{outline:3px solid rgba(78,102,83,.4);outline-offset:3px}.ds-btn-secondary:active{background:#F5F1E8}"
     },
     {
       "name": "Text Input",

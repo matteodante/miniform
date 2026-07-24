@@ -77,4 +77,4 @@ Read [architecture.md](architecture.md) before moving code across packages. Ever
 
 ## Repository skills
 
-The `.agents/skills` directory mirrors project guidance for compatible coding agents. Update the source guidance and its corresponding skill together when conventions change.
+The `.agents/skills` directory is the canonical source for project-specific agent skills. Compatibility paths such as `.claude/skills` link to it and must not duplicate its contents.

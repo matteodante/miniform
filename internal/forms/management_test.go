@@ -2,8 +2,10 @@ package forms_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/csv"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -16,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/matteodante/miniform/internal/forms"
 	"github.com/matteodante/miniform/internal/pkg/dbtxn"
@@ -104,6 +107,106 @@ func TestManagement(t *testing.T) {
 		var validation *forms.ValidationError
 		require.ErrorAs(t, err, &validation)
 		assert.Equal(t, "range", validation.Field)
+	})
+
+	t.Run("bounds CSV preflight SQL to the entry ceiling", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "Bounded preflight", Slug: "bounded-preflight", AllowedOrigins: "*",
+		})
+		require.NoError(t, err)
+		_, err = forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{
+			"message": "bounded",
+		}, "test", "", nil)
+		require.NoError(t, err)
+
+		recorder := &sqlRecorder{Interface: db.Logger}
+		_, err = forms.ExportSubmissionsCSV(
+			db.Session(&gorm.Session{Logger: recorder}),
+			forms.SubmissionFilter{FormID: form.ID},
+			io.Discard,
+		)
+		require.NoError(t, err)
+
+		var preflightSQL string
+		for _, statement := range recorder.statements {
+			if strings.Contains(statement, "LENGTH(CAST(data_json AS BLOB))") {
+				preflightSQL = statement
+				break
+			}
+		}
+		require.NotEmpty(t, preflightSQL)
+		assert.Contains(t, strings.ToUpper(preflightSQL), "LIMIT 10001")
+	})
+
+	t.Run("exports compact nested JSON without materializing its structure", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "Nested export", Slug: "nested-export", AllowedOrigins: "*",
+		})
+		require.NoError(t, err)
+
+		nested := "[" + strings.Repeat("{},", 50_000) + `{"b":2, "a":1}]`
+		submission := &forms.Submission{
+			FormID: form.ID, DataJSON: `{"nested":` + nested + "}", UserAgent: "test",
+		}
+		require.NoError(t, dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+			return tx.Create(submission).Error
+		}))
+
+		var output bytes.Buffer
+		count, err := forms.ExportSubmissionsCSV(db, forms.SubmissionFilter{FormID: form.ID}, &output)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count)
+
+		records, err := csv.NewReader(strings.NewReader(output.String())).ReadAll()
+		require.NoError(t, err)
+		require.Len(t, records, 2)
+		assert.Equal(t, "field.nested", records[0][len(records[0])-1])
+		assert.True(t, records[1][len(records[1])-1] == nested, "nested JSON changed during export")
+	})
+
+	t.Run("rejects CSV exports with an unbounded union of submission fields", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "Wide export", Slug: "wide-export", AllowedOrigins: "*",
+		})
+		require.NoError(t, err)
+
+		fieldIndex := 0
+		for submissionIndex := 0; submissionIndex < 3; submissionIndex++ {
+			payload := make(map[string]any, 200)
+			for range 200 {
+				payload[fmt.Sprintf("field_%03d", fieldIndex)] = "value"
+				fieldIndex++
+			}
+			_, err = forms.CreateSubmissionWithFiles(logger, db, form, payload, "test", "", nil)
+			require.NoError(t, err)
+		}
+
+		_, err = forms.ExportSubmissionsCSV(db, forms.SubmissionFilter{FormID: form.ID}, io.Discard)
+		var validation *forms.ValidationError
+		require.ErrorAs(t, err, &validation)
+		assert.Equal(t, "export", validation.Field)
+	})
+
+	t.Run("rejects CSV exports whose aggregate public content exceeds the memory budget", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "Large export", Slug: "large-export", AllowedOrigins: "*",
+		})
+		require.NoError(t, err)
+		_, err = forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{
+			"message": strings.Repeat("x", forms.MaxCSVExportContentBytes/2),
+		}, strings.Repeat("a", forms.MaxCSVExportContentBytes/2), "", nil)
+		require.NoError(t, err)
+
+		var output bytes.Buffer
+		_, err = forms.ExportSubmissionsCSV(db, forms.SubmissionFilter{FormID: form.ID}, &output)
+		var validation *forms.ValidationError
+		require.ErrorAs(t, err, &validation)
+		assert.Equal(t, "export", validation.Field)
+		assert.Empty(t, output.Bytes())
 	})
 
 	t.Run("refuses a manual retry while delivery is claimed", func(t *testing.T) {
@@ -557,6 +660,16 @@ func TestManagement(t *testing.T) {
 		}))
 		assert.Equal(t, []string{survivingFile}, remainingFiles)
 	})
+}
+
+type sqlRecorder struct {
+	gormlogger.Interface
+	statements []string
+}
+
+func (recorder *sqlRecorder) Trace(_ context.Context, _ time.Time, query func() (string, int64), _ error) {
+	statement, _ := query()
+	recorder.statements = append(recorder.statements, statement)
 }
 
 func runConcurrently(t *testing.T, operations ...func() error) []error {

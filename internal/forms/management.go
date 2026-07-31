@@ -159,7 +159,15 @@ func ListSubmissions(db *gorm.DB, filter SubmissionFilter) (*SubmissionPage, err
 }
 
 func filteredSubmissions(db *gorm.DB, filter SubmissionFilter, now time.Time) (*gorm.DB, error) {
-	query := db.Model(&Submission{}).Preload("Form")
+	query, err := submissionFilterQuery(db, filter, now)
+	if err != nil {
+		return nil, err
+	}
+	return query.Preload("Form"), nil
+}
+
+func submissionFilterQuery(db *gorm.DB, filter SubmissionFilter, now time.Time) (*gorm.DB, error) {
+	query := db.Model(&Submission{})
 	if filter.FormID > 0 {
 		query = query.Where("form_id = ?", filter.FormID)
 	}

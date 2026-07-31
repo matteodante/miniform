@@ -6,10 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Fixed
-
-- Preserved SMTP usernames and passwords byte-for-byte so valid credentials containing leading or trailing whitespace continue to authenticate
-
 ### Added
 
 - Added a supported Docker Compose deployment with loopback-only publishing, persistent storage, a pinned image, and a required stable session secret
@@ -18,8 +14,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Preserved SMTP usernames and passwords byte-for-byte so valid credentials containing leading or trailing whitespace continue to authenticate
 - Prevented confirmed SMTP deliveries from being retried when only the final `QUIT` reply is lost
 - Reloaded each claimed email and webhook configuration immediately before delivery so a batch cannot use an earlier recipient, route, or credential snapshot
+
+### Security
+
+- Bounded CSV export payload data and distinct columns so attacker-controlled submissions cannot make an administrator exhaust application memory during export
 
 ## [0.2.3] - 2026-07-24
 

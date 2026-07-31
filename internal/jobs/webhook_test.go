@@ -126,6 +126,63 @@ func TestWebhookDelivery(t *testing.T) {
 		assert.Equal(t, int32(1), requests.Load())
 	})
 
+	t.Run("reloads webhook configuration after each claim", func(t *testing.T) {
+		firstRequest := make(chan struct{})
+		releaseFirst := make(chan struct{})
+		t.Cleanup(func() {
+			select {
+			case <-releaseFirst:
+			default:
+				close(releaseFirst)
+			}
+		})
+		var oldRequests atomic.Int32
+		oldServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+			if oldRequests.Add(1) == 1 {
+				close(firstRequest)
+				<-releaseFirst
+			}
+			response.WriteHeader(http.StatusNoContent)
+		}))
+		defer oldServer.Close()
+
+		var newRequests atomic.Int32
+		newServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+			newRequests.Add(1)
+			response.WriteHeader(http.StatusNoContent)
+		}))
+		defer newServer.Close()
+
+		db := testsupport.SetupTestDB(t)
+		firstEvent := queuedWebhook(t, db, oldServer.URL)
+		require.NoError(t, dbtxn.WithRetry(slog.Default(), db, func(tx *gorm.DB) error {
+			submission := &forms.Submission{FormID: firstEvent.Submission.FormID, DataJSON: `{"name":"Bob"}`}
+			if err := tx.Create(submission).Error; err != nil {
+				return err
+			}
+			return tx.Create(forms.NewWebhookEvent(submission.ID, time.Now().UTC())).Error
+		}))
+
+		cfg := &config.Config{}
+		cfg.Webhook.SignatureHeader = "X-Miniform-Signature"
+		done := make(chan error, 1)
+		go func() { done <- NewWebhookDispatcher(cfg).ProcessBatch(jobContext(db)) }()
+		select {
+		case <-firstRequest:
+		case <-time.After(time.Second):
+			t.Fatal("first webhook request did not start")
+		}
+		require.NoError(t, dbtxn.WithRetry(slog.Default(), db, func(tx *gorm.DB) error {
+			return tx.Model(&forms.WebhookDelivery{}).Where("form_id = ?", firstEvent.Submission.FormID).
+				Update("url", newServer.URL).Error
+		}))
+		close(releaseFirst)
+		require.NoError(t, <-done)
+
+		assert.Equal(t, int32(1), oldRequests.Load())
+		assert.Equal(t, int32(1), newRequests.Load())
+	})
+
 	t.Run("returns a state persistence failure", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		sqlDB, err := db.DB()

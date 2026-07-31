@@ -39,6 +39,10 @@ type smtpServerResult struct {
 	err     error
 }
 
+type smtpServerBehavior struct {
+	disconnectAfterData bool
+}
+
 func TestEmailDelivery(t *testing.T) {
 	t.Run("sends a sanitized SMTP message", func(t *testing.T) {
 		host, port, result := fakeSMTP(t)
@@ -66,6 +70,24 @@ func TestEmailDelivery(t *testing.T) {
 		assert.NotContains(t, server.capture.message, "\r\nBcc:")
 		assert.Contains(t, server.capture.message, `Reply-To: "Customer" <customer@example.com>`)
 		assert.Contains(t, server.capture.message, "line one\r\nline two")
+	})
+
+	t.Run("keeps a confirmed delivery when the server drops the QUIT reply", func(t *testing.T) {
+		host, port, result := fakeSMTPDisconnectAfterData(t)
+		settings := &smtpConfig{
+			Host: host, Port: port, Encryption: "none",
+			From: "forms@example.com", Recipients: []string{"owner@example.com"},
+		}
+		message, err := buildSMTPMessage(outboundEmail{
+			From: settings.From, To: settings.Recipients,
+			Subject: "Confirmed delivery", Format: forms.EmailFormatText, TextBody: "accepted",
+		})
+		require.NoError(t, err)
+
+		require.NoError(t, sendSMTP(t.Context(), settings, message))
+		server := <-result
+		require.NoError(t, server.err)
+		assert.Contains(t, server.capture.message, "accepted")
 	})
 
 	t.Run("delivers escaped HTML and text fallback to every configured recipient", func(t *testing.T) {
@@ -184,6 +206,73 @@ func TestEmailDelivery(t *testing.T) {
 		body, err := io.ReadAll(quotedprintable.NewReader(message.Body))
 		require.NoError(t, err)
 		assert.Equal(t, "We received your request, Ada Èlite.", string(body))
+	})
+
+	t.Run("reloads notification configuration after each claim", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		host, port, firstConnection, releaseFirst, results := fakeSMTPBlockingFirstConnection(t, 2)
+		t.Cleanup(func() {
+			select {
+			case <-releaseFirst:
+			default:
+				close(releaseFirst)
+			}
+		})
+
+		profile := &integrations.MailerProfile{
+			Name: "Reloaded relay", DefaultFromEmail: "forms@example.com",
+			SMTPHost: host, SMTPPort: port, SMTPEncryption: "none",
+		}
+		form := &forms.Form{Name: "Reloaded notification", Slug: "reloaded-notification", AllowedOrigins: "*"}
+		var delivery *forms.EmailDelivery
+		require.NoError(t, dbtxn.WithRetry(slog.Default(), db, func(tx *gorm.DB) error {
+			if err := tx.Create(profile).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(form).Error; err != nil {
+				return err
+			}
+			profileID := profile.ID
+			delivery = &forms.EmailDelivery{
+				FormID: form.ID, Enabled: true, MailerProfileID: &profileID,
+				Name: "Mutable recipient", RecipientSource: forms.EmailRecipientStatic,
+				Recipient: "old@example.com", ReplyToSource: forms.EmailReplyToNone,
+				Format: forms.EmailFormatText,
+			}
+			if err := tx.Create(delivery).Error; err != nil {
+				return err
+			}
+			for range 2 {
+				submission := &forms.Submission{FormID: form.ID, DataJSON: `{}`}
+				if err := tx.Create(submission).Error; err != nil {
+					return err
+				}
+				if err := tx.Create(forms.NewEmailEvent(submission.ID, time.Now().UTC(), delivery.ID)).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		}))
+
+		ctx := &cartridge.JobContext{Context: t.Context(), DB: db, Logger: slog.New(slog.DiscardHandler)}
+		done := make(chan error, 1)
+		go func() { done <- NewEmailDispatcher(&config.Config{}).ProcessBatch(ctx) }()
+		select {
+		case <-firstConnection:
+		case <-time.After(time.Second):
+			t.Fatal("first SMTP connection did not start")
+		}
+		require.NoError(t, dbtxn.WithRetry(slog.Default(), db, func(tx *gorm.DB) error {
+			return tx.Model(&forms.EmailDelivery{}).Where("id = ?", delivery.ID).
+				Update("recipient", "new@example.com").Error
+		}))
+		close(releaseFirst)
+		require.NoError(t, <-done)
+
+		captures := receiveSMTPCaptures(t, results, 2)
+		require.Len(t, captures, 2)
+		assert.Equal(t, []string{"RCPT TO:<old@example.com>"}, captures[0].to)
+		assert.Equal(t, []string{"RCPT TO:<new@example.com>"}, captures[1].to)
 	})
 
 	t.Run("keeps sibling delivery independent from an invalid dynamic recipient", func(t *testing.T) {
@@ -423,6 +512,56 @@ func fakeSMTPConnections(t *testing.T, count int) (string, int, <-chan smtpServe
 	return "127.0.0.1", address.Port, result
 }
 
+func fakeSMTPDisconnectAfterData(t *testing.T) (string, int, <-chan smtpServerResult) {
+	t.Helper()
+	listener, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	result := make(chan smtpServerResult, 1)
+	go func() {
+		defer close(result)
+		connection, err := listener.Accept()
+		if err != nil {
+			result <- smtpServerResult{err: err}
+			return
+		}
+		capture, err := serveSMTP(connection, smtpServerBehavior{disconnectAfterData: true})
+		_ = connection.Close()
+		result <- smtpServerResult{capture: capture, err: err}
+	}()
+	address := listener.Addr().(*net.TCPAddr)
+	return "127.0.0.1", address.Port, result
+}
+
+func fakeSMTPBlockingFirstConnection(t *testing.T, count int) (string, int, <-chan struct{}, chan struct{}, <-chan smtpServerResult) {
+	t.Helper()
+	listener, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	firstConnection := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	result := make(chan smtpServerResult, count)
+	go func() {
+		defer close(result)
+		for index := range count {
+			connection, err := listener.Accept()
+			if err != nil {
+				result <- smtpServerResult{err: err}
+				return
+			}
+			if index == 0 {
+				close(firstConnection)
+				<-releaseFirst
+			}
+			capture, err := serveSMTP(connection)
+			_ = connection.Close()
+			result <- smtpServerResult{capture: capture, err: err}
+		}
+	}()
+	address := listener.Addr().(*net.TCPAddr)
+	return "127.0.0.1", address.Port, firstConnection, releaseFirst, result
+}
+
 func setupTwoEmailForm(t *testing.T, db *gorm.DB, host string, port int, replyToSource, replyTo string) *forms.Form {
 	t.Helper()
 	logger := slog.New(slog.DiscardHandler)
@@ -476,7 +615,11 @@ func receiveSMTPCaptures(t *testing.T, results <-chan smtpServerResult, count in
 	return captures
 }
 
-func serveSMTP(connection net.Conn) (smtpCapture, error) {
+func serveSMTP(connection net.Conn, behaviors ...smtpServerBehavior) (smtpCapture, error) {
+	behavior := smtpServerBehavior{}
+	if len(behaviors) > 0 {
+		behavior = behaviors[0]
+	}
 	_ = connection.SetDeadline(time.Now().Add(5 * time.Second))
 	reader := bufio.NewReader(connection)
 	write := func(line string) error {
@@ -512,6 +655,9 @@ func serveSMTP(connection net.Conn) (smtpCapture, error) {
 			}
 			if err == nil {
 				err = write("250 queued")
+			}
+			if err == nil && behavior.disconnectAfterData {
+				return capture, nil
 			}
 		case line == "QUIT":
 			if err = write("221 bye"); err == nil {

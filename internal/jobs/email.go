@@ -25,26 +25,32 @@ func NewEmailDispatcher(cfg *config.Config) *EmailDispatcher {
 }
 
 func (dispatcher *EmailDispatcher) ProcessBatch(ctx *cartridge.JobContext) error {
-	var events []forms.EmailEvent
 	now := time.Now().UTC()
-	query := ctx.DB.WithContext(ctx).
-		Preload("Submission.Form").
-		Preload("EmailDelivery.MailerProfile")
-	if err := dueEvents(query, now).Limit(10).Find(&events).Error; err != nil {
+	eventIDs, err := dueEventIDs(ctx.DB.WithContext(ctx), &forms.EmailEvent{}, now)
+	if err != nil {
 		ctx.Logger.Error("query email queue", slog.Any("error", err))
 		return err
 	}
-	for i := range events {
-		leaseUntil, err := claimEvent(ctx, ctx.DB, &forms.EmailEvent{}, events[i].ID, time.Now().UTC())
+	for _, eventID := range eventIDs {
+		leaseUntil, err := claimEvent(ctx, ctx.DB, &forms.EmailEvent{}, eventID, time.Now().UTC())
 		if err != nil {
 			return err
 		}
 		if leaseUntil == nil {
 			continue
 		}
-		events[i].Status = forms.WebhookStatusDelivering
-		events[i].NextAttemptAt = leaseUntil
-		if err := dispatcher.deliver(ctx, &events[i]); err != nil {
+
+		var event forms.EmailEvent
+		if err := ctx.DB.WithContext(ctx).
+			Preload("Submission.Form").
+			Preload("EmailDelivery.MailerProfile").
+			First(&event, eventID).Error; err != nil {
+			ctx.Logger.Error("load claimed email event", slog.Uint64("id", uint64(eventID)), slog.Any("error", err))
+			return err
+		}
+		event.Status = forms.WebhookStatusDelivering
+		event.NextAttemptAt = leaseUntil
+		if err := dispatcher.deliver(ctx, &event); err != nil {
 			return err
 		}
 	}

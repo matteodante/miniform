@@ -37,24 +37,31 @@ func NewWebhookDispatcher(cfg *config.Config) *WebhookDispatcher {
 }
 
 func (dispatcher *WebhookDispatcher) ProcessBatch(ctx *cartridge.JobContext) error {
-	var events []forms.WebhookEvent
 	now := time.Now().UTC()
-	query := ctx.DB.WithContext(ctx).Preload("Submission.Form.WebhookDelivery")
-	if err := dueEvents(query, now).Limit(10).Find(&events).Error; err != nil {
+	eventIDs, err := dueEventIDs(ctx.DB.WithContext(ctx), &forms.WebhookEvent{}, now)
+	if err != nil {
 		ctx.Logger.Error("query webhook queue", slog.Any("error", err))
 		return err
 	}
-	for i := range events {
-		leaseUntil, err := claimEvent(ctx, ctx.DB, &forms.WebhookEvent{}, events[i].ID, time.Now().UTC())
+	for _, eventID := range eventIDs {
+		leaseUntil, err := claimEvent(ctx, ctx.DB, &forms.WebhookEvent{}, eventID, time.Now().UTC())
 		if err != nil {
 			return err
 		}
 		if leaseUntil == nil {
 			continue
 		}
-		events[i].Status = forms.WebhookStatusDelivering
-		events[i].NextAttemptAt = leaseUntil
-		if err := dispatcher.deliver(ctx, &events[i]); err != nil {
+
+		var event forms.WebhookEvent
+		if err := ctx.DB.WithContext(ctx).
+			Preload("Submission.Form.WebhookDelivery").
+			First(&event, eventID).Error; err != nil {
+			ctx.Logger.Error("load claimed webhook event", slog.Uint64("id", uint64(eventID)), slog.Any("error", err))
+			return err
+		}
+		event.Status = forms.WebhookStatusDelivering
+		event.NextAttemptAt = leaseUntil
+		if err := dispatcher.deliver(ctx, &event); err != nil {
 			return err
 		}
 	}

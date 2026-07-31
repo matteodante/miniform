@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Security
 
 - Bounded CSV export payload data and distinct columns so attacker-controlled submissions cannot make an administrator exhaust application memory during export
+- Preserved webhook HMAC keys byte-for-byte so whitespace cannot alter a signature or silently disable signing
 
 ## [0.2.3] - 2026-07-24
 

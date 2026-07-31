@@ -28,6 +28,8 @@ Development defaults also work without a configuration file. The built-in Matcha
 
 Miniform rejects unsupported log levels, invalid ports, non-positive limits, and malformed retry schedules at startup. It does not silently replace an invalid configured value with a default.
 
+Webhook signing secrets are opaque HMAC keys and are stored byte-for-byte. Leading and trailing whitespace is significant; the receiver must verify with the exact same key. Secret files supplied through the CLI lose one terminal line ending for shell convenience but preserve every other byte.
+
 Generate secrets with:
 
 ```bash

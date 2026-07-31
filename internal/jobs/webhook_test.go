@@ -57,6 +57,36 @@ func TestWebhookDelivery(t *testing.T) {
 		assert.Equal(t, 1, stored.AttemptCount)
 	})
 
+	t.Run("does not silently disable a whitespace signing key", func(t *testing.T) {
+		type receivedRequest struct {
+			body, signature string
+		}
+		received := make(chan receivedRequest, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+			body, _ := io.ReadAll(request.Body)
+			received <- receivedRequest{body: string(body), signature: request.Header.Get("X-Miniform-Signature")}
+			response.WriteHeader(http.StatusNoContent)
+		}))
+		defer server.Close()
+
+		db := testsupport.SetupTestDB(t)
+		logger := slog.New(slog.DiscardHandler)
+		form, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "Signed", Slug: "signed", AllowedOrigins: "*",
+			WebhookEnabled: true, WebhookURL: server.URL, WebhookSecret: "  ",
+		})
+		require.NoError(t, err)
+		_, err = forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{"name": "Alice"}, "test", "", nil)
+		require.NoError(t, err)
+
+		cfg := &config.Config{}
+		cfg.Webhook.SignatureHeader = "X-Miniform-Signature"
+		require.NoError(t, NewWebhookDispatcher(cfg).ProcessBatch(jobContext(db)))
+
+		request := <-received
+		assert.Equal(t, signWebhook([]byte(request.body), "  "), request.signature)
+	})
+
 	t.Run("schedules retry after remote failure", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 			response.WriteHeader(http.StatusServiceUnavailable)

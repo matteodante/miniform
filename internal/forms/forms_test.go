@@ -38,6 +38,7 @@ func TestForms(t *testing.T) {
 			MailerProfileID: &profile.ID, EmailRecipient: "Owner <owner@example.com>\nteam@example.com, OWNER@example.com",
 			EmailFormat: forms.EmailFormatHTML, EmailEnabled: true,
 			WebhookEnabled: true, WebhookURL: "https://hooks.example.com/forms",
+			WebhookSecret:      " webhook secret ",
 			WebhookHeadersJSON: `{"X-Source":"miniform"}`,
 		})
 		require.NoError(t, err)
@@ -55,6 +56,7 @@ func TestForms(t *testing.T) {
 		assert.Equal(t, `"Owner" <owner@example.com>, team@example.com`, delivery.Recipient)
 		assert.Equal(t, forms.EmailFormatHTML, delivery.Format)
 		assert.True(t, loaded.WebhookDelivery.Enabled)
+		assert.Equal(t, " webhook secret ", loaded.WebhookDelivery.Secret)
 
 		_, err = forms.Create(logger, db, forms.CreateParams{
 			Name: "Duplicate", Slug: "contact-form", AllowedOrigins: "example.com",

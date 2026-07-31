@@ -1,6 +1,7 @@
 package forms
 
 import (
+	"bytes"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -21,8 +22,8 @@ const (
 )
 
 type csvExportStats struct {
-	EntryCount   int64 `gorm:"column:entry_count"`
-	ContentBytes int64 `gorm:"column:content_bytes"`
+	EntryCount   int64
+	ContentBytes int64
 }
 
 var csvMetadataColumns = []string{
@@ -43,11 +44,9 @@ func ExportSubmissionsCSV(db *gorm.DB, filter SubmissionFilter, output io.Writer
 		return 0, err
 	}
 
-	var stats csvExportStats
-	if err := statsQuery.
-		Select("COUNT(*) AS entry_count, COALESCE(SUM(LENGTH(CAST(data_json AS BLOB)) + COALESCE(LENGTH(CAST(user_agent AS BLOB)), 0)), 0) AS content_bytes").
-		Scan(&stats).Error; err != nil {
-		return 0, fmt.Errorf("measure submissions for CSV export: %w", err)
+	stats, err := measureCSVExport(statsQuery)
+	if err != nil {
+		return 0, err
 	}
 	if stats.EntryCount > MaxCSVExportEntries {
 		return 0, invalid("export", fmt.Sprintf(
@@ -81,7 +80,7 @@ func ExportSubmissionsCSV(db *gorm.DB, filter SubmissionFilter, output io.Writer
 		))
 	}
 
-	payloads := make([]map[string]any, len(submissions))
+	payloads := make([]map[string]json.RawMessage, len(submissions))
 	fieldSet := make(map[string]struct{})
 	var contentBytes int64
 	for index := range submissions {
@@ -92,19 +91,9 @@ func ExportSubmissionsCSV(db *gorm.DB, filter SubmissionFilter, output io.Writer
 				MaxCSVExportContentBytes/(1024*1024),
 			))
 		}
-		decoder := json.NewDecoder(strings.NewReader(submissions[index].DataJSON))
-		decoder.UseNumber()
-		if err := decoder.Decode(&payloads[index]); err != nil {
+		payloads[index], err = decodeCSVPayload(submissions[index].DataJSON, fieldSet)
+		if err != nil {
 			return 0, fmt.Errorf("decode submission %d for CSV export: %w", submissions[index].ID, err)
-		}
-		for name := range payloads[index] {
-			fieldSet[name] = struct{}{}
-			if len(fieldSet) > MaxCSVExportFields {
-				return 0, invalid("export", fmt.Sprintf(
-					"Export exceeds %d distinct fields; narrow the inbox filters and try again",
-					MaxCSVExportFields,
-				))
-			}
 		}
 	}
 
@@ -152,23 +141,97 @@ func ExportSubmissionsCSV(db *gorm.DB, filter SubmissionFilter, output io.Writer
 	return len(submissions), nil
 }
 
-func csvFieldValue(value any) (string, error) {
-	switch typed := value.(type) {
-	case nil:
-		return "", nil
-	case string:
-		return safeCSVText(typed), nil
-	case json.Number:
-		return typed.String(), nil
-	case bool:
-		return strconv.FormatBool(typed), nil
-	default:
-		encoded, err := json.Marshal(typed)
-		if err != nil {
-			return "", err
-		}
-		return string(encoded), nil
+func measureCSVExport(query *gorm.DB) (csvExportStats, error) {
+	rows, err := query.
+		Select("LENGTH(CAST(data_json AS BLOB)), COALESCE(LENGTH(CAST(user_agent AS BLOB)), 0)").
+		Limit(MaxCSVExportEntries + 1).
+		Rows()
+	if err != nil {
+		return csvExportStats{}, fmt.Errorf("measure submissions for CSV export: %w", err)
 	}
+	defer func() { _ = rows.Close() }()
+
+	var stats csvExportStats
+	for rows.Next() {
+		var dataBytes int64
+		var userAgentBytes int64
+		if err := rows.Scan(&dataBytes, &userAgentBytes); err != nil {
+			return csvExportStats{}, fmt.Errorf("measure submission for CSV export: %w", err)
+		}
+		stats.EntryCount++
+		stats.ContentBytes += dataBytes + userAgentBytes
+	}
+	if err := rows.Err(); err != nil {
+		return csvExportStats{}, fmt.Errorf("measure submissions for CSV export: %w", err)
+	}
+	return stats, nil
+}
+
+func decodeCSVPayload(encoded string, fieldSet map[string]struct{}) (map[string]json.RawMessage, error) {
+	decoder := json.NewDecoder(strings.NewReader(encoded))
+	opening, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	if delimiter, ok := opening.(json.Delim); !ok || delimiter != '{' {
+		return nil, fmt.Errorf("submission payload is not a JSON object")
+	}
+
+	payload := make(map[string]json.RawMessage)
+	for decoder.More() {
+		fieldToken, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		name, ok := fieldToken.(string)
+		if !ok {
+			return nil, fmt.Errorf("submission field name is not a string")
+		}
+		fieldSet[name] = struct{}{}
+		if len(fieldSet) > MaxCSVExportFields {
+			return nil, invalid("export", fmt.Sprintf(
+				"Export exceeds %d distinct fields; narrow the inbox filters and try again",
+				MaxCSVExportFields,
+			))
+		}
+
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return nil, err
+		}
+		payload[name] = value
+	}
+
+	closing, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	if delimiter, ok := closing.(json.Delim); !ok || delimiter != '}' {
+		return nil, fmt.Errorf("submission payload has an invalid closing delimiter")
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("submission payload contains multiple JSON values")
+		}
+		return nil, err
+	}
+	return payload, nil
+}
+
+func csvFieldValue(value json.RawMessage) (string, error) {
+	trimmed := bytes.TrimSpace(value)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return "", nil
+	}
+	if trimmed[0] != '"' {
+		return string(trimmed), nil
+	}
+	var text string
+	if err := json.Unmarshal(trimmed, &text); err != nil {
+		return "", err
+	}
+	return safeCSVText(text), nil
 }
 
 func safeCSVText(value string) string {

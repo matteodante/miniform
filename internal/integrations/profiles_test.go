@@ -23,11 +23,13 @@ func TestProfiles(t *testing.T) {
 		created, err := integrations.CreateMailerProfile(logger, db, integrations.MailerProfileParams{
 			Name:            "  Transactional SMTP  ",
 			DefaultFromName: "Forms", DefaultFromEmail: "forms@example.com",
-			SMTPHost: "smtp.example.com", SMTPPort: 587, SMTPUsername: "user",
-			SMTPPassword: "secret", SMTPEncryption: "starttls",
+			SMTPHost: "smtp.example.com", SMTPPort: 587, SMTPUsername: " smtp user ",
+			SMTPPassword: " secret ", SMTPEncryption: "starttls",
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "Transactional SMTP", created.Name)
+		assert.Equal(t, " smtp user ", created.SMTPUsername)
+		assert.Equal(t, " secret ", created.SMTPPassword)
 		assert.NotZero(t, created.ID)
 
 		updated, err := integrations.UpdateMailerProfile(logger, db, created.ID, integrations.MailerProfileParams{

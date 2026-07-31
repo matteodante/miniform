@@ -786,6 +786,26 @@ func TestRoutes(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "smtp-top-secret", updatedMailer.SMTPPassword)
 
+		opaqueMailer, err := integrations.CreateMailerProfile(slog.Default(), server.DB.GetConnection(), integrations.MailerProfileParams{
+			Name: "Opaque SMTP", DefaultFromEmail: "sender@example.com", SMTPHost: "smtp.example.com",
+			SMTPUsername: "old-user", SMTPPassword: "old-password",
+		})
+		require.NoError(t, err)
+		updateOpaqueMailer := httptest.NewRequestWithContext(t.Context(), "POST",
+			fmt.Sprintf("/admin/settings/mailers/%d", opaqueMailer.ID),
+			strings.NewReader("name=Opaque+SMTP&default_from_email=sender%40example.com&smtp_host=smtp.example.com&smtp_port=587&smtp_encryption=starttls&smtp_username=+smtp-user+&smtp_password=++"))
+		updateOpaqueMailer.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		updateOpaqueMailer.Header.Set("Sec-Fetch-Site", "same-origin")
+		updateOpaqueMailer.AddCookie(loginResponse.Cookies()[0])
+		updateOpaqueMailerResponse, err := server.App.Test(updateOpaqueMailer, -1)
+		require.NoError(t, err)
+		require.NoError(t, updateOpaqueMailerResponse.Body.Close())
+		assert.Equal(t, http.StatusFound, updateOpaqueMailerResponse.StatusCode)
+		opaqueMailer, err = integrations.GetMailerProfileByID(server.DB.GetConnection(), opaqueMailer.ID)
+		require.NoError(t, err)
+		assert.Equal(t, " smtp-user ", opaqueMailer.SMTPUsername)
+		assert.Equal(t, "  ", opaqueMailer.SMTPPassword)
+
 		updateForm := httptest.NewRequestWithContext(t.Context(), "POST", fmt.Sprintf("/admin/forms/%d", form.ID),
 			strings.NewReader("name=Webhook&allowed_origins=example.com&webhook_enabled=on&webhook_url=https%3A%2F%2Fexample.com%2Fhook"))
 		updateForm.Header.Set("Content-Type", "application/x-www-form-urlencoded")

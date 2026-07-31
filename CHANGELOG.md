@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserved SMTP usernames and passwords byte-for-byte so valid credentials containing leading or trailing whitespace continue to authenticate
+
 ### Added
 
 - Added a supported Docker Compose deployment with loopback-only publishing, persistent storage, a pinned image, and a required stable session secret

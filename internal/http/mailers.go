@@ -106,7 +106,7 @@ func MailerProfileUpdate(ctx *cartridge.Context) error {
 	}
 	if secrets.clearSMTPPassword {
 		params.SMTPPassword = ""
-	} else if strings.TrimSpace(params.SMTPPassword) == "" {
+	} else if params.SMTPPassword == "" {
 		params.SMTPPassword = current.SMTPPassword
 	}
 	profile, err := integrations.UpdateMailerProfile(ctx.Logger, db, id, params)

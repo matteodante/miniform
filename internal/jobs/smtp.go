@@ -95,9 +95,10 @@ func sendSMTP(ctx context.Context, config *smtpConfig, message []byte) error {
 	if err := data.Close(); err != nil {
 		return smtpIOError(ctx, "finish SMTP data", err)
 	}
-	if err := client.Quit(); err != nil {
-		return smtpIOError(ctx, "close SMTP session", err)
-	}
+	// A successful DATA close transfers responsibility for the message to the
+	// server. QUIT is best-effort because retrying after its reply is lost would
+	// send a duplicate of an already accepted message.
+	_ = client.Quit()
 	return nil
 }
 

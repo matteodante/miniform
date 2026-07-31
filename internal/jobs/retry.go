@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	storedErrorLimit = 500
-	deliveryLease    = time.Minute
+	storedErrorLimit  = 500
+	deliveryLease     = time.Minute
+	deliveryBatchSize = 10
 )
 
 var errDeliveryClaimLost = errors.New("delivery claim lost")
@@ -56,6 +57,12 @@ func dueEvents(db *gorm.DB, now time.Time) *gorm.DB {
 			forms.WebhookStatusDelivering,
 		}, now.UTC()).
 		Order("next_attempt_at, created_at, id")
+}
+
+func dueEventIDs(db *gorm.DB, model any, now time.Time) ([]uint, error) {
+	var ids []uint
+	err := dueEvents(db.Model(model), now).Limit(deliveryBatchSize).Pluck("id", &ids).Error
+	return ids, err
 }
 
 func claimEvent(ctx *cartridge.JobContext, db *gorm.DB, model any, id uint, now time.Time) (*time.Time, error) {

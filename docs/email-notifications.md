@@ -141,7 +141,9 @@ Deleting a notification preserves its historical events. A queued event whose no
 
 ## Delivery lifecycle
 
-Each accepted non-spam submission creates one durable event for every enabled notification. Workers claim, deliver, retry, and finish those events independently. SMTP I/O happens outside SQLite transactions. Configuration changes affect attempts that have not yet been delivered; a manual retry uses the current notification configuration.
+Each accepted non-spam submission creates one durable event for every enabled notification. Workers claim, reload the current notification and mailer configuration, deliver, retry, and finish those events independently. SMTP I/O happens outside SQLite transactions. Configuration changes affect attempts that have not yet been delivered; a manual retry uses the current notification configuration.
+
+An SMTP delivery is successful once the server accepts the completed `DATA` command. A missing `QUIT` reply after that confirmation does not schedule another attempt because the server already owns the message and a retry would duplicate it.
 
 Use a local capture server or an SMTP sandbox when testing delivery. Merely saving or previewing a notification does not send a message; an accepted, non-spam submission is what enqueues delivery for every enabled notification.
 

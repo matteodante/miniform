@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Added authenticated, filter-aware CSV exports for up to 10,000 inbox entries with deterministic field columns and spreadsheet-formula protection
 - Added automatic honeypot injection to generated and custom Starter HTML without duplicating an existing field
 
+### Fixed
+
+- Prevented confirmed SMTP deliveries from being retried when only the final `QUIT` reply is lost
+- Reloaded each claimed email and webhook configuration immediately before delivery so a batch cannot use an earlier recipient, route, or credential snapshot
+
 ## [0.2.3] - 2026-07-24
 
 ### Changed

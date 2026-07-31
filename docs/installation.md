@@ -25,7 +25,7 @@ docker compose --env-file .env.compose ps
 docker compose --env-file .env.compose logs miniform
 ```
 
-The default image is the current stable release, `ghcr.io/matteodante/miniform:v0.2.3`. To pin a different release, add `MINIFORM_IMAGE=ghcr.io/matteodante/miniform:vX.Y.Z` to `.env.compose`. The service binds `127.0.0.1:8080` by default; set `MINIFORM_PORT` in the same file if the reverse proxy needs another local port.
+The default image is the current stable release, `ghcr.io/matteodante/miniform:v0.3.0`. To pin a different release, add `MINIFORM_IMAGE=ghcr.io/matteodante/miniform:vX.Y.Z` to `.env.compose`. The service binds `127.0.0.1:8080` by default; set `MINIFORM_PORT` in the same file if the reverse proxy needs another local port.
 
 Terminate TLS with Caddy, Nginx, Traefik, or another reverse proxy. Miniform's production cookie is `Secure`, so authentication fails over plain HTTP. Keep `.env.compose` private, back up the `miniform-data` volume, and never run more than one application replica against the SQLite database.
 
@@ -40,7 +40,7 @@ docker compose --env-file .env.compose down
 Versioned images are published publicly to `ghcr.io/matteodante/miniform`. Pin an exact version in production; do not deploy `latest` unattended.
 
 ```bash
-docker pull ghcr.io/matteodante/miniform:v0.2.3
+docker pull ghcr.io/matteodante/miniform:v0.3.0
 docker volume create miniform-data
 docker run --detach --name miniform \
   --restart unless-stopped \
@@ -48,7 +48,7 @@ docker run --detach --name miniform \
   --env MINIFORM_ENV=production \
   --env MINIFORM_SESSION_SECRET="$(openssl rand -hex 32)" \
   --volume miniform-data:/app/storage \
-  ghcr.io/matteodante/miniform:v0.2.3
+  ghcr.io/matteodante/miniform:v0.3.0
 ```
 
 Generate the session secret once, store it in your secret manager, and reuse it across restarts. The inline command above is illustrative; shell history and process inspection may expose values on shared systems.
@@ -90,7 +90,7 @@ Install and start Docker Engine first using the official instructions for your o
 The installer downloads a versioned Linux release, verifies its SHA-256 checksum, and launches that verified candidate. It replaces the installed manager only after installation succeeds. Review the script before running it as root:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/matteodante/miniform/v0.2.3/install.sh
+curl -fsSLO https://raw.githubusercontent.com/matteodante/miniform/v0.3.0/install.sh
 less install.sh
 sudo bash install.sh
 ```

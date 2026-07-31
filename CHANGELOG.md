@@ -6,11 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-31
+
 ### Added
 
 - Added a supported Docker Compose deployment with loopback-only publishing, persistent storage, a pinned image, and a required stable session secret
 - Added authenticated, filter-aware CSV exports for up to 10,000 inbox entries with deterministic field columns and spreadsheet-formula protection
 - Added automatic honeypot injection to generated and custom Starter HTML without duplicating an existing field
+
+### Changed
+
+- Updated the Go networking and cryptography modules, Playwright E2E runner, and pinned GitHub Actions to their current compatible releases
 
 ### Fixed
 
@@ -23,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Bounded CSV export payload data and distinct columns so attacker-controlled submissions cannot make an administrator exhaust application memory during export
 - Preserved webhook HMAC keys byte-for-byte so whitespace cannot alter a signature or silently disable signing
+- Updated `node-tar` to `v7.5.22` to resolve its unbounded-recursion advisory in the E2E toolchain
 
 ## [0.2.3] - 2026-07-24
 
@@ -135,7 +142,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Required an operator-installed, running Docker Engine instead of executing a mutable remote installer as root
 - Added signed local release tags, release-source ancestry checks, checksums, SBOMs, provenance, and architecture-specific binary execution tests
 
-[Unreleased]: https://github.com/matteodante/miniform/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/matteodante/miniform/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/matteodante/miniform/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/matteodante/miniform/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/matteodante/miniform/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/matteodante/miniform/compare/v0.2.0...v0.2.1

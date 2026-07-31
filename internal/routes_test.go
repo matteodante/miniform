@@ -820,6 +820,24 @@ func TestRoutes(t *testing.T) {
 		assert.Equal(t, "webhook-top-secret", updatedForm.WebhookDelivery.Secret)
 		assert.JSONEq(t, `{"Authorization":"Bearer top-secret"}`, updatedForm.WebhookDelivery.HeadersJSON)
 
+		opaqueForm, err := forms.Create(slog.Default(), server.DB.GetConnection(), forms.CreateParams{
+			Name: "Opaque webhook", Slug: "opaque-webhook", AllowedOrigins: "example.com",
+			WebhookEnabled: true, WebhookURL: "https://example.com/hook", WebhookSecret: "old-secret",
+		})
+		require.NoError(t, err)
+		updateOpaqueForm := httptest.NewRequestWithContext(t.Context(), "POST", fmt.Sprintf("/admin/forms/%d", opaqueForm.ID),
+			strings.NewReader("name=Opaque+webhook&allowed_origins=example.com&webhook_enabled=on&webhook_url=https%3A%2F%2Fexample.com%2Fhook&webhook_secret=++"))
+		updateOpaqueForm.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		updateOpaqueForm.Header.Set("Sec-Fetch-Site", "same-origin")
+		updateOpaqueForm.AddCookie(loginResponse.Cookies()[0])
+		updateOpaqueFormResponse, err := server.App.Test(updateOpaqueForm, -1)
+		require.NoError(t, err)
+		require.NoError(t, updateOpaqueFormResponse.Body.Close())
+		assert.Equal(t, http.StatusFound, updateOpaqueFormResponse.StatusCode)
+		opaqueForm, err = forms.GetByID(server.DB.GetConnection(), opaqueForm.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "  ", opaqueForm.WebhookDelivery.Secret)
+
 		invalidMailer := httptest.NewRequestWithContext(t.Context(), "POST",
 			fmt.Sprintf("/admin/settings/mailers/%d", mailer.ID),
 			strings.NewReader("name=&default_from_email=sender%40example.com&smtp_host=smtp.example.com&smtp_port=587&smtp_encryption=starttls&smtp_password=should-not-survive&clear_smtp_password=on"))

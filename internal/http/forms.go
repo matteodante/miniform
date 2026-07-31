@@ -154,7 +154,7 @@ func AdminFormsUpdate(ctx *cartridge.Context) error {
 	if form.WebhookDelivery != nil {
 		if secrets.clearWebhookSecret {
 			params.WebhookSecret = ""
-		} else if strings.TrimSpace(params.WebhookSecret) == "" {
+		} else if params.WebhookSecret == "" {
 			params.WebhookSecret = form.WebhookDelivery.Secret
 		}
 		if secrets.clearWebhookHeaders {

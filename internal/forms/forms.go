@@ -399,7 +399,7 @@ func recentEvents[T any](db *gorm.DB, formID uint, limit int) ([]T, error) {
 func prepareWebhookDelivery(webhookEnabled bool, webhookURL, webhookSecret, webhookHeaders string) (webhookValues, error) {
 	values := webhookValues{
 		webhookURL:    strings.TrimSpace(webhookURL),
-		webhookSecret: strings.TrimSpace(webhookSecret),
+		webhookSecret: webhookSecret,
 	}
 	if webhookEnabled && values.webhookURL == "" {
 		return values, invalid("webhook", "Webhook URL required when webhook delivery is enabled")

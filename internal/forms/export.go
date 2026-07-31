@@ -80,7 +80,6 @@ func ExportSubmissionsCSV(db *gorm.DB, filter SubmissionFilter, output io.Writer
 		))
 	}
 
-	payloads := make([]map[string]json.RawMessage, len(submissions))
 	fieldSet := make(map[string]struct{})
 	var contentBytes int64
 	for index := range submissions {
@@ -91,8 +90,7 @@ func ExportSubmissionsCSV(db *gorm.DB, filter SubmissionFilter, output io.Writer
 				MaxCSVExportContentBytes/(1024*1024),
 			))
 		}
-		payloads[index], err = decodeCSVPayload(submissions[index].DataJSON, fieldSet)
-		if err != nil {
+		if err := collectCSVFieldNames(submissions[index].DataJSON, fieldSet); err != nil {
 			return 0, fmt.Errorf("decode submission %d for CSV export: %w", submissions[index].ID, err)
 		}
 	}
@@ -114,6 +112,10 @@ func ExportSubmissionsCSV(db *gorm.DB, filter SubmissionFilter, output io.Writer
 
 	for index := range submissions {
 		submission := &submissions[index]
+		payload, err := decodeCSVPayload(submission.DataJSON)
+		if err != nil {
+			return 0, fmt.Errorf("decode submission %d for CSV export: %w", submission.ID, err)
+		}
 		row := []string{
 			strconv.FormatUint(uint64(submission.ID), 10),
 			submission.CreatedAt.UTC().Format(time.RFC3339),
@@ -124,7 +126,7 @@ func ExportSubmissionsCSV(db *gorm.DB, filter SubmissionFilter, output io.Writer
 			safeCSVText(submission.UserAgent),
 		}
 		for _, name := range fieldNames {
-			value, err := csvFieldValue(payloads[index][name])
+			value, err := csvFieldValue(payload[name])
 			if err != nil {
 				return 0, fmt.Errorf("encode submission %d field %q for CSV export: %w", submission.ID, name, err)
 			}
@@ -167,56 +169,75 @@ func measureCSVExport(query *gorm.DB) (csvExportStats, error) {
 	return stats, nil
 }
 
-func decodeCSVPayload(encoded string, fieldSet map[string]struct{}) (map[string]json.RawMessage, error) {
-	decoder := json.NewDecoder(strings.NewReader(encoded))
-	opening, err := decoder.Token()
-	if err != nil {
-		return nil, err
-	}
-	if delimiter, ok := opening.(json.Delim); !ok || delimiter != '{' {
-		return nil, fmt.Errorf("submission payload is not a JSON object")
-	}
-
-	payload := make(map[string]json.RawMessage)
-	for decoder.More() {
-		fieldToken, err := decoder.Token()
-		if err != nil {
-			return nil, err
-		}
-		name, ok := fieldToken.(string)
-		if !ok {
-			return nil, fmt.Errorf("submission field name is not a string")
-		}
+func collectCSVFieldNames(encoded string, fieldSet map[string]struct{}) error {
+	return visitCSVPayload(encoded, func(name string, _ json.RawMessage) error {
 		fieldSet[name] = struct{}{}
 		if len(fieldSet) > MaxCSVExportFields {
-			return nil, invalid("export", fmt.Sprintf(
+			return invalid("export", fmt.Sprintf(
 				"Export exceeds %d distinct fields; narrow the inbox filters and try again",
 				MaxCSVExportFields,
 			))
 		}
+		return nil
+	})
+}
+
+func decodeCSVPayload(encoded string) (map[string]json.RawMessage, error) {
+	payload := make(map[string]json.RawMessage)
+	err := visitCSVPayload(encoded, func(name string, value json.RawMessage) error {
+		payload[name] = value
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func visitCSVPayload(encoded string, visit func(string, json.RawMessage) error) error {
+	decoder := json.NewDecoder(strings.NewReader(encoded))
+	opening, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if delimiter, ok := opening.(json.Delim); !ok || delimiter != '{' {
+		return fmt.Errorf("submission payload is not a JSON object")
+	}
+
+	for decoder.More() {
+		fieldToken, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		name, ok := fieldToken.(string)
+		if !ok {
+			return fmt.Errorf("submission field name is not a string")
+		}
 
 		var value json.RawMessage
 		if err := decoder.Decode(&value); err != nil {
-			return nil, err
+			return err
 		}
-		payload[name] = value
+		if err := visit(name, value); err != nil {
+			return err
+		}
 	}
 
 	closing, err := decoder.Token()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if delimiter, ok := closing.(json.Delim); !ok || delimiter != '}' {
-		return nil, fmt.Errorf("submission payload has an invalid closing delimiter")
+		return fmt.Errorf("submission payload has an invalid closing delimiter")
 	}
 	var trailing json.RawMessage
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		if err == nil {
-			return nil, fmt.Errorf("submission payload contains multiple JSON values")
+			return fmt.Errorf("submission payload contains multiple JSON values")
 		}
-		return nil, err
+		return err
 	}
-	return payload, nil
+	return nil
 }
 
 func csvFieldValue(value json.RawMessage) (string, error) {

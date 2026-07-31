@@ -86,8 +86,8 @@ func (params MailerProfileParams) mailerProfile() (*MailerProfile, error) {
 		DefaultFromEmail: fromEmail,
 		SMTPHost:         host,
 		SMTPPort:         port,
-		SMTPUsername:     strings.TrimSpace(params.SMTPUsername),
-		SMTPPassword:     strings.TrimSpace(params.SMTPPassword),
+		SMTPUsername:     params.SMTPUsername,
+		SMTPPassword:     params.SMTPPassword,
 		SMTPEncryption:   encryption,
 	}, nil
 }

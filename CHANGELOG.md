@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Preserved SMTP usernames and passwords byte-for-byte so valid credentials containing leading or trailing whitespace continue to authenticate
+- Kept email notifications deliverable when a public submission omits an optional field referenced by its subject or body template
 - Prevented confirmed SMTP deliveries from being retried when only the final `QUIT` reply is lost
 - Reloaded each claimed email and webhook configuration immediately before delivery so a batch cannot use an earlier recipient, route, or credential snapshot
 

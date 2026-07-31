@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+const (
+	emailTemplateMissingKeyOption = "missingkey=zero"
+	fallbackRenderedEmailSubject  = "New submission"
+)
+
 type RenderedEmail struct {
 	Subject  string
 	Format   string
@@ -53,8 +58,11 @@ func RenderEmail(delivery *EmailDelivery, submission *Submission) (*RenderedEmai
 		return nil, err
 	}
 	subject = strings.TrimSpace(subject)
-	if subject == "" || strings.ContainsAny(subject, "\r\n\x00") {
-		return nil, fmt.Errorf("render email subject: result must be one non-empty line")
+	if strings.ContainsAny(subject, "\r\n\x00") {
+		return nil, fmt.Errorf("render email subject: result must be one line")
+	}
+	if subject == "" {
+		subject = fallbackRenderedEmailSubject
 	}
 
 	textBody, err := executeEmailTextTemplate("email text", EffectiveEmailText(delivery), data)
@@ -66,7 +74,7 @@ func RenderEmail(delivery *EmailDelivery, submission *Submission) (*RenderedEmai
 		return rendered, nil
 	}
 
-	htmlTemplate, err := htmltemplate.New("email html").Option("missingkey=error").Parse(EffectiveEmailHTML(delivery))
+	htmlTemplate, err := htmltemplate.New("email html").Option(emailTemplateMissingKeyOption).Parse(EffectiveEmailHTML(delivery))
 	if err != nil {
 		return nil, fmt.Errorf("parse email HTML template: %w", err)
 	}
@@ -131,7 +139,7 @@ func ResolveEmailReplyTo(delivery *EmailDelivery, fields map[string]string) (str
 }
 
 func executeEmailTextTemplate(name, source string, data emailTemplateData) (string, error) {
-	template, err := texttemplate.New(name).Option("missingkey=error").Parse(source)
+	template, err := texttemplate.New(name).Option(emailTemplateMissingKeyOption).Parse(source)
 	if err != nil {
 		return "", fmt.Errorf("parse %s template: %w", name, err)
 	}

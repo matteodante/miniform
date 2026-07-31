@@ -313,13 +313,13 @@ func normalizeEmailAddress(value string) (string, error) {
 }
 
 func validateEmailTemplates(delivery *EmailDelivery) error {
-	if _, err := texttemplate.New("subject").Option("missingkey=error").Parse(delivery.SubjectTemplate); err != nil {
+	if _, err := texttemplate.New("subject").Option(emailTemplateMissingKeyOption).Parse(delivery.SubjectTemplate); err != nil {
 		return invalid("email_subject", "Email subject template is invalid")
 	}
-	if _, err := texttemplate.New("text").Option("missingkey=error").Parse(delivery.TextTemplate); err != nil {
+	if _, err := texttemplate.New("text").Option(emailTemplateMissingKeyOption).Parse(delivery.TextTemplate); err != nil {
 		return invalid("email_text", "Email text template is invalid")
 	}
-	if _, err := htmltemplate.New("html").Option("missingkey=error").Parse(delivery.HTMLTemplate); err != nil {
+	if _, err := htmltemplate.New("html").Option(emailTemplateMissingKeyOption).Parse(delivery.HTMLTemplate); err != nil {
 		return invalid("email_html", "Email HTML template is invalid")
 	}
 	return nil

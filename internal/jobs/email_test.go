@@ -275,6 +275,31 @@ func TestEmailDelivery(t *testing.T) {
 		assert.Equal(t, []string{"RCPT TO:<new@example.com>"}, captures[1].to)
 	})
 
+	t.Run("does not let an omitted optional field suppress email delivery", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		host, port, results := fakeSMTPConnections(t, 2)
+		form := setupTwoEmailForm(t, db, host, port, forms.EmailReplyToField, "email")
+		logger := slog.New(slog.DiscardHandler)
+
+		_, err := forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{
+			"email": "customer@recipient.invalid", "message": "No name was supplied",
+		}, "email integration test", "", nil)
+		require.NoError(t, err)
+		require.NoError(t, NewEmailDispatcher(&config.Config{}).ProcessBatch(&cartridge.JobContext{
+			Context: t.Context(), DB: db, Logger: logger,
+		}))
+
+		events, err := forms.ListEmailEvents(db, form.ID, "", 10)
+		require.NoError(t, err)
+		require.Len(t, events, 2)
+		for _, event := range events {
+			require.Equal(t, forms.WebhookStatusDelivered, event.Status)
+			assert.Equal(t, 1, event.AttemptCount)
+		}
+		captures := receiveSMTPCaptures(t, results, 2)
+		assert.Len(t, captures, 2)
+	})
+
 	t.Run("keeps sibling delivery independent from an invalid dynamic recipient", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
 		host, port, results := fakeSMTPConnections(t, 1)
@@ -323,7 +348,7 @@ func TestEmailDelivery(t *testing.T) {
 			Form: &forms.Form{Name: "Contact"}, CreatedAt: time.Now().UTC(),
 			DataJSON: `{"name":"Alice\r\nBcc: hidden@example.com"}`,
 		})
-		assert.ErrorContains(t, err, "one non-empty line")
+		assert.ErrorContains(t, err, "one line")
 
 		_, err = buildSMTPMessage(outboundEmail{
 			From: "forms@example.com", To: []string{"owner@example.com"},

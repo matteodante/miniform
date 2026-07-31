@@ -49,7 +49,7 @@ func TestEmailRendering(t *testing.T) {
 			Form: &forms.Form{Name: "Contact"}, CreatedAt: time.Now(),
 			DataJSON: `{"name":"Ada\r\nBcc: hidden@example.com"}`,
 		})
-		assert.ErrorContains(t, err, "one non-empty line")
+		assert.ErrorContains(t, err, "one line")
 	})
 
 	t.Run("does not evaluate the unused HTML body for text email", func(t *testing.T) {
@@ -62,6 +62,20 @@ func TestEmailRendering(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "Hello Ada", rendered.TextBody)
 		assert.Empty(t, rendered.HTMLBody)
+	})
+
+	t.Run("renders absent optional fields as empty values", func(t *testing.T) {
+		rendered, err := forms.RenderEmail(&forms.EmailDelivery{
+			SubjectTemplate: "{{.Fields.company}}", Format: forms.EmailFormatHTML,
+			TextTemplate: "Company: {{.Fields.company}}",
+			HTMLTemplate: "<p>Company: {{.Fields.company}}</p>",
+		}, &forms.Submission{
+			Form: &forms.Form{Name: "Contact"}, CreatedAt: time.Now(), DataJSON: `{"name":"Ada"}`,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "New submission", rendered.Subject)
+		assert.Equal(t, "Company: ", rendered.TextBody)
+		assert.Equal(t, "<p>Company: </p>", rendered.HTMLBody)
 	})
 
 	t.Run("rejects a dynamic address containing control characters", func(t *testing.T) {

@@ -60,6 +60,8 @@ Subjects and text bodies use Go `text/template`; HTML bodies use Go `html/templa
 | `{{index .Fields "field-name"}}` | A submitted field with any name |
 | `{{range .FieldList}}...{{end}}` | All fields, sorted by name; each item has `.Name` and `.Value` |
 
+An absent submitted field renders as an empty string, so omitting an optional field cannot suppress the whole notification. If the rendered subject is empty, Miniform uses `New submission`. Field-derived recipients and `Reply-To` addresses remain required and fail that notification when missing or invalid.
+
 Example subject:
 
 ```gotemplate
@@ -86,7 +88,7 @@ Example HTML template:
 </html>
 ```
 
-HTML notifications are sent as `multipart/alternative` and always include the configured text body. A rendered subject must be one non-empty line; newline and null-byte output is rejected before SMTP to prevent header injection.
+HTML notifications are sent as `multipart/alternative` and always include the configured text body. A rendered subject must be one line; an empty result uses the safe fallback above, while newline and null-byte output is rejected before SMTP to prevent header injection.
 
 ## CLI
 

@@ -141,6 +141,7 @@ func mountAdmin(server *cartridge.Server, cfg *config.Config) {
 		{true, "/admin/forms/:id/emails/:delivery_id", handlers.AdminFormEmailUpdate},
 		{true, "/admin/forms/:id/emails/:delivery_id/delete", handlers.AdminFormEmailDelete},
 		{false, "/admin/submissions", handlers.SubmissionList},
+		{false, "/admin/submissions/export.csv", handlers.SubmissionExportCSV},
 		{false, "/admin/submissions/:id", handlers.AdminSubmissionShow},
 		{false, "/admin/submissions/:id/files/:file_id", func(ctx *cartridge.Context) error {
 			return handlers.AdminSubmissionFileDownload(ctx, cfg)

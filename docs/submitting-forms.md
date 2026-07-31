@@ -26,6 +26,8 @@ The caller hostname conveyed by `Origin` or `Referer` must also match the endpoi
 
 Native submission is the simplest integration and remains functional without JavaScript:
 
+Starter HTML copied from the Miniform admin includes the `__mf_hp` honeypot automatically. When supplying custom Starter HTML, Miniform injects it unless a field with that name already exists.
+
 ```html
 <style>
   .honeypot {

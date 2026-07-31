@@ -13,6 +13,28 @@ Production deployments require:
 - A stable, randomly generated `MINIFORM_SESSION_SECRET`
 - A backup process that copies SQLite safely and includes uploads when point-in-time recovery is required
 
+## Docker Compose
+
+The repository includes a production-oriented [`compose.yaml`](../compose.yaml) with one Miniform service and one persistent named volume. Generate and save the session secret once:
+
+```bash
+umask 077
+printf 'MINIFORM_SESSION_SECRET=%s\n' "$(openssl rand -hex 32)" > .env.compose
+docker compose --env-file .env.compose up --detach
+docker compose --env-file .env.compose ps
+docker compose --env-file .env.compose logs miniform
+```
+
+The default image is the current stable release, `ghcr.io/matteodante/miniform:v0.2.3`. To pin a different release, add `MINIFORM_IMAGE=ghcr.io/matteodante/miniform:vX.Y.Z` to `.env.compose`. The service binds `127.0.0.1:8080` by default; set `MINIFORM_PORT` in the same file if the reverse proxy needs another local port.
+
+Terminate TLS with Caddy, Nginx, Traefik, or another reverse proxy. Miniform's production cookie is `Secure`, so authentication fails over plain HTTP. Keep `.env.compose` private, back up the `miniform-data` volume, and never run more than one application replica against the SQLite database.
+
+To stop the service without deleting its data:
+
+```bash
+docker compose --env-file .env.compose down
+```
+
 ## OCI container
 
 Versioned images are published publicly to `ghcr.io/matteodante/miniform`. Pin an exact version in production; do not deploy `latest` unattended.
@@ -82,6 +104,10 @@ The managed installer currently resolves the `latest` application image only dur
 On an empty database, Miniform creates `admin@miniform.local` with a unique temporary password and prints it once to standard output. Retrieve container logs if necessary:
 
 ```bash
+# Docker Compose installation
+docker compose --env-file .env.compose logs miniform
+
+# Direct or managed OCI installation
 app_container="$(docker ps \
   --filter 'name=^miniform$' \
   --filter 'name=^miniform-next$' \
@@ -112,6 +138,8 @@ For other OCI or process-manager deployments:
 3. Pull or download the exact target version.
 4. Stop the old process before starting the replacement while preserving storage and environment configuration.
 5. Confirm `/_health`, sign-in, a test submission, and configured deliveries.
+
+For Docker Compose, set `MINIFORM_IMAGE` in `.env.compose` to the exact target version, then run `docker compose --env-file .env.compose pull` followed by `docker compose --env-file .env.compose up --detach`. Compose replaces the single application container while preserving the named volume.
 
 Database migrations run automatically at startup and preserve the legacy schemas covered by the compatibility tests. Do not skip versions when release notes include an explicit staged migration, and keep a restorable backup before every upgrade; hand-edited schemas are not supported.
 

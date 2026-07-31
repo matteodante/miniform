@@ -8,7 +8,10 @@
                 Search the messages your endpoints collected and inspect each delivery trail.
             </p>
         </div>
-        <a href="/admin/forms/new" class="mf-button">New endpoint</a>
+        <div class="flex flex-wrap items-center gap-3">
+            <a href="{{ .ExportURL }}" class="mf-button-secondary" hx-boost="false">Export CSV</a>
+            <a href="/admin/forms/new" class="mf-button">New endpoint</a>
+        </div>
     </header>
 
     <section class="grid border-y border-rule sm:grid-cols-3" aria-label="Inbox summary">

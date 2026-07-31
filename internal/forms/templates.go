@@ -74,6 +74,10 @@ func renderTemplate(definition templateDefinition) string {
 	for _, field := range definition.Fields {
 		renderField(&output, field)
 	}
+	fmt.Fprintf(&output, `    <label class="mf-template__honeypot" aria-hidden="true">Leave this field empty
+      <input type="text" name="%s" tabindex="-1" autocomplete="off">
+    </label>
+`, HoneypotField)
 	fmt.Fprintf(&output, "    <button type=\"submit\">%s</button>\n  </form>\n</section>\n%s", escape(definition.Submit), templateStyles)
 	return output.String()
 }
@@ -203,6 +207,7 @@ const templateStyles = `<style>
   .mf-template small { color: #737a71; font-weight: 400; }
   .mf-template__check { display: flex; gap: .65rem; align-items: flex-start; color: #4f554e; font-size: .9rem; }
   .mf-template__check input { width: 1rem; margin-top: .15rem; }
+  .mf-template__honeypot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .mf-template button { border: 0; border-radius: .3rem; background: #334c39; padding: .9rem 1.1rem; color: #fff; font: 700 .9rem/1 ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
   .mf-template button:hover { background: #25392a; }
 </style>`

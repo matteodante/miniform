@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,13 +37,9 @@ func SubmissionList(ctx *cartridge.Context) error {
 	if err != nil {
 		return err
 	}
-	page, _ := strconv.Atoi(ctx.Query("page", "1"))
-	formID, _ := strconv.ParseUint(ctx.Query("form_id"), 10, 32)
-	rangeFilter := strings.TrimSpace(ctx.Query("range"))
-	search := strings.TrimSpace(ctx.Query("q"))
-	result, err := forms.ListSubmissions(db, forms.SubmissionFilter{
-		FormID: uint(formID), Range: rangeFilter, Query: search, Page: page, PerPage: 20,
-	})
+	filter := submissionFilter(ctx)
+	filter.PerPage = 20
+	result, err := forms.ListSubmissions(db, filter)
 	if err != nil {
 		var validation *forms.ValidationError
 		if errors.As(err, &validation) {
@@ -65,8 +62,62 @@ func SubmissionList(ctx *cartridge.Context) error {
 		"Page": result.Page, "NextPage": result.Page + 1, "PrevPage": result.Page - 1,
 		"TotalPages": result.TotalPages, "TotalCount": result.TotalCount,
 		"HasNext": result.Page < result.TotalPages, "HasPrev": result.Page > 1,
-		"FormID": ctx.Query("form_id"), "Range": rangeFilter, "Search": search,
+		"FormID": ctx.Query("form_id"), "Range": filter.Range, "Search": filter.Query,
+		"ExportURL": submissionExportURL(filter),
 	})
+}
+
+func SubmissionExportCSV(ctx *cartridge.Context) error {
+	db, err := requestDB(ctx)
+	if err != nil {
+		return err
+	}
+
+	var output bytes.Buffer
+	count, err := forms.ExportSubmissionsCSV(db, submissionFilter(ctx), &output)
+	if err != nil {
+		var validation *forms.ValidationError
+		if errors.As(err, &validation) {
+			return ctx.Status(fiber.StatusBadRequest).SendString(validation.Message)
+		}
+		ctx.Logger.Error("export submissions to CSV", slog.Any("error", err))
+		return fiber.ErrInternalServerError
+	}
+
+	filename := "miniform-submissions-" + time.Now().UTC().Format("20060102-150405") + ".csv"
+	ctx.Set(fiber.HeaderContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	ctx.Set(fiber.HeaderContentType, "text/csv; charset=utf-8")
+	ctx.Set(fiber.HeaderCacheControl, "no-store")
+	ctx.Set("X-Miniform-Export-Count", strconv.Itoa(count))
+	return ctx.Send(output.Bytes())
+}
+
+func submissionFilter(ctx *cartridge.Context) forms.SubmissionFilter {
+	page, _ := strconv.Atoi(ctx.Query("page", "1"))
+	formID, _ := strconv.ParseUint(ctx.Query("form_id"), 10, 32)
+	return forms.SubmissionFilter{
+		FormID: uint(formID),
+		Range:  strings.TrimSpace(ctx.Query("range")),
+		Query:  strings.TrimSpace(ctx.Query("q")),
+		Page:   page,
+	}
+}
+
+func submissionExportURL(filter forms.SubmissionFilter) string {
+	query := url.Values{}
+	if filter.FormID > 0 {
+		query.Set("form_id", strconv.FormatUint(uint64(filter.FormID), 10))
+	}
+	if filter.Range != "" {
+		query.Set("range", filter.Range)
+	}
+	if filter.Query != "" {
+		query.Set("q", filter.Query)
+	}
+	if encoded := query.Encode(); encoded != "" {
+		return "/admin/submissions/export.csv?" + encoded
+	}
+	return "/admin/submissions/export.csv"
 }
 
 func AdminSubmissionShow(ctx *cartridge.Context) error {

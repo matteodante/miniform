@@ -1,6 +1,8 @@
 package forms_test
 
 import (
+	"bytes"
+	"encoding/csv"
 	"errors"
 	"io"
 	"log/slog"
@@ -48,6 +50,60 @@ func TestManagement(t *testing.T) {
 		rotated, err := forms.RotateToken(logger, db, form.ID)
 		require.NoError(t, err)
 		assert.NotEqual(t, originalToken, rotated.Token)
+	})
+
+	t.Run("exports filtered submissions with stable spreadsheet-safe CSV columns", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		selected, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "Contact", Slug: "contact-export", AllowedOrigins: "*",
+		})
+		require.NoError(t, err)
+		other, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "Other", Slug: "other-export", AllowedOrigins: "*",
+		})
+		require.NoError(t, err)
+		_, err = forms.CreateSubmissionWithFiles(logger, db, other, map[string]any{
+			"message": "excluded",
+		}, "Other browser", "", nil)
+		require.NoError(t, err)
+		submission, err := forms.CreateSubmissionWithFiles(logger, db, selected, map[string]any{
+			"message": "Hello, world",
+			"formula": "=2+2",
+			"count":   2,
+			"nested":  map[string]any{"answer": true},
+		}, "@untrusted-agent", "", nil)
+		require.NoError(t, err)
+
+		var output bytes.Buffer
+		count, err := forms.ExportSubmissionsCSV(db, forms.SubmissionFilter{
+			FormID: selected.ID,
+			Query:  "Hello",
+		}, &output)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count)
+
+		records, err := csv.NewReader(strings.NewReader(output.String())).ReadAll()
+		require.NoError(t, err)
+		require.Len(t, records, 2)
+		assert.Equal(t, []string{
+			"submission_id", "received_at", "endpoint_id", "endpoint_name", "endpoint_slug",
+			"is_spam", "user_agent", "field.count", "field.formula", "field.message", "field.nested",
+		}, records[0])
+		assert.Equal(t, strconv.FormatUint(uint64(submission.ID), 10), records[1][0])
+		assert.Equal(t, strconv.FormatUint(uint64(selected.ID), 10), records[1][2])
+		assert.Equal(t, "Contact", records[1][3])
+		assert.Equal(t, "contact-export", records[1][4])
+		assert.Equal(t, "false", records[1][5])
+		assert.Equal(t, "'@untrusted-agent", records[1][6])
+		assert.Equal(t, "2", records[1][7])
+		assert.Equal(t, "'=2+2", records[1][8])
+		assert.Equal(t, "Hello, world", records[1][9])
+		assert.JSONEq(t, `{"answer":true}`, records[1][10])
+
+		_, err = forms.ExportSubmissionsCSV(db, forms.SubmissionFilter{Range: "invalid"}, io.Discard)
+		var validation *forms.ValidationError
+		require.ErrorAs(t, err, &validation)
+		assert.Equal(t, "range", validation.Field)
 	})
 
 	t.Run("refuses a manual retry while delivery is claimed", func(t *testing.T) {

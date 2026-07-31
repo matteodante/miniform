@@ -51,6 +51,27 @@ test.describe("inbox entries", () => {
     expect(new URL(page.url()).pathname).toBe(`/admin/submissions/${submission.submission_id}`);
   });
 
+  test("exports the current inbox view as CSV", async ({ page, admin }) => {
+    expect((await admin.submit(endpoint.slug, endpoint.token, {
+      name: "Alice, Smith",
+      email: "alice@example.com",
+    })).status()).toBe(200);
+    await admin.open(`/admin/submissions?form_id=${endpoint.id}`);
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("link", { name: "Export CSV" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/^miniform-submissions-\d{8}-\d{6}\.csv$/);
+    const stream = await download.createReadStream();
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    const csv = Buffer.concat(chunks).toString();
+    expect(csv).toContain("submission_id,received_at,endpoint_id");
+    expect(csv).toContain('"Alice, Smith"');
+    expect(csv).toContain(endpoint.slug);
+    expect(new URL(page.url()).pathname).toBe("/admin/submissions");
+  });
+
   test("renders canonical UTC timestamps in the browser timezone", async ({ page, admin }) => {
     expect((await admin.submit(endpoint.slug, endpoint.token, { email: "time@example.com" })).status()).toBe(200);
     await admin.open("/admin/submissions");

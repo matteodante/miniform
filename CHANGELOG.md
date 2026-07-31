@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added a supported Docker Compose deployment with loopback-only publishing, persistent storage, a pinned image, and a required stable session secret
+- Added authenticated, filter-aware CSV exports for up to 10,000 inbox entries with deterministic field columns and spreadsheet-formula protection
+- Added automatic honeypot injection to generated and custom Starter HTML without duplicating an existing field
+
 ## [0.2.3] - 2026-07-24
 
 ### Changed

@@ -125,23 +125,9 @@ func ListSubmissions(db *gorm.DB, filter SubmissionFilter) (*SubmissionPage, err
 		perPage = 200
 	}
 
-	query := db.Model(&Submission{}).Preload("Form")
-	if filter.FormID > 0 {
-		query = query.Where("form_id = ?", filter.FormID)
-	}
-	if search := strings.TrimSpace(filter.Query); search != "" {
-		query = query.Where("data_json LIKE ?", "%"+search+"%")
-	}
-	if filter.IsSpam != nil {
-		query = query.Where("is_spam = ?", *filter.IsSpam)
-	}
-
-	startTime, err := submissionRangeStart(filter.Range, time.Now().UTC())
+	query, err := filteredSubmissions(db, filter, time.Now().UTC())
 	if err != nil {
 		return nil, err
-	}
-	if !startTime.IsZero() {
-		query = query.Where("created_at >= ?", startTime)
 	}
 
 	var totalCount int64
@@ -170,6 +156,28 @@ func ListSubmissions(db *gorm.DB, filter SubmissionFilter) (*SubmissionPage, err
 		TotalCount: totalCount,
 		TotalPages: totalPages,
 	}, nil
+}
+
+func filteredSubmissions(db *gorm.DB, filter SubmissionFilter, now time.Time) (*gorm.DB, error) {
+	query := db.Model(&Submission{}).Preload("Form")
+	if filter.FormID > 0 {
+		query = query.Where("form_id = ?", filter.FormID)
+	}
+	if search := strings.TrimSpace(filter.Query); search != "" {
+		query = query.Where("data_json LIKE ?", "%"+search+"%")
+	}
+	if filter.IsSpam != nil {
+		query = query.Where("is_spam = ?", *filter.IsSpam)
+	}
+
+	startTime, err := submissionRangeStart(filter.Range, now)
+	if err != nil {
+		return nil, err
+	}
+	if !startTime.IsZero() {
+		query = query.Where("created_at >= ?", startTime)
+	}
+	return query, nil
 }
 
 // GetSubmissionByID returns a submission with its endpoint, events, and files.

@@ -1,0 +1,18 @@
+name: miniform
+
+services:
+  miniform:
+    image: ${MINIFORM_IMAGE:-ghcr.io/matteodante/miniform:v0.2.3}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      MINIFORM_ENV: production
+      MINIFORM_SESSION_SECRET: ${MINIFORM_SESSION_SECRET:?Set a stable random MINIFORM_SESSION_SECRET}
+    ports:
+      - "127.0.0.1:${MINIFORM_PORT:-8080}:8080"
+    volumes:
+      - miniform-data:/app/storage
+
+volumes:
+  miniform-data:
+    name: miniform-data

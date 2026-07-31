@@ -43,6 +43,7 @@ func Build(form *forms.Form, options Options) Result {
 	} else {
 		result.HTML, result.Warning = rewriteForm(view.GeneratedHTML, &view, action)
 	}
+	result.HTML = addHoneypot(result.HTML)
 	result.HTML = addTurnstile(result.HTML, turnstileFor(&view))
 	return result
 }
@@ -122,6 +123,40 @@ func setAttribute(token *htmlnode.Token, name, value string) {
 		}
 	}
 	token.Attr = append(token.Attr, htmlnode.Attribute{Key: name, Val: value})
+}
+
+const honeypotMarkup = `  <label aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden">
+    Leave this field empty
+    <input type="text" name="__mf_hp" tabindex="-1" autocomplete="off">
+  </label>`
+
+func addHoneypot(source string) string {
+	if hasNamedField(source, forms.HoneypotField) {
+		return source
+	}
+	if position := closingFormOffset(source); position >= 0 {
+		return strings.TrimRight(source[:position], "\n") + "\n" + honeypotMarkup + "\n" + source[position:]
+	}
+	return source
+}
+
+func hasNamedField(source, fieldName string) bool {
+	tokenizer := htmlnode.NewTokenizer(strings.NewReader(source))
+	for {
+		kind := tokenizer.Next()
+		if kind == htmlnode.ErrorToken {
+			return false
+		}
+		if kind != htmlnode.StartTagToken && kind != htmlnode.SelfClosingTagToken {
+			continue
+		}
+		token := tokenizer.Token()
+		for _, attribute := range token.Attr {
+			if strings.EqualFold(attribute.Key, "name") && attribute.Val == fieldName {
+				return true
+			}
+		}
+	}
 }
 
 type captchaMarkup struct {

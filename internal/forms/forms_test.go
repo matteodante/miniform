@@ -203,6 +203,7 @@ func TestForms(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Contains(t, created.GeneratedHTML, "/forms/contact/submit?token="+created.Token)
+		assert.Contains(t, created.GeneratedHTML, `name="`+forms.HoneypotField+`"`)
 		loaded, err := forms.GetByID(db, created.ID)
 		require.NoError(t, err)
 		assert.Equal(t, created.GeneratedHTML, loaded.GeneratedHTML)

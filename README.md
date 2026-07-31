@@ -23,9 +23,10 @@ The current stable release is [`v0.2.3`](https://github.com/matteodante/miniform
 ## Why Miniform
 
 - Private, searchable inbox for submissions and files
+- Filter-aware CSV exports with spreadsheet-formula protection
 - Independent forms with tokens and allowed-origin policies
 - Retried webhook and email delivery with visible history
-- Bounded request resources, dual rate limiting, origin checks, security headers, and per-endpoint Turnstile
+- Bounded request resources, honeypot filtering, dual rate limiting, origin checks, security headers, and per-endpoint Turnstile
 - Opt-in signature-validated uploads with a storage quota, durable delivery queues, and SQLite persistence in a single process
 - Native HTML forms and direct HTTP requests with no client library
 - Multiple per-form SMTP notifications with independent recipients, Reply-To, templates, status, and retries
@@ -55,6 +56,17 @@ Open <http://127.0.0.1:8080/_demo>. The isolated admin account is `admin@minifor
 ## Run in a container
 
 The public multi-architecture image supports Linux `amd64` and `arm64`:
+
+```bash
+umask 077
+printf 'MINIFORM_SESSION_SECRET=%s\n' "$(openssl rand -hex 32)" > .env.compose
+docker compose --env-file .env.compose up --detach
+docker compose --env-file .env.compose logs miniform
+```
+
+The included [`compose.yaml`](compose.yaml) pins the current stable image, persists `/app/storage` in the `miniform-data` volume, enables the image health check, and publishes Miniform only on `127.0.0.1:8080`. Put an HTTPS reverse proxy in front of that address before using the production login. Keep `.env.compose` private and reuse its secret on every restart or upgrade.
+
+For a direct disposable development container instead:
 
 ```bash
 docker pull ghcr.io/matteodante/miniform:v0.2.3

@@ -1,6 +1,7 @@
 package embed_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,7 @@ func TestBuild(t *testing.T) {
 		assert.Equal(t, "https://forms.example.com/forms/contact/submit?token=YOUR_FORM_TOKEN", result.Action)
 		assert.NotContains(t, result.HTML, "live-token")
 		assert.NotContains(t, result.HTML, "<script")
+		assert.Contains(t, result.HTML, `name="__mf_hp"`)
 	})
 
 	t.Run("normalizes generated HTML with the live action", func(t *testing.T) {
@@ -39,6 +41,21 @@ func TestBuild(t *testing.T) {
 		assert.Contains(t, result.HTML, `action="https://forms.example.com/forms/feedback/submit?token=live-token"`)
 		assert.Contains(t, result.HTML, `method="POST"`)
 		assert.Contains(t, result.HTML, `data-form-id="8"`)
+		assert.Contains(t, result.HTML, `name="__mf_hp"`)
+	})
+
+	t.Run("keeps an existing honeypot without duplicating it", func(t *testing.T) {
+		form := &forms.Form{
+			ID:            11,
+			Slug:          "protected",
+			Token:         "token",
+			GeneratedHTML: `<form><input name="__mf_hp" type="text"><button>Send</button></form>`,
+		}
+
+		result := formembed.Build(form, formembed.Options{BaseURL: "https://forms.example.com", ShowToken: true})
+
+		require.Empty(t, result.Warning)
+		assert.Equal(t, 1, strings.Count(result.HTML, `name="__mf_hp"`))
 	})
 
 	t.Run("injects assigned Turnstile credentials with the fixed action", func(t *testing.T) {

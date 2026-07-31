@@ -2,6 +2,7 @@ package internal_test
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -374,6 +375,61 @@ func TestRoutes(t *testing.T) {
 		var active int64
 		require.NoError(t, server.DB.GetConnection().Model(&accounts.ActiveSession{}).Count(&active).Error)
 		assert.Zero(t, active)
+	})
+
+	t.Run("protects and downloads the filtered inbox CSV export", func(t *testing.T) {
+		server := testServer(t, cartridgeconfig.Test)
+
+		anonymous := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/submissions/export.csv", nil)
+		anonymousResponse, err := server.App.Test(anonymous, -1)
+		require.NoError(t, err)
+		require.NoError(t, anonymousResponse.Body.Close())
+		assert.Equal(t, http.StatusFound, anonymousResponse.StatusCode)
+		assert.Equal(t, "/admin/login", anonymousResponse.Header.Get("Location"))
+
+		createAdmin(t, server)
+		form, err := forms.Create(slog.Default(), server.DB.GetConnection(), forms.CreateParams{
+			Name: "CSV inbox", Slug: "csv-inbox", AllowedOrigins: "*",
+		})
+		require.NoError(t, err)
+		_, err = forms.CreateSubmissionWithFiles(
+			slog.Default(),
+			server.DB.GetConnection(),
+			form,
+			map[string]any{"name": "Alice, Smith", "email": "alice@example.com"},
+			"Browser",
+			"",
+			nil,
+		)
+		require.NoError(t, err)
+
+		login := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/login",
+			strings.NewReader("email=admin@miniform.local&password=miniform"))
+		login.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		login.Header.Set("Sec-Fetch-Site", "same-origin")
+		loginResponse, err := server.App.Test(login, -1)
+		require.NoError(t, err)
+		require.NoError(t, loginResponse.Body.Close())
+		require.NotEmpty(t, loginResponse.Cookies())
+
+		path := fmt.Sprintf("/admin/submissions/export.csv?form_id=%d&q=Alice%%2C+Smith", form.ID)
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		request.AddCookie(loginResponse.Cookies()[0])
+		response, err := server.App.Test(request, -1)
+		require.NoError(t, err)
+		records, err := csv.NewReader(response.Body).ReadAll()
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+
+		assert.Equal(t, http.StatusOK, response.StatusCode)
+		assert.Equal(t, "text/csv; charset=utf-8", response.Header.Get("Content-Type"))
+		assert.Contains(t, response.Header.Get("Content-Disposition"), "attachment")
+		assert.Contains(t, response.Header.Get("Content-Disposition"), "miniform-submissions-")
+		assert.Equal(t, "1", response.Header.Get("X-Miniform-Export-Count"))
+		assert.Equal(t, "no-store", response.Header.Get("Cache-Control"))
+		require.Len(t, records, 2)
+		assert.Contains(t, records[0], "field.name")
+		assert.Contains(t, records[1], "Alice, Smith")
 	})
 
 	t.Run("redirects the legacy favicon route to the bundled mark", func(t *testing.T) {

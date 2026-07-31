@@ -28,6 +28,7 @@ func TestFormTemplates(t *testing.T) {
 				for _, field := range expectedFields[template.ID] {
 					assert.Contains(t, template.HTML, fmt.Sprintf(`name="%s"`, field))
 				}
+				assert.Contains(t, template.HTML, fmt.Sprintf(`name="%s"`, HoneypotField))
 			})
 		}
 	})

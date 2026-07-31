@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -104,6 +105,49 @@ func TestManagement(t *testing.T) {
 		var validation *forms.ValidationError
 		require.ErrorAs(t, err, &validation)
 		assert.Equal(t, "range", validation.Field)
+	})
+
+	t.Run("rejects CSV exports with an unbounded union of submission fields", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "Wide export", Slug: "wide-export", AllowedOrigins: "*",
+		})
+		require.NoError(t, err)
+
+		fieldIndex := 0
+		for submissionIndex := 0; submissionIndex < 3; submissionIndex++ {
+			payload := make(map[string]any, 200)
+			for range 200 {
+				payload[fmt.Sprintf("field_%03d", fieldIndex)] = "value"
+				fieldIndex++
+			}
+			_, err = forms.CreateSubmissionWithFiles(logger, db, form, payload, "test", "", nil)
+			require.NoError(t, err)
+		}
+
+		_, err = forms.ExportSubmissionsCSV(db, forms.SubmissionFilter{FormID: form.ID}, io.Discard)
+		var validation *forms.ValidationError
+		require.ErrorAs(t, err, &validation)
+		assert.Equal(t, "export", validation.Field)
+	})
+
+	t.Run("rejects CSV exports whose aggregate public content exceeds the memory budget", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		form, err := forms.Create(logger, db, forms.CreateParams{
+			Name: "Large export", Slug: "large-export", AllowedOrigins: "*",
+		})
+		require.NoError(t, err)
+		_, err = forms.CreateSubmissionWithFiles(logger, db, form, map[string]any{
+			"message": strings.Repeat("x", forms.MaxCSVExportContentBytes/2),
+		}, strings.Repeat("a", forms.MaxCSVExportContentBytes/2), "", nil)
+		require.NoError(t, err)
+
+		var output bytes.Buffer
+		_, err = forms.ExportSubmissionsCSV(db, forms.SubmissionFilter{FormID: form.ID}, &output)
+		var validation *forms.ValidationError
+		require.ErrorAs(t, err, &validation)
+		assert.Equal(t, "export", validation.Field)
+		assert.Empty(t, output.Bytes())
 	})
 
 	t.Run("refuses a manual retry while delivery is claimed", func(t *testing.T) {

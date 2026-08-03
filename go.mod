@@ -8,9 +8,9 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/karloscodes/cartridge v0.15.0
 	github.com/karloscodes/matcha v0.12.18
-	github.com/mattn/go-sqlite3 v1.14.48
+	github.com/mattn/go-sqlite3 v1.14.49
 	github.com/stretchr/testify v1.11.1
-	github.com/valyala/fasthttp v1.72.0
+	github.com/valyala/fasthttp v1.73.0
 	golang.org/x/crypto v0.54.0
 	golang.org/x/net v0.57.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
@@ -19,7 +19,7 @@ require (
 )
 
 require (
-	github.com/andybalholm/brotli v1.2.1 // indirect
+	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -31,7 +31,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect

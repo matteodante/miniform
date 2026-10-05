@@ -33,7 +33,7 @@ expect_invalid v1.2.3+build..1
 expect_invalid v1.2.3_alpha
 
 grep -Fq '$(TOOLS_DIR)/actionlint -shellcheck=$(TOOLS_DIR)/shellcheck' "$root/Makefile"
-grep -Eq '^GO_IMAGE \?= golang:1\.26\.5-bookworm@sha256:[0-9a-f]{64}$' "$root/Makefile"
+grep -Eq '^GO_IMAGE \?= golang:1\.27\.1-bookworm@sha256:[0-9a-f]{64}$' "$root/Makefile"
 grep -Eq '^ALPINE_AMD64_IMAGE \?= alpine:3\.23@sha256:[0-9a-f]{64}$' "$root/Makefile"
 grep -Eq '^ALPINE_ARM64_IMAGE \?= alpine:3\.23@sha256:[0-9a-f]{64}$' "$root/Makefile"
 grep -Fq './scripts/test-release-binaries.sh dist/artifacts.json "$(ALPINE_AMD64_IMAGE)" "$(ALPINE_ARM64_IMAGE)"' "$root/Makefile"

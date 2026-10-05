@@ -11,6 +11,20 @@ import (
 )
 
 func TestEmailRendering(t *testing.T) {
+	t.Run("preserves numeric fields in email subjects and bodies", func(t *testing.T) {
+		rendered, err := forms.RenderEmail(&forms.EmailDelivery{
+			SubjectTemplate: "Order {{.Fields.id}}", Format: forms.EmailFormatHTML,
+			TextTemplate: "Value {{.Fields.amount}}", HTMLTemplate: "<p>{{.Fields.id}}</p>",
+		}, &forms.Submission{
+			Form:     &forms.Form{Name: "Contact"},
+			DataJSON: `{"id":9007199254740993,"amount":0.1234567890123456789}`,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "Order 9007199254740993", rendered.Subject)
+		assert.Equal(t, "Value 0.1234567890123456789", rendered.TextBody)
+		assert.Equal(t, "<p>9007199254740993</p>", rendered.HTMLBody)
+	})
+
 	t.Run("renders the final HTML and text alternative from one submission", func(t *testing.T) {
 		delivery := &forms.EmailDelivery{
 			RecipientSource: forms.EmailRecipientField, Recipient: "email",

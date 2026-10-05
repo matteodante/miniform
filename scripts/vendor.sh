@@ -4,7 +4,7 @@ set -euo pipefail
 
 readonly VENDOR_DIR="web/static/vendor"
 readonly BIN_DIR="bin"
-readonly TAILWIND_VERSION="v3.4.17"
+readonly TAILWIND_VERSION="v3.4.19"
 
 mkdir -p "$VENDOR_DIR" "$BIN_DIR"
 
@@ -51,19 +51,19 @@ download_verified \
 case "$(uname -s)-$(uname -m)" in
     Darwin-arm64)
         tailwind_asset="tailwindcss-macos-arm64"
-        tailwind_sha="a1d0c7985759accca0bf12e51ac1dcbf0f6cf2fffb62e6e0f62d091c477a10a3"
+        tailwind_sha="7fdeb00818b6214a337383063282b2361ecb08bbc08f8c8a7ba97ee1e2eaa4fe"
         ;;
     Darwin-x86_64)
         tailwind_asset="tailwindcss-macos-x64"
-        tailwind_sha="6cbdad74be776c087ffa5e9a057512c54898f9fe8828d3362212dfe32fc933a3"
+        tailwind_sha="a597f407e0f1f03535731f5b42f1576a8152cb5fffc2f38e754722bc0c280045"
         ;;
     Linux-aarch64|Linux-arm64)
         tailwind_asset="tailwindcss-linux-arm64"
-        tailwind_sha="69b1378b8133192d7d2feb12a116fa12d035594f58db3eff215879e4ad8cf39b"
+        tailwind_sha="e5b2d27694daa80cc52ec29553ba2c6bd43d86bd51a9d633ed24058b9c05a676"
         ;;
     Linux-x86_64)
         tailwind_asset="tailwindcss-linux-x64"
-        tailwind_sha="7d24f7fa191d2193b78cd5f5a42a6093e14409521908529f42d80b11fde1f1d4"
+        tailwind_sha="4af3198c015616ea7d6617974ec3d70d987ecc00c1ca8463b0a30fd65cc7c06e"
         ;;
     *)
         echo "Unsupported platform for Tailwind: $(uname -s) $(uname -m)" >&2

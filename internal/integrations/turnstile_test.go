@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -15,6 +16,49 @@ import (
 )
 
 func TestTurnstileVerifier(t *testing.T) {
+	t.Run("retries client timeouts as a provider outage", func(t *testing.T) {
+		for _, phase := range []string{"before headers", "during body"} {
+			t.Run(phase, func(t *testing.T) {
+				var attempts atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+					_, _ = io.Copy(io.Discard, request.Body)
+					attempts.Add(1)
+					if phase == "during body" {
+						response.WriteHeader(http.StatusOK)
+						response.(http.Flusher).Flush()
+					}
+					<-request.Context().Done()
+				}))
+				defer server.Close()
+				verifier := testVerifier(server.URL)
+				verifier.client.Timeout = 50 * time.Millisecond
+
+				result, err := verifier.verify(t.Context(), "secret", "token", "")
+				assert.Nil(t, result)
+				assert.ErrorIs(t, err, ErrTurnstileUnavailable)
+				assert.Equal(t, int32(3), attempts.Load())
+			})
+		}
+	})
+
+	t.Run("stops retrying when the caller deadline expires", func(t *testing.T) {
+		var attempts atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+			_, _ = io.Copy(io.Discard, request.Body)
+			attempts.Add(1)
+			<-request.Context().Done()
+		}))
+		defer server.Close()
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		defer cancel()
+
+		result, err := testVerifier(server.URL).verify(ctx, "secret", "token", "")
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.NotErrorIs(t, err, ErrTurnstileUnavailable)
+		assert.Equal(t, int32(1), attempts.Load())
+	})
+
 	t.Run("sends all verification fields", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 			if err := request.ParseForm(); err != nil {

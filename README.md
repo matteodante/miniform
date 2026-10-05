@@ -10,7 +10,7 @@
 
 Miniform accepts submissions and file uploads from any HTML form, stores them in SQLite, and forwards them to webhooks or SMTP. It ships as one Go binary and one OCI image, with no hosted account or external database.
 
-The current stable release is [`v0.3.0`](https://github.com/matteodante/miniform/releases/tag/v0.3.0). Pin an exact release or image digest in production; `main` remains the development branch.
+The current stable release is [`v0.3.1`](https://github.com/matteodante/miniform/releases/tag/v0.3.1). Pin an exact release or image digest in production; `main` remains the development branch.
 
 ## Interface
 
@@ -33,7 +33,7 @@ The current stable release is [`v0.3.0`](https://github.com/matteodante/miniform
 
 ## Quick start from source
 
-Requirements: Go 1.26.5, a C compiler, Node.js 24 or newer, and `make`.
+Requirements: Go 1.27.1, a C compiler, Node.js 24 or newer, and `make`.
 
 ```bash
 git clone https://github.com/matteodante/miniform.git
@@ -69,13 +69,13 @@ The included [`compose.yaml`](compose.yaml) pins the current stable image, persi
 For a direct disposable development container instead:
 
 ```bash
-docker pull ghcr.io/matteodante/miniform:v0.3.0
+docker pull ghcr.io/matteodante/miniform:v0.3.1
 docker volume create miniform-data
 docker run --rm --name miniform \
   --publish 8080:8080 \
   --env MINIFORM_ENV=development \
   --volume miniform-data:/app/storage \
-  ghcr.io/matteodante/miniform:v0.3.0
+  ghcr.io/matteodante/miniform:v0.3.1
 ```
 
 To build the same OCI-compatible image locally, run `docker build --tag miniform:local .`.

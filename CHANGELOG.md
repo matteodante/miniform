@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-05
+
+No database migration is required. Previously rounded JSON numbers cannot be recovered without their original input.
+
+### Changed
+
+- Updated Go to 1.27.1 across source requirements, CI, and pinned container builders
+- Updated compatible Go modules, Playwright, Tailwind 3.4, pinned GitHub Actions, container digests, and analysis tools; refreshed the bundled dependency licenses
+
+### Fixed
+
+- Preserved JSON integers and decimals without floating-point rounding through HTTP and CLI submission creation, CLI output, email templates, and webhook delivery
+- Retried Turnstile client timeouts, including response-body timeouts, and reported exhausted attempts as service unavailability while preserving caller cancellation
+- Preserved explicit image-update behavior with the new Matcha version: reload and database restore use local images, and update pulls images before stopping the application
+- Restored local lint checks with Go 1.27 by updating golangci-lint and deadcode
+- Excluded local tool caches from the container build context
+- Aligned the security support table with the current 0.3 release series
+
+### Security
+
+- Updated the E2E toolchain's transitive `undici` dependency to resolve its outstanding security advisories
+
 ## [0.3.0] - 2026-07-31
 
 ### Added
@@ -142,7 +164,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Required an operator-installed, running Docker Engine instead of executing a mutable remote installer as root
 - Added signed local release tags, release-source ancestry checks, checksums, SBOMs, provenance, and architecture-specific binary execution tests
 
-[Unreleased]: https://github.com/matteodante/miniform/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/matteodante/miniform/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/matteodante/miniform/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/matteodante/miniform/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/matteodante/miniform/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/matteodante/miniform/compare/v0.2.1...v0.2.2

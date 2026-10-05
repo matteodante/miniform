@@ -16,6 +16,49 @@ import (
 )
 
 func TestPublicSubmissionRoutes(t *testing.T) {
+	t.Run("preserves JSON number precision in stored submissions", func(t *testing.T) {
+		server := testServer(t, cartridgeconfig.Test)
+		require.NoError(t, server.DB.GetConnection().Create(&forms.Form{
+			Name: "Contact", Slug: "contact", Token: "secret-token", AllowedOrigins: "example.com",
+		}).Error)
+		body := `{"id":9007199254740993,"values":[0.1234567890123456789,{"id":9007199254740993}]}`
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+			"/forms/contact/submit?token=secret-token", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", "https://example.com")
+
+		response, err := server.App.Test(request, -1)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode)
+
+		var submission forms.Submission
+		require.NoError(t, server.DB.GetConnection().First(&submission).Error)
+		assert.Equal(t, body, submission.DataJSON)
+	})
+
+	t.Run("rejects invalid or trailing JSON without storing a submission", func(t *testing.T) {
+		for _, body := range []string{`{"id":1} {"id":2}`, `{"id":1} garbage`, `{"id":`, `[]`, `null`} {
+			t.Run(body, func(t *testing.T) {
+				server := testServer(t, cartridgeconfig.Test)
+				require.NoError(t, server.DB.GetConnection().Create(&forms.Form{
+					Name: "Contact", Slug: "contact", Token: "secret-token", AllowedOrigins: "example.com",
+				}).Error)
+				request := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+					"/forms/contact/submit?token=secret-token", strings.NewReader(body))
+				request.Header.Set("Content-Type", "application/json")
+				request.Header.Set("Origin", "https://example.com")
+				response, err := server.App.Test(request, -1)
+				require.NoError(t, err)
+				defer response.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+				var count int64
+				require.NoError(t, server.DB.GetConnection().Model(&forms.Submission{}).Count(&count).Error)
+				assert.Zero(t, count)
+			})
+		}
+	})
+
 	t.Run("allows only the public submission content type header", func(t *testing.T) {
 		server := testServer(t, cartridgeconfig.Test)
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/forms/contact/submit", nil)

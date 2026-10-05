@@ -27,6 +27,27 @@ import (
 )
 
 func TestRunner(t *testing.T) {
+	t.Run("preserves JSON number precision when creating and reading submissions", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		logger := slog.New(slog.DiscardHandler)
+		form, err := forms.Create(logger, db, forms.CreateParams{Name: "Inbox", Slug: "inbox", AllowedOrigins: "*"})
+		require.NoError(t, err)
+		payload := `{"id":9007199254740993,"values":[0.1234567890123456789]}`
+		runner, stdout, stderr := newTestRunner(t, db, payload)
+
+		exitCode := runner.Run([]string{"submission", "create", "--json", "--form-id", uintString(form.ID), "--data-file", "-"})
+		require.Equal(t, ExitSuccess, exitCode, stderr.String())
+		assert.Contains(t, stdout.String(), payload)
+		var submission forms.Submission
+		require.NoError(t, db.First(&submission).Error)
+		assert.Equal(t, payload, submission.DataJSON)
+
+		stdout.Reset()
+		exitCode = runner.Run([]string{"submission", "get", "--json", "--id", uintString(submission.ID)})
+		require.Equal(t, ExitSuccess, exitCode, stderr.String())
+		assert.Contains(t, stdout.String(), payload)
+	})
+
 	t.Run("exposes a machine-readable command manifest without a database", func(t *testing.T) {
 		runner, stdout, _ := newTestRunner(t, nil, "")
 

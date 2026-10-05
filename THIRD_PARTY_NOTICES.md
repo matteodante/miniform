@@ -8,7 +8,7 @@ The release SBOM is the authoritative machine-readable inventory for each artifa
 
 | License | Dependencies |
 | --- | --- |
-| MIT | Fiber, GORM, Viper, Testify, Cartridge, Matcha, `godotenv`, `go-sqlite3`, `fasthttp`, `brotli`, `mapstructure`, `cast`, `gotenv`, `lumberjack`, and other transitive modules |
+| MIT | Fiber, GORM, Viper, Testify, Cartridge, Matcha, `godotenv`, `go-sqlite3`, `fasthttp`, `go-brrr`, `mapstructure`, `cast`, `gotenv`, `lumberjack`, and other transitive modules |
 | BSD-3-Clause | Go `x/crypto`, `x/net`, `x/sync`, `x/sys`, `x/text`; `fsnotify`, `google/uuid`, `pflag`, `github.com/klauspost/compress`, and selected transitive components |
 | Apache-2.0 | `github.com/spf13/afero` |
 | ISC | `github.com/davecgh/go-spew` |
@@ -24,7 +24,7 @@ make licenses
 | Component | Version | License | Source |
 | --- | --- | --- | --- |
 | htmx | 1.9.12 | 0BSD | <https://github.com/bigskysoftware/htmx> |
-| Tailwind CSS CLI | 3.4.17 | MIT | <https://github.com/tailwindlabs/tailwindcss> |
+| Tailwind CSS CLI | 3.4.19 | MIT | <https://github.com/tailwindlabs/tailwindcss> |
 
 Copyright remains with each dependency's authors and contributors. Release artifacts include this notice and an SPDX SBOM. No third-party trademark rights are granted.
 
@@ -34,7 +34,7 @@ Permission to use, copy, modify, and/or distribute this software for any purpose
 
 THE SOFTWARE IS PROVIDED “AS IS” AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-### Tailwind CSS CLI 3.4.17 — MIT
+### Tailwind CSS CLI 3.4.19 — MIT
 
 Copyright (c) Tailwind Labs, Inc.
 

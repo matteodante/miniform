@@ -131,9 +131,9 @@ func (dispatcher *WebhookDispatcher) post(ctx *cartridge.JobContext, event *form
 }
 
 func webhookPayload(submission *forms.Submission) ([]byte, error) {
-	var data any
-	if err := json.Unmarshal([]byte(submission.DataJSON), &data); err != nil {
-		data = submission.DataJSON
+	var data any = submission.DataJSON
+	if json.Valid([]byte(submission.DataJSON)) {
+		data = json.RawMessage(submission.DataJSON)
 	}
 	form := submission.Form
 	return json.Marshal(map[string]any{

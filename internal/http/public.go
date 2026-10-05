@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/url"
@@ -127,7 +126,9 @@ func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[s
 		if len(ctx.Body()) > maxPayloadBytes {
 			return payload, errPayloadTooLarge
 		}
-		if err := json.Unmarshal(ctx.Body(), &payload); err != nil {
+		var err error
+		payload, err = forms.DecodeSubmissionPayload(ctx.Body())
+		if err != nil {
 			return payload, err
 		}
 		if len(payload) > cfg.MaxInputFields {

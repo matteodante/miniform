@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-05
+
+No database migration is required. Previously rounded JSON numbers cannot be recovered without their original input.
+
 ### Changed
 
 - Updated Go to 1.27.1 across source requirements, CI, and pinned container builders
@@ -160,7 +164,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Required an operator-installed, running Docker Engine instead of executing a mutable remote installer as root
 - Added signed local release tags, release-source ancestry checks, checksums, SBOMs, provenance, and architecture-specific binary execution tests
 
-[Unreleased]: https://github.com/matteodante/miniform/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/matteodante/miniform/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/matteodante/miniform/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/matteodante/miniform/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/matteodante/miniform/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/matteodante/miniform/compare/v0.2.1...v0.2.2

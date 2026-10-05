@@ -90,8 +90,8 @@ func (r *Runner) submissionCreate(args []string) (any, error) {
 	if err != nil {
 		return nil, validationError(err.Error())
 	}
-	payload := make(map[string]any)
-	if err := json.Unmarshal([]byte(payloadText), &payload); err != nil {
+	payload, err := forms.DecodeSubmissionPayload([]byte(payloadText))
+	if err != nil {
 		return nil, validationError("data file must contain one JSON object")
 	}
 	if r.Config != nil && r.Config.MaxInputFields > 0 && len(payload) > r.Config.MaxInputFields {
@@ -428,8 +428,8 @@ func newSubmissionView(submission *forms.Submission) submissionView {
 }
 
 func decodeSubmissionData(raw string) any {
-	var value any
-	if json.Unmarshal([]byte(raw), &value) == nil {
+	value := json.RawMessage(raw)
+	if json.Valid(value) {
 		return value
 	}
 	return strings.TrimSpace(raw)

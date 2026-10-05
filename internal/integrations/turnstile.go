@@ -69,7 +69,10 @@ func (verifier turnstileVerifier) verify(ctx context.Context, secret, token, rem
 		if err == nil {
 			return result, nil
 		}
-		if !retry || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		if !retry {
 			return nil, err
 		}
 		lastErr = err
@@ -105,7 +108,7 @@ func (verifier turnstileVerifier) request(ctx context.Context, encodedForm strin
 
 	var payload turnstileResponse
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload); err != nil {
-		return nil, false, fmt.Errorf("decode turnstile response: %w", err)
+		return nil, errors.Is(err, context.DeadlineExceeded), fmt.Errorf("decode turnstile response: %w", err)
 	}
 	if !payload.Success {
 		if len(payload.ErrorCodes) == 0 {

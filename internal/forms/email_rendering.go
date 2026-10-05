@@ -151,8 +151,8 @@ func executeEmailTextTemplate(name, source string, data emailTemplateData) (stri
 }
 
 func emailTemplateFields(rawJSON string) (map[string]string, []emailField) {
-	var fields map[string]any
-	if err := json.Unmarshal([]byte(rawJSON), &fields); err != nil {
+	fields, err := DecodeSubmissionPayload([]byte(rawJSON))
+	if err != nil {
 		fields = map[string]any{"raw": rawJSON}
 	}
 	keys := make([]string, 0, len(fields))

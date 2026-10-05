@@ -24,6 +24,15 @@ import (
 )
 
 func TestWebhookDelivery(t *testing.T) {
+	t.Run("preserves stored JSON numbers in the webhook payload", func(t *testing.T) {
+		payload, err := webhookPayload(&forms.Submission{
+			Form:     &forms.Form{Name: "Contact"},
+			DataJSON: `{"id":9007199254740993,"values":[0.1234567890123456789]}`,
+		})
+		require.NoError(t, err)
+		assert.Contains(t, string(payload), `"data":{"id":9007199254740993,"values":[0.1234567890123456789]}`)
+	})
+
 	t.Run("posts signed submission payload", func(t *testing.T) {
 		type receivedRequest struct {
 			body, signature, source, idempotencyKey string

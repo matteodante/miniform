@@ -57,7 +57,7 @@ Terminate TLS with Caddy, Nginx, Traefik, or another reverse proxy. Miniform's p
 
 ## Build from source
 
-Install Go 1.26.5, a C compiler, Node.js 24 or newer, and `make`:
+Install Go 1.27.1, a C compiler, Node.js 24 or newer, and `make`:
 
 ```bash
 git clone https://github.com/matteodante/miniform.git

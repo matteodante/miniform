@@ -15,10 +15,10 @@ esac
 
 asset="golangci-lint-${plain_version}-${os}-${arch}.tar.gz"
 case "$asset" in
-	golangci-lint-2.12.2-darwin-amd64.tar.gz) checksum="f6f06d94b6241521c53d15450c5209b028270bf966f842afb11c030c79f5bc16" ;;
-	golangci-lint-2.12.2-darwin-arm64.tar.gz) checksum="a9c54498731b3128f79e090be6110f3e5fffccc617b08142ed244d4126c73f29" ;;
-	golangci-lint-2.12.2-linux-amd64.tar.gz) checksum="8df580d2670fed8fa984aac0507099af8df275e665215f5c7a2ae3943893a553" ;;
-	golangci-lint-2.12.2-linux-arm64.tar.gz) checksum="44cd40a8c76c86755375adfeea52cfd3533cb43d7bd647771e0ae065e166df3a" ;;
+	golangci-lint-2.14.0-darwin-amd64.tar.gz) checksum="a5667c1c3536be1740133213e1e822bfb8f0d98ea12903174d6d5f635e4ed68d" ;;
+	golangci-lint-2.14.0-darwin-arm64.tar.gz) checksum="5ef5f36a7147e91dc58ef9ef4d11bb7bad5ead0c76eb6c01327a73c641d1dcc3" ;;
+	golangci-lint-2.14.0-linux-amd64.tar.gz) checksum="ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab" ;;
+	golangci-lint-2.14.0-linux-arm64.tar.gz) checksum="ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae" ;;
 	*) echo "unsupported golangci-lint release: $asset" >&2; exit 1 ;;
 esac
 

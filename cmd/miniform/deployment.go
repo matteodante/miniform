@@ -247,6 +247,7 @@ func restartDeployment(manager *matcha.Matcha) error {
 func startDeployment(manager *matcha.Matcha) error {
 	configuration := manager.GetConfig()
 	configuration.Backups = false
+	configuration.SkipPull = true
 	if err := matcha.New(configuration).Reload(); err != nil {
 		return fmt.Errorf("start application: %w", err)
 	}

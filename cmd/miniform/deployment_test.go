@@ -84,6 +84,12 @@ func TestDeploymentLifecycle(t *testing.T) {
 				require.NotEqual(t, -1, stopIndex)
 				require.NotEqual(t, -1, startIndex)
 				assert.Less(t, stopIndex, startIndex)
+				assert.NotContains(t, string(dockerLog)[stopIndex:], "pull ")
+				if command == "reload" {
+					assert.NotContains(t, string(dockerLog), "pull ")
+				} else {
+					assert.Equal(t, 2, strings.Count(string(dockerLog)[:stopIndex], "pull "))
+				}
 				backups, err := filepath.Glob(filepath.Join(manager.DataDir(), "backups", "backup_*.db"))
 				require.NoError(t, err)
 				require.Len(t, backups, 1)
@@ -227,6 +233,9 @@ func TestDeploymentLifecycle(t *testing.T) {
 		var output bytes.Buffer
 
 		require.NoError(t, runDeploymentCommand(manager, "restore-db", strings.NewReader("1\n"), &output))
+		dockerLog, err := os.ReadFile(os.Getenv("FAKE_DOCKER_LOG"))
+		require.NoError(t, err)
+		assert.NotContains(t, string(dockerLog), "pull ")
 		assert.Contains(t, output.String(), filepath.Base(selected))
 		assert.NotContains(t, output.String(), "backup_notes.db")
 		assert.Equal(t, "restored", readDatabaseValue(t, databasePath))

@@ -1,8 +1,10 @@
 package forms
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"strings"
 	"time"
@@ -24,6 +26,24 @@ var (
 
 type SubmissionLimits struct {
 	MaxUploadStorageBytes int64
+}
+
+// DecodeSubmissionPayload preserves JSON numbers and rejects trailing values.
+func DecodeSubmissionPayload(encoded []byte) (map[string]any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.UseNumber()
+	var payload map[string]any
+	if err := decoder.Decode(&payload); err != nil {
+		return nil, err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, errors.New("submission payload contains multiple JSON values")
+		}
+		return nil, err
+	}
+	return payload, nil
 }
 
 func CreateSubmissionWithFiles(logger *slog.Logger, db *gorm.DB, form *Form, payload map[string]any, userAgent, dataDir string, files []*UploadedFile) (*Submission, error) {

@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Updated Go to 1.27.1 across source requirements, CI, and pinned container builders
+- Updated compatible Go modules, Playwright, Tailwind 3.4, pinned GitHub Actions, container digests, and analysis tools; refreshed the bundled dependency licenses
+
+### Fixed
+
+- Preserved JSON integers and decimals without floating-point rounding through HTTP and CLI submission creation, CLI output, email templates, and webhook delivery
+- Retried Turnstile client timeouts, including response-body timeouts, and reported exhausted attempts as service unavailability while preserving caller cancellation
+- Preserved explicit image-update behavior with the new Matcha version: reload and database restore use local images, and update pulls images before stopping the application
+- Restored local lint checks with Go 1.27 by updating golangci-lint and deadcode
+- Excluded local tool caches from the container build context
+- Aligned the security support table with the current 0.3 release series
+
+### Security
+
+- Updated the E2E toolchain's transitive `undici` dependency to resolve its outstanding security advisories
+
 ## [0.3.0] - 2026-07-31
 
 ### Added

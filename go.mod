@@ -7,12 +7,12 @@ require (
 	github.com/gofiber/template/html/v2 v2.1.3
 	github.com/joho/godotenv v1.5.1
 	github.com/karloscodes/cartridge v0.15.5
-	github.com/karloscodes/matcha v0.16.0
+	github.com/karloscodes/matcha v0.17.0
 	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/stretchr/testify v1.12.1
-	github.com/valyala/fasthttp v1.74.0
+	github.com/valyala/fasthttp v1.75.0
 	golang.org/x/crypto v0.57.0
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.2
@@ -32,7 +32,7 @@ require (
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mattn/go-runewidth v0.0.30 // indirect
-	github.com/molecule-man/go-brrr v1.0.1 // indirect
+	github.com/molecule-man/go-brrr v1.1.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/petaki/inertia-go v1.16.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect

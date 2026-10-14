@@ -247,18 +247,30 @@ func storePassword(logger *slog.Logger, db *gorm.DB, userID uint, password strin
 	})
 }
 
-func RegisterSession(logger *slog.Logger, db *gorm.DB, userID uint, token string, expiresAt time.Time) error {
+func RegisterSession(logger *slog.Logger, db *gorm.DB, authenticatedUser *User, token string, expiresAt time.Time) error {
 	token = strings.TrimSpace(token)
-	if userID == 0 || token == "" || expiresAt.IsZero() {
+	if authenticatedUser == nil || authenticatedUser.ID == 0 || token == "" || expiresAt.IsZero() {
 		return errors.New("invalid session registration")
 	}
 	return dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+		// Recheck the authenticated credentials under the same write lock as registration.
+		// Otherwise a login already in progress could undo a credential change's revocation.
+		var currentUser User
+		if err := tx.Select("email", "password_hash").First(&currentUser, authenticatedUser.ID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrInvalidCredentials
+			}
+			return err
+		}
+		if currentUser.Email != authenticatedUser.Email || currentUser.PasswordHash != authenticatedUser.PasswordHash {
+			return ErrInvalidCredentials
+		}
 		now := time.Now().UTC()
 		if err := tx.Where("expires_at <= ?", now).Delete(&ActiveSession{}).Error; err != nil {
 			return err
 		}
 		return tx.Save(&ActiveSession{
-			TokenHash: sessionTokenHash(token), UserID: userID,
+			TokenHash: sessionTokenHash(token), UserID: authenticatedUser.ID,
 			ExpiresAt: expiresAt.UTC(), CreatedAt: now,
 		}).Error
 	})

@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/matteodante/miniform/internal/accounts"
+	"github.com/matteodante/miniform/internal/pkg/dbtxn"
 	"github.com/matteodante/miniform/internal/pkg/testsupport"
 )
 
@@ -116,6 +117,9 @@ func TestAccounts(t *testing.T) {
 
 	t.Run("stores only a hash when revoking a session", func(t *testing.T) {
 		db := testsupport.SetupTestDB(t)
+		created := createUser(t, db, "admin@example.com", "old-password")
+		user, err := accounts.Authenticate(logger, db, created.Email, "old-password")
+		require.NoError(t, err)
 		expiresAt := time.Now().UTC().Add(time.Hour)
 		payload, err := json.Marshal(map[string]any{"user_id": "1", "expires_at": expiresAt})
 		require.NoError(t, err)
@@ -124,8 +128,8 @@ func TestAccounts(t *testing.T) {
 		parsedExpiry, err := accounts.SessionExpiresAt(token)
 		require.NoError(t, err)
 		assert.WithinDuration(t, expiresAt, parsedExpiry, time.Millisecond)
-		require.NoError(t, accounts.RegisterSession(logger, db, 1, token, parsedExpiry))
-		active, err := accounts.IsSessionActive(db, 1, token, time.Now())
+		require.NoError(t, accounts.RegisterSession(logger, db, user, token, parsedExpiry))
+		active, err := accounts.IsSessionActive(db, user.ID, token, time.Now())
 		require.NoError(t, err)
 		assert.True(t, active)
 
@@ -134,9 +138,92 @@ func TestAccounts(t *testing.T) {
 		assert.NotEqual(t, token, stored.TokenHash)
 		assert.Len(t, stored.TokenHash, 64)
 		require.NoError(t, accounts.RevokeSession(logger, db, token))
-		active, err = accounts.IsSessionActive(db, 1, token, time.Now())
+		active, err = accounts.IsSessionActive(db, user.ID, token, time.Now())
 		require.NoError(t, err)
 		assert.False(t, active)
+	})
+
+	t.Run("rejects a login authenticated before credentials were changed", func(t *testing.T) {
+		for _, change := range []struct {
+			name     string
+			apply    func(*gorm.DB, *accounts.User) error
+			email    string
+			password string
+		}{
+			{
+				name: "password change",
+				apply: func(db *gorm.DB, user *accounts.User) error {
+					return accounts.ChangePassword(logger, db, user.Email, "old-password", "new-password")
+				},
+				email: "admin@example.com", password: "new-password",
+			},
+			{
+				name: "password reset",
+				apply: func(db *gorm.DB, user *accounts.User) error {
+					return accounts.ResetPassword(logger, db, user.Email, "new-password")
+				},
+				email: "admin@example.com", password: "new-password",
+			},
+			{
+				name: "email change",
+				apply: func(db *gorm.DB, user *accounts.User) error {
+					return accounts.ChangeEmail(logger, db, user.Email, "new@example.com", "old-password")
+				},
+				email: "new@example.com", password: "old-password",
+			},
+		} {
+			t.Run(change.name, func(t *testing.T) {
+				db := testsupport.SetupTestDB(t)
+				created := createUser(t, db, "admin@example.com", "old-password")
+				user, err := accounts.Authenticate(logger, db, created.Email, "old-password")
+				require.NoError(t, err)
+				expiresAt := time.Now().UTC().Add(time.Hour)
+				require.NoError(t, accounts.RegisterSession(logger, db, user, "existing-session", expiresAt))
+
+				require.NoError(t, change.apply(db, user))
+				assert.ErrorIs(t, accounts.RegisterSession(logger, db, user, "in-flight-session", expiresAt), accounts.ErrInvalidCredentials)
+				var sessionCount int64
+				require.NoError(t, db.Model(&accounts.ActiveSession{}).Count(&sessionCount).Error)
+				assert.Zero(t, sessionCount)
+
+				freshUser, err := accounts.Authenticate(logger, db, change.email, change.password)
+				require.NoError(t, err)
+				require.NoError(t, accounts.RegisterSession(logger, db, freshUser, "fresh-session", expiresAt))
+				active, err := accounts.IsSessionActive(db, freshUser.ID, "fresh-session", time.Now())
+				require.NoError(t, err)
+				assert.True(t, active)
+			})
+		}
+	})
+
+	t.Run("permits multiple logins while credentials remain unchanged", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		created := createUser(t, db, "admin@example.com", "old-password")
+		first, err := accounts.Authenticate(logger, db, created.Email, "old-password")
+		require.NoError(t, err)
+		second, err := accounts.Authenticate(logger, db, created.Email, "old-password")
+		require.NoError(t, err)
+		expiresAt := time.Now().UTC().Add(time.Hour)
+		require.NoError(t, accounts.RegisterSession(logger, db, first, "first-session", expiresAt))
+		require.NoError(t, accounts.RegisterSession(logger, db, second, "second-session", expiresAt))
+		var sessionCount int64
+		require.NoError(t, db.Model(&accounts.ActiveSession{}).Count(&sessionCount).Error)
+		assert.EqualValues(t, 2, sessionCount)
+	})
+
+	t.Run("rejects registration for an account that no longer exists", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		created := createUser(t, db, "admin@example.com", "old-password")
+		user, err := accounts.Authenticate(logger, db, created.Email, "old-password")
+		require.NoError(t, err)
+		require.NoError(t, dbtxn.WithRetry(logger, db, func(tx *gorm.DB) error {
+			return tx.Delete(&accounts.User{}, user.ID).Error
+		}))
+
+		assert.ErrorIs(t, accounts.RegisterSession(logger, db, user, "in-flight-session", time.Now().Add(time.Hour)), accounts.ErrInvalidCredentials)
+		var sessionCount int64
+		require.NoError(t, db.Model(&accounts.ActiveSession{}).Count(&sessionCount).Error)
+		assert.Zero(t, sessionCount)
 	})
 
 	t.Run("does not persist initial credentials that could not be announced", func(t *testing.T) {

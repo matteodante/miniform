@@ -33,7 +33,7 @@ The current stable release is [`v0.3.1`](https://github.com/matteodante/miniform
 
 ## Quick start from source
 
-Requirements: Go 1.27.1, a C compiler, Node.js 24 or newer, and `make`.
+Requirements: Go 1.27.2, a C compiler, Node.js 24 or newer, and `make`.
 
 ```bash
 git clone https://github.com/matteodante/miniform.git

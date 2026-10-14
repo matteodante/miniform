@@ -75,6 +75,26 @@ func clientIP(remoteIP, forwardedFor, realIP string, mode config.ProxyMode) stri
 	return address.String()
 }
 
+func RequireUncompressedBody(ctx *fiber.Ctx) error {
+	allowed := true
+	for name, value := range ctx.Request().Header.All() {
+		if !strings.EqualFold(string(name), fiber.HeaderContentEncoding) || len(value) == 0 {
+			continue
+		}
+		for encoding := range strings.SplitSeq(string(value), ",") {
+			if !strings.EqualFold(strings.TrimSpace(encoding), "identity") {
+				allowed = false
+			}
+		}
+	}
+	if !allowed {
+		return fiber.NewError(fiber.StatusUnsupportedMediaType, "compressed request bodies are not supported")
+	}
+	// MultipartForm treats identity as an unsupported encoding rather than a no-op.
+	ctx.Request().Header.Del(fiber.HeaderContentEncoding)
+	return ctx.Next()
+}
+
 func SecurityHeaders(cfg *config.Config) fiber.Handler {
 	return func(ctx *fiber.Ctx) error {
 		nonceBytes := make([]byte, 18)

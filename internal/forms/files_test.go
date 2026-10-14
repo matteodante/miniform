@@ -9,6 +9,7 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/iotest"
 
@@ -89,6 +90,36 @@ func TestFiles(t *testing.T) {
 		assert.ErrorContains(t, ValidateFile(&multipart.FileHeader{Filename: "payload.svg", Size: 10}), "not allowed")
 		assert.ErrorContains(t, ValidateFile(&multipart.FileHeader{Filename: "bad\nname.txt", Size: 10}), "control")
 		assert.ErrorContains(t, ValidateFile(&multipart.FileHeader{Filename: string(make([]byte, MaxFilenameBytes+1)) + ".txt", Size: 10}), "between")
+		assert.ErrorContains(t, ValidateFile(&multipart.FileHeader{Filename: strings.Repeat("a", MaxFilenameBytes+1), Size: MaxFileSize + 1}), "between")
+	})
+
+	t.Run("bounds upload field names before opening files", func(t *testing.T) {
+		for _, test := range []struct {
+			name, field, wantError string
+		}{
+			{"empty", "", "between"},
+			{"too long", strings.Repeat("a", MaxFileFieldBytes+1), "between"},
+			{"multibyte", strings.Repeat("é", MaxFileFieldBytes/2+1), "between"},
+			{"control character", "bad\nfield", "control characters"},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				_, err := ExtractFiles(&multipart.Form{File: map[string][]*multipart.FileHeader{
+					test.field: {{Filename: "empty.txt"}},
+				}})
+				require.ErrorContains(t, err, test.wantError)
+				assert.Less(t, len(err.Error()), 100)
+			})
+		}
+
+		upload := multipartUpload(t, "empty.txt", nil)
+		field := strings.Repeat("a", MaxFileFieldBytes)
+		upload.File[field] = upload.File["attachment"]
+		delete(upload.File, "attachment")
+		files, err := ExtractFiles(upload)
+		require.NoError(t, err)
+		defer CloseFiles(files)
+		require.Len(t, files, 1)
+		assert.Equal(t, field, files[0].FieldName)
 	})
 
 	t.Run("stores private uploads and returns their metadata", func(t *testing.T) {

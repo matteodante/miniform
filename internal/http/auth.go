@@ -139,8 +139,11 @@ func AdminLoginSubmit(ctx *cartridge.Context, cfg *config.Config) error {
 		ctx.Logger.Error("parse new admin session", slog.Any("error", err))
 		return fiber.ErrInternalServerError
 	}
-	if err := accounts.RegisterSession(ctx.Logger, db, user.ID, cookie.Value, expiresAt); err != nil {
+	if err := accounts.RegisterSession(ctx.Logger, db, user, cookie.Value, expiresAt); err != nil {
 		ctx.Session.ClearSession(ctx.Ctx)
+		if errors.Is(err, accounts.ErrInvalidCredentials) {
+			return renderLogin(ctx, db, "Invalid credentials")
+		}
 		ctx.Logger.Error("register admin session", slog.Any("error", err))
 		return fiber.ErrInternalServerError
 	}

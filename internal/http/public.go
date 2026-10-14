@@ -123,11 +123,12 @@ func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[s
 		maxPayloadBytes = 64 * 1024
 	}
 	if strings.Contains(ctx.Get(fiber.HeaderContentType), fiber.MIMEApplicationJSON) {
-		if len(ctx.Body()) > maxPayloadBytes {
+		body := ctx.BodyRaw()
+		if len(body) > maxPayloadBytes {
 			return payload, errPayloadTooLarge
 		}
 		var err error
-		payload, err = forms.DecodeSubmissionPayload(ctx.Body())
+		payload, err = forms.DecodeSubmissionPayload(body)
 		if err != nil {
 			return payload, err
 		}
@@ -146,7 +147,7 @@ func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[s
 	if strings.Contains(ctx.Get(fiber.HeaderContentType), fiber.MIMEMultipartForm) {
 		multipart, err := ctx.MultipartForm()
 		if err != nil {
-			return payload, err
+			return payload, errors.New("invalid multipart submission")
 		}
 		for name, values := range multipart.Value {
 			fieldCount += len(values)
@@ -161,6 +162,15 @@ func extractSubmissionPayload(ctx *cartridge.Context, cfg *config.Config) (map[s
 				return payload, errTooManyFields
 			}
 			setFormValues(payload, name, values)
+		}
+		for name, headers := range multipart.File {
+			payloadBytes += len(name)
+			for _, header := range headers {
+				payloadBytes += len(header.Filename)
+			}
+			if payloadBytes > maxPayloadBytes {
+				return payload, errPayloadTooLarge
+			}
 		}
 		hasFiles = len(multipart.File) > 0
 	} else {

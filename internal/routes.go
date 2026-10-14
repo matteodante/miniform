@@ -20,6 +20,7 @@ type endpoint struct {
 }
 
 func MountRoutes(server *cartridge.Server, cfg *config.Config) {
+	server.App().Use(miniformserver.RequireUncompressedBody)
 	mountUtilityRoutes(server, cfg)
 	mountPublicSubmission(server, cfg)
 	mountLogin(server, cfg)

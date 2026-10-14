@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- Updated Go to 1.27.2 and `golang.org/x/net` to v0.60.0, including CI and pinned container builders
+- Reject compressed request bodies before parsing; clients must send uncompressed bodies with no `Content-Encoding` header or `identity`
+- Limit upload field names to 200 bytes and include upload field names and filenames in the submission payload budget
+- Recheck authenticated credentials atomically when registering sessions so a concurrent password or email change invalidates an in-progress login
+
 ## [0.3.1] - 2026-10-05
 
 No database migration is required. Previously rounded JSON numbers cannot be recovered without their original input.

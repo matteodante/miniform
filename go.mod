@@ -1,6 +1,6 @@
 module github.com/matteodante/miniform
 
-go 1.27.1
+go 1.27.2
 
 require (
 	github.com/gofiber/fiber/v2 v2.52.15
@@ -12,7 +12,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/valyala/fasthttp v1.74.0
 	golang.org/x/crypto v0.57.0
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.2

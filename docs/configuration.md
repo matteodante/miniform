@@ -18,7 +18,7 @@ Development defaults also work without a configuration file. The built-in Matcha
 | `MINIFORM_LOGS_DIR` | Under the data directory | Keep on persistent storage if logs are retained |
 | `MINIFORM_SESSION_TIMEOUT_SECONDS` | `604800`; OCI image: `1800` | Set an explicit organizational policy if needed |
 | `MINIFORM_MAX_INPUT_FIELDS` | `200` | Maximum scalar fields accepted in one submission |
-| `MINIFORM_MAX_PAYLOAD_BYTES` | `65536` | Maximum combined scalar data; request bodies are capped separately at 6 MiB |
+| `MINIFORM_MAX_PAYLOAD_BYTES` | `65536` | Maximum combined scalar data, upload field names, and filenames; request bodies are capped separately at 6 MiB |
 | `MINIFORM_MAX_UPLOAD_STORAGE_BYTES` | `1073741824` | Global stored-upload quota; rejected atomically before database commit |
 | `MINIFORM_REQUEST_CONCURRENCY` | `32` | Maximum requests processed concurrently by the HTTP server |
 | `MINIFORM_PUBLIC_GLOBAL_RATE_LIMIT` | `120` | Maximum public submissions per minute across all clients and forms |
@@ -53,6 +53,8 @@ The authenticated notification editor can preview unsaved settings against a rec
 ## Network boundaries
 
 Production applies process-local limits of 30 public submissions per minute per resolved client plus 120 submissions per minute globally. Sign-in permits 5 attempts per minute per client plus 30 globally. The counters reset when the process restarts and are disabled in development and test environments. The HTTP server also caps each body at 6 MiB and concurrent request processing at 32 by default.
+
+All HTTP routes accept only uncompressed request bodies: omit `Content-Encoding` or set it to `identity`. Other encodings are rejected with HTTP `415` before handler parsing. Upload field names and filenames are each limited to 200 bytes and count toward `MINIFORM_MAX_PAYLOAD_BYTES`.
 
 Direct and unmanaged deployments ignore forwarding headers and use the network peer address. A Matcha-managed production deployment trusts only the last `X-Forwarded-For` address appended by its proxy. Railway deployments use Railway's `X-Real-IP` contract. Keep the trusted proxy hop private and do not expose the application port directly.
 

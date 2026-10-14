@@ -20,6 +20,7 @@ const (
 	MaxTotalFiles      = 1
 	MaxRequestBodySize = MaxFileSize + 1024*1024
 	MaxFilenameBytes   = 200
+	MaxFileFieldBytes  = 200
 )
 
 var allowedExtensions = []string{
@@ -46,14 +47,14 @@ type UploadedFile struct {
 }
 
 func ValidateFile(header *multipart.FileHeader) error {
-	if header.Size < 0 || header.Size > MaxFileSize {
-		return fmt.Errorf("file %q exceeds maximum size of 5MB", header.Filename)
-	}
 	if len(header.Filename) == 0 || len(header.Filename) > MaxFilenameBytes {
 		return fmt.Errorf("file name must contain between 1 and %d bytes", MaxFilenameBytes)
 	}
 	if strings.IndexFunc(header.Filename, unicode.IsControl) >= 0 {
 		return fmt.Errorf("file name contains control characters")
+	}
+	if header.Size < 0 || header.Size > MaxFileSize {
+		return fmt.Errorf("file %q exceeds maximum size of 5MB", header.Filename)
 	}
 	extension := strings.ToLower(filepath.Ext(header.Filename))
 	if extension == "" {
@@ -72,6 +73,12 @@ func ExtractFiles(form *multipart.Form) ([]*UploadedFile, error) {
 
 	total := 0
 	for field, headers := range form.File {
+		if len(field) == 0 || len(field) > MaxFileFieldBytes {
+			return nil, fmt.Errorf("file field name must contain between 1 and %d bytes", MaxFileFieldBytes)
+		}
+		if strings.IndexFunc(field, unicode.IsControl) >= 0 {
+			return nil, errors.New("file field name contains control characters")
+		}
 		if len(headers) > MaxFilesPerField {
 			return nil, fmt.Errorf("too many files for field %q (max %d)", field, MaxFilesPerField)
 		}

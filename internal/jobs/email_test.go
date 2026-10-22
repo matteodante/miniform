@@ -341,14 +341,21 @@ func TestEmailDelivery(t *testing.T) {
 		assert.ErrorContains(t, err, "encryption")
 	})
 
-	t.Run("rejects submitted header injection before SMTP", func(t *testing.T) {
+	t.Run("normalizes subject text and rejects raw Reply-To header injection", func(t *testing.T) {
 		delivery := &forms.EmailDelivery{SubjectTemplate: "Request from {{.Fields.name}}"}
 		delivery.Format = forms.EmailFormatText
-		_, err := forms.RenderEmail(delivery, &forms.Submission{
+		rendered, err := forms.RenderEmail(delivery, &forms.Submission{
 			Form: &forms.Form{Name: "Contact"}, CreatedAt: time.Now().UTC(),
 			DataJSON: `{"name":"Alice\r\nBcc: hidden@example.com"}`,
 		})
-		assert.ErrorContains(t, err, "one line")
+		require.NoError(t, err)
+		message, err := buildSMTPMessage(outboundEmail{
+			From: "forms@example.com", To: []string{"owner@example.com"},
+			Subject: rendered.Subject, Format: forms.EmailFormatText, TextBody: "Body",
+		})
+		require.NoError(t, err)
+		assert.Contains(t, string(message), "Subject: Request from Alice Bcc: hidden@example.com")
+		assert.NotContains(t, string(message), "\r\nBcc:")
 
 		_, err = buildSMTPMessage(outboundEmail{
 			From: "forms@example.com", To: []string{"owner@example.com"},
@@ -356,6 +363,56 @@ func TestEmailDelivery(t *testing.T) {
 			Subject: "Safe", Format: forms.EmailFormatText, TextBody: "Body",
 		})
 		assert.ErrorContains(t, err, "Reply-To")
+	})
+
+	t.Run("delivers a notification with an empty reply address and multiline name", func(t *testing.T) {
+		db := testsupport.SetupTestDB(t)
+		host, port, result := fakeSMTP(t)
+		profile := &integrations.MailerProfile{
+			Name: "Relay", DefaultFromEmail: "forms@example.com",
+			SMTPHost: host, SMTPPort: port, SMTPEncryption: "none",
+			SMTPUsername: "relay", SMTPPassword: "secret",
+		}
+		form := &forms.Form{Name: "Contact", Slug: "optional-reply-to", AllowedOrigins: "*"}
+		var event *forms.EmailEvent
+		require.NoError(t, dbtxn.WithRetry(slog.Default(), db, func(tx *gorm.DB) error {
+			if err := tx.Create(profile).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(form).Error; err != nil {
+				return err
+			}
+			delivery := &forms.EmailDelivery{
+				FormID: form.ID, Enabled: true, MailerProfileID: &profile.ID,
+				Name: "Internal request", RecipientSource: forms.EmailRecipientStatic,
+				Recipient: "owner@example.com", ReplyToSource: forms.EmailReplyToField, ReplyTo: "email",
+				SubjectTemplate: "Request from {{.Fields.name}}", Format: forms.EmailFormatText,
+				TextTemplate: "Name: {{.Fields.name}}",
+			}
+			if err := tx.Create(delivery).Error; err != nil {
+				return err
+			}
+			submission := &forms.Submission{FormID: form.ID, DataJSON: `{"name":"Alice\nD'Angelo","email":""}`}
+			if err := tx.Create(submission).Error; err != nil {
+				return err
+			}
+			event = forms.NewEmailEvent(submission.ID, time.Now(), delivery.ID)
+			return tx.Create(event).Error
+		}))
+		ctx := &cartridge.JobContext{
+			Context: t.Context(), DB: db,
+			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		}
+		require.NoError(t, NewEmailDispatcher(&config.Config{}).ProcessBatch(ctx))
+		var stored forms.EmailEvent
+		require.NoError(t, db.First(&stored, event.ID).Error)
+		require.Equal(t, forms.WebhookStatusDelivered, stored.Status)
+		assert.Equal(t, 1, stored.AttemptCount)
+		server := <-result
+		require.NoError(t, server.err)
+		assert.Equal(t, []string{"RCPT TO:<owner@example.com>"}, server.capture.to)
+		assert.Contains(t, server.capture.message, "Subject: Request from Alice D'Angelo")
+		assert.NotContains(t, server.capture.message, "Reply-To:")
 	})
 
 	t.Run("does not render an unused HTML template for text messages", func(t *testing.T) {

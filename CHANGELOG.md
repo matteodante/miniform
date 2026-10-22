@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve notifications when a field-derived Reply-To is absent or invalid by omitting that optional header; recipient validation remains strict
+- Normalize whitespace and control characters in rendered subjects into a single header value instead of dropping notifications for multiline submitted names
+
 ## [0.3.2] - 2026-10-22
 
 No database migration is required. Clients must send uncompressed HTTP request bodies. Upload field names and filenames are limited to 200 bytes each and count toward the submission payload budget.

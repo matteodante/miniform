@@ -254,7 +254,7 @@ miniform --json email update --id 2 --enabled=false
 miniform --json email update --id 2 --reply-to-source field --reply-to email
 ```
 
-`recipient-source` accepts `static` or `field`. `reply-to-source` accepts `none`, `static`, or `field`. Field mode stores a submitted field name, not a template expression. Templates use Go template syntax; see [Email notifications](email-notifications.md) for the available data, escaping, and delivery semantics.
+`recipient-source` accepts `static` or `field`. `reply-to-source` accepts `none`, `static`, or `field`. Field mode stores a submitted field name, not a template expression. An absent or invalid field-derived Reply-To is omitted without suppressing delivery; recipients remain strictly validated. Templates use Go template syntax; see [Email notifications](email-notifications.md) for the available data, escaping, and delivery semantics.
 
 Delete one notification without deleting its historical delivery events:
 

@@ -55,15 +55,36 @@ func TestEmailRendering(t *testing.T) {
 		assert.Equal(t, "ada@example.com", replyTo)
 	})
 
-	t.Run("rejects rendered header injection", func(t *testing.T) {
+	t.Run("normalizes submitted subject text without creating headers", func(t *testing.T) {
 		delivery := &forms.EmailDelivery{
 			SubjectTemplate: "Request {{.Fields.name}}", Format: forms.EmailFormatText,
 		}
-		_, err := forms.RenderEmail(delivery, &forms.Submission{
+		rendered, err := forms.RenderEmail(delivery, &forms.Submission{
 			Form: &forms.Form{Name: "Contact"}, CreatedAt: time.Now(),
-			DataJSON: `{"name":"Ada\r\nBcc: hidden@example.com"}`,
+			DataJSON: `{"name":"  Ada\r\nBcc: hidden@example.com\u0000\tD'Àngelo  "}`,
 		})
-		assert.ErrorContains(t, err, "one line")
+		require.NoError(t, err)
+		assert.Equal(t, "Request Ada Bcc: hidden@example.com D'Àngelo", rendered.Subject)
+		assert.NotContains(t, rendered.Subject, "\r")
+		assert.NotContains(t, rendered.Subject, "\n")
+		assert.NotContains(t, rendered.Subject, "\x00")
+	})
+
+	t.Run("omits unusable field-based Reply-To without losing the notification", func(t *testing.T) {
+		delivery := &forms.EmailDelivery{ReplyToSource: forms.EmailReplyToField, ReplyTo: "email"}
+		for name, fields := range map[string]map[string]string{
+			"missing":          {},
+			"empty":            {"email": ""},
+			"whitespace":       {"email": " \t "},
+			"invalid":          {"email": "not an email"},
+			"header injection": {"email": "ada@example.com\r\nBcc: hidden@example.com"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				replyTo, err := forms.ResolveEmailReplyTo(delivery, fields)
+				require.NoError(t, err)
+				assert.Empty(t, replyTo)
+			})
+		}
 	})
 
 	t.Run("does not evaluate the unused HTML body for text email", func(t *testing.T) {

@@ -2,7 +2,7 @@ name: miniform
 
 services:
   miniform:
-    image: ${MINIFORM_IMAGE:-ghcr.io/matteodante/miniform:v0.3.2}
+    image: ${MINIFORM_IMAGE:-ghcr.io/matteodante/miniform:v0.3.3}
     restart: unless-stopped
     stop_grace_period: 30s
     environment:

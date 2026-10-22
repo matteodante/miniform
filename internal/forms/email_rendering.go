@@ -9,6 +9,7 @@ import (
 	"strings"
 	texttemplate "text/template"
 	"time"
+	"unicode"
 )
 
 const (
@@ -57,10 +58,7 @@ func RenderEmail(delivery *EmailDelivery, submission *Submission) (*RenderedEmai
 	if err != nil {
 		return nil, err
 	}
-	subject = strings.TrimSpace(subject)
-	if strings.ContainsAny(subject, "\r\n\x00") {
-		return nil, fmt.Errorf("render email subject: result must be one line")
-	}
+	subject = normalizeEmailSubject(subject)
 	if subject == "" {
 		subject = fallbackRenderedEmailSubject
 	}
@@ -84,6 +82,14 @@ func RenderEmail(delivery *EmailDelivery, submission *Submission) (*RenderedEmai
 	}
 	rendered.HTMLBody = htmlBody.String()
 	return rendered, nil
+}
+
+func normalizeEmailSubject(subject string) string {
+	// Submitted text belongs in one header value, even when pasted across lines.
+	words := strings.FieldsFunc(subject, func(char rune) bool {
+		return unicode.IsSpace(char) || unicode.IsControl(char)
+	})
+	return strings.Join(words, " ")
 }
 
 func EmailTemplateFields(rawJSON string) map[string]string {
@@ -130,7 +136,9 @@ func ResolveEmailReplyTo(delivery *EmailDelivery, fields map[string]string) (str
 	case EmailReplyToField:
 		address, err := normalizeEmailAddress(fields[delivery.ReplyTo])
 		if err != nil {
-			return "", fmt.Errorf("email Reply-To field %q missing or invalid", delivery.ReplyTo)
+			// Reply-To is optional metadata; unusable submitted text must not
+			// discard a notification addressed to valid configured recipients.
+			return "", nil //nolint:nilerr // Invalid optional Reply-To deliberately falls back to no header.
 		}
 		return address, nil
 	default:

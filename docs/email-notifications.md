@@ -27,7 +27,7 @@ Use **Add notification** on the endpoint page to configure each message. The fir
 
 The notification editor can render its current unsaved subject, addresses, text body, and HTML body against one of the endpoint's 25 latest submissions. Select an inbox entry under **Preview with**, then choose **Preview email**.
 
-The preview uses the same renderer as SMTP delivery, including contextual HTML escaping, subject validation, dynamic recipient resolution, and the plain-text fallback. HTML is displayed inside a sandboxed iframe. Preview responses are marked `no-store`; previewing does not save the notification, create a delivery event, connect to SMTP, or send an email.
+The preview uses the same renderer as SMTP delivery, including contextual HTML escaping, subject normalization, dynamic recipient resolution, and the plain-text fallback. HTML is displayed inside a sandboxed iframe. Preview responses are marked `no-store`; previewing does not save the notification, create a delivery event, connect to SMTP, or send an email.
 
 An endpoint needs at least one submission before a data-backed preview is available. Use only test submissions when the template contains personal data that should not be displayed during configuration.
 
@@ -44,7 +44,7 @@ An endpoint needs at least one submission before a data-backed preview is availa
 - `static`: one RFC 5322 address;
 - `field`: the name of one submitted field containing one address.
 
-Field-derived addresses are parsed as single RFC 5322 mailboxes. Missing, malformed, multiline, or null-byte values fail that notification before any SMTP connection is opened. Other notifications for the same submission retain their own status and continue independently.
+Field-derived addresses are parsed as single RFC 5322 mailboxes. A missing, malformed, multiline, or null-byte recipient fails that notification before any SMTP connection is opened. A field-derived `Reply-To` is optional: unusable values omit the header while the notification is still sent to its validated recipients. Submitted data remains available in the message body. Static `Reply-To` configuration remains strictly validated. Other notifications for the same submission retain their own status and continue independently.
 
 A field-derived recipient lets a public submission choose one outbound address. Miniform requires Turnstile before such a notification can be enabled and skips unsafe legacy delivery rows at runtime. Startup disables legacy field-recipient notifications that lack a safeguard. Restrictive origins remain recommended, but they are not authentication and do not replace Turnstile.
 
@@ -60,7 +60,7 @@ Subjects and text bodies use Go `text/template`; HTML bodies use Go `html/templa
 | `{{index .Fields "field-name"}}` | A submitted field with any name |
 | `{{range .FieldList}}...{{end}}` | All fields, sorted by name; each item has `.Name` and `.Value` |
 
-An absent submitted field renders as an empty string, so omitting an optional field cannot suppress the whole notification. If the rendered subject is empty, Miniform uses `New submission`. Field-derived recipients and `Reply-To` addresses remain required and fail that notification when missing or invalid.
+An absent submitted field renders as an empty string, so omitting an optional field cannot suppress the whole notification. If the rendered subject is empty, Miniform uses `New submission`. Field-derived recipients remain required; a missing or invalid field-derived `Reply-To` is omitted.
 
 Example subject:
 
@@ -88,7 +88,7 @@ Example HTML template:
 </html>
 ```
 
-HTML notifications are sent as `multipart/alternative` and always include the configured text body. A rendered subject must be one line; an empty result uses the safe fallback above, while newline and null-byte output is rejected before SMTP to prevent header injection.
+HTML notifications are sent as `multipart/alternative` and always include the configured text body. Rendered subjects collapse whitespace and control characters, including newlines and null bytes, into single spaces. The result is one header value, so submitted text cannot introduce additional headers. An empty result uses the safe fallback above. Message bodies retain their original text and HTML escaping.
 
 ## CLI
 

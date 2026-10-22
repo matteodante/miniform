@@ -59,6 +59,9 @@ jobs:
       - name: Run Go race detector
         run: make test-race
 
+      - name: Stress delivery and resource lifecycles
+        run: make test-stress
+
   security:
     name: Security and licenses
     runs-on: ubuntu-latest

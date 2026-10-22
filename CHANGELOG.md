@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-10-22
+
+No database migration is required. Invalid submitted Reply-To values are omitted; configured recipients remain strictly validated.
+
 ### Fixed
 
 - Preserve notifications when a field-derived Reply-To is absent or invalid by omitting that optional header; recipient validation remains strict
@@ -187,7 +191,8 @@ No database migration is required. Previously rounded JSON numbers cannot be rec
 - Required an operator-installed, running Docker Engine instead of executing a mutable remote installer as root
 - Added signed local release tags, release-source ancestry checks, checksums, SBOMs, provenance, and architecture-specific binary execution tests
 
-[Unreleased]: https://github.com/matteodante/miniform/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/matteodante/miniform/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/matteodante/miniform/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/matteodante/miniform/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/matteodante/miniform/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/matteodante/miniform/compare/v0.2.3...v0.3.0

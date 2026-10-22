@@ -6,9 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-22
+
+No database migration is required. Clients must send uncompressed HTTP request bodies. Upload field names and filenames are limited to 200 bytes each and count toward the submission payload budget.
+
+### Changed
+
+- Updated Go to 1.27.3 across source requirements, CI, and pinned container builders
+- Updated Cartridge to v0.17.0 within its Fiber-based API series; removed its unused Inertia dependency
+- Updated compatible Go dependencies, Playwright to 1.64.1, pinned GitHub Actions, and container image digests; refreshed bundled dependency licenses
+
 ### Security
 
-- Updated Go to 1.27.2 and `golang.org/x/net` to v0.60.0, including CI and pinned container builders
+- Updated fasthttp to v1.76.0 for HTTP framing, multipart parsing, and connection-handling fixes
+- Updated Matcha to v0.17.0 to drop the NET_RAW capability from managed application containers
 - Reject compressed request bodies before parsing; clients must send uncompressed bodies with no `Content-Encoding` header or `identity`
 - Limit upload field names to 200 bytes and include upload field names and filenames in the submission payload budget
 - Recheck authenticated credentials atomically when registering sessions so a concurrent password or email change invalidates an in-progress login
@@ -171,7 +182,8 @@ No database migration is required. Previously rounded JSON numbers cannot be rec
 - Required an operator-installed, running Docker Engine instead of executing a mutable remote installer as root
 - Added signed local release tags, release-source ancestry checks, checksums, SBOMs, provenance, and architecture-specific binary execution tests
 
-[Unreleased]: https://github.com/matteodante/miniform/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/matteodante/miniform/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/matteodante/miniform/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/matteodante/miniform/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/matteodante/miniform/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/matteodante/miniform/compare/v0.2.2...v0.2.3

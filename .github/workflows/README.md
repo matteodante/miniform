@@ -2,7 +2,7 @@
 
 All third-party actions are pinned to full commit SHAs. Dependabot tracks their upstream releases.
 
-- `ci.yml`: formatting, generated assets, lint, Go tests, browser tests, secret and license audit, vulnerability scans, dependency review, and OCI health checks
+- `ci.yml`: formatting, generated assets, lint, Go tests, race and lifecycle stress tests, browser tests, secret and license audit, vulnerability scans, dependency review, and OCI health checks
 - `codeql.yml`: CodeQL analysis on changes to `main`, pull requests, and a weekly schedule
 - `release.yml`: stable semantic tags whose commits belong to `main`, draft GoReleaser raw binaries and archives, SBOMs, provenance, blocking per-architecture image scans, multi-architecture GHCR publication, then final release publication
 

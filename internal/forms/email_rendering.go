@@ -138,7 +138,7 @@ func ResolveEmailReplyTo(delivery *EmailDelivery, fields map[string]string) (str
 		if err != nil {
 			// Reply-To is optional metadata; unusable submitted text must not
 			// discard a notification addressed to valid configured recipients.
-			return "", nil
+			return "", nil //nolint:nilerr // Invalid optional Reply-To deliberately falls back to no header.
 		}
 		return address, nil
 	default:

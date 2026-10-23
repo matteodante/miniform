@@ -10,7 +10,7 @@
 
 Miniform accepts submissions and file uploads from any HTML form, stores them in SQLite, and forwards them to webhooks or SMTP. It ships as one Go binary and one OCI image, with no hosted account or external database.
 
-[Technical article: save the message first, send the email second](https://matteodante.it/en/blog/miniform-self-hosted-form-inbox) covers the delivery rows, leases and retries.
+[The story behind Miniform: a form inbox that never loses a message](https://matteodante.it/en/blog/miniform-self-hosted-form-inbox) explains why it saves the message before sending any notification.
 
 The current stable release is [`v0.3.3`](https://github.com/matteodante/miniform/releases/tag/v0.3.3). Pin an exact release or image digest in production; `main` remains the development branch.
 

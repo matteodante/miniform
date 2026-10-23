@@ -4,6 +4,12 @@
 
 Miniform is a self-hosted form inbox written in Go. It uses small domain packages with clear ownership and dependency boundaries.
 
+A public article, [Miniform: a form inbox that never loses a message](https://matteodante.it/en/blog/miniform-self-hosted-form-inbox)
+(source: `matteodante/matteodante`, `articles/miniform-self-hosted-form-inbox.md`), is linked from `README.md`. It tells
+the story for a general reader: the message is saved before any notification, every delivery has its own record,
+one process and one database file, attachments outside the database, MIT. When those facts change, update the
+article or flag it as stale; keep the README link text equal to the article's title.
+
 ## Project Skills
 
 Project-specific skills live in `.agents/skills`. Load every skill that matches the task before making changes:

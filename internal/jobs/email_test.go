@@ -44,6 +44,33 @@ type smtpServerBehavior struct {
 }
 
 func TestEmailDelivery(t *testing.T) {
+	t.Run("identifies each outgoing message before SMTP delivery", func(t *testing.T) {
+		host, port, results := fakeSMTPConnections(t, 2)
+		settings := &smtpConfig{
+			Host: host, Port: port, Encryption: "none",
+			From: "Forms <forms@sender.invalid>", Recipients: []string{"owner@recipient.invalid"},
+		}
+		for range 2 {
+			message, err := buildSMTPMessage(outboundEmail{
+				From: settings.From, To: settings.Recipients, Subject: "Appointment request",
+				Format: forms.EmailFormatText, TextBody: "Synthetic SMTP test.",
+			})
+			require.NoError(t, err)
+			require.NoError(t, sendSMTP(t.Context(), settings, message))
+		}
+
+		identifiers := make(map[string]bool)
+		for _, capture := range receiveSMTPCaptures(t, results, 2) {
+			message, err := mail.ReadMessage(strings.NewReader(capture.message))
+			require.NoError(t, err)
+			require.Len(t, message.Header["Message-Id"], 1)
+			identifier := message.Header.Get("Message-ID")
+			assert.Regexp(t, `^<[A-Za-z0-9._-]+@sender\.invalid>$`, identifier)
+			assert.False(t, identifiers[identifier], "independent messages must have unique identifiers")
+			identifiers[identifier] = true
+		}
+	})
+
 	t.Run("sends a sanitized SMTP message", func(t *testing.T) {
 		host, port, result := fakeSMTP(t)
 		settings := &smtpConfig{

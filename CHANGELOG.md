@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-05
+
+No database migration or SMTP configuration change is required. Inbox placement still depends on the receiving mail system.
+
+### Fixed
+
+- Generate a unique `Message-ID` on outgoing notifications instead of relying on receiving mail servers to add the missing header
+
 ## [0.3.3] - 2026-10-22
 
 No database migration is required. Invalid submitted Reply-To values are omitted; configured recipients remain strictly validated.

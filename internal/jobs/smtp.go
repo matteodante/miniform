@@ -3,6 +3,7 @@ package jobs
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -157,6 +158,11 @@ func envelopeAddress(value string) (string, error) {
 }
 
 func buildSMTPMessage(email outboundEmail) ([]byte, error) {
+	sender, err := envelopeAddress(email.From)
+	if err != nil {
+		return nil, fmt.Errorf("invalid sender: %w", err)
+	}
+	messageDomain := sender[strings.LastIndexByte(sender, '@')+1:]
 	format, err := forms.NormalizeEmailFormat(email.Format)
 	if err != nil {
 		return nil, err
@@ -197,6 +203,7 @@ func buildSMTPMessage(email outboundEmail) ([]byte, error) {
 	}
 	fmt.Fprintf(&message, "Subject: %s\r\n", mime.QEncoding.Encode("UTF-8", safeHeader(email.Subject)))
 	fmt.Fprintf(&message, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
+	fmt.Fprintf(&message, "Message-ID: <%s@%s>\r\n", rand.Text(), messageDomain)
 	message.WriteString("MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&message, "Content-Type: %s\r\n", contentType)
 	if transferEncoding != "" {

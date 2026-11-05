@@ -149,6 +149,8 @@ An SMTP delivery is successful once the server accepts the completed `DATA` comm
 
 Miniform generates a unique `Message-ID` for each outgoing message using the sender's domain. A delivered event records SMTP acceptance; verify inbox placement, spam classification, and any subsequent forwarding at the receiving mailbox.
 
+`Message-ID` identifies a message; it does not authenticate the sender. SMTP authentication, DNS records, and the receiving server's checks are separate. See [Email accepted but classified as spam](troubleshooting.md#email-accepted-but-classified-as-spam) for authentication checks and a complete delivery test.
+
 Use a local capture server or an SMTP sandbox when testing delivery. Merely saving or previewing a notification does not send a message; an accepted, non-spam submission is what enqueues delivery for every enabled notification.
 
 ## Automated delivery tests

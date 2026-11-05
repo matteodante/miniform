@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Document SMTP acceptance, sender authentication and alignment, spam wrappers, and verification of inbox delivery and forwarding
+
 ## [0.3.4] - 2026-11-05
 
 No database migration or SMTP configuration change is required. Inbox placement still depends on the receiving mail system.
